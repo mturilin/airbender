@@ -17,8 +17,8 @@ issues** under Actions. From top to bottom the tab shows:
 
 1. **Current** (pinned): the bead this thread is working on, as one row that
    opens on its chevron, with Flesh out and Clear.
-2. **Toolbar** (pinned): the folder, the Filter menu (show closed, types,
-   priorities; remembered per folder), and a refresh button.
+2. **Toolbar** (pinned): the folder, the Filter menu (types, priorities;
+   remembered per folder), and a refresh button.
 3. **Every other issue**, grouped by status; this part scrolls. While the
    thread has no bead, each open issue has a play button: it makes that issue
    the thread's bead and sends the agent a message to start on it. An opened
@@ -34,6 +34,8 @@ issues** under Actions. From top to bottom the tab shows:
    open issues it is on the row; on the current bead it is only inside the
    opened issue, so "Close & commit" is the obvious choice there. A closed row has a reopen button instead. Closing the
    thread's current bead also clears it as current.
+   The Closed group's heading is always last in the list, with its count
+   and a Show/Hide button; closed issues start hidden.
 4. **New issue field** (pinned at the bottom): type a title and press Enter;
    the chevron adds type, priority and description.
 

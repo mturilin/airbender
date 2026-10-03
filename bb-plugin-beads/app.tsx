@@ -19,8 +19,11 @@
 // - Every issue is a collapsed row that opens on its chevron, so a long
 //   description never pushes the rest of the tab away; the Current row's
 //   opened text is additionally capped in height because it is pinned.
-// - Filters (show closed, types, priorities) hide rows; they never regroup
-//   and never hide Current. They are remembered per folder in the browser.
+// - Filters (types, priorities) hide rows; they never regroup and never hide
+//   Current. They are remembered per folder in the browser.
+// - The Closed group's heading is always shown, last in the list, with its
+//   count and a Show/Hide button; its issues start hidden every time the
+//   tab opens.
 // - The tab can create, close and reopen issues, and can mark which bead a
 //   thread is working on (a note kept in BB, not in beads). It cannot edit
 //   or delete.
@@ -198,7 +201,7 @@ function toSections(issues: Issue[]): Section[] {
       hint: "Deferred, or in a status of your own.",
       issues: [],
     },
-    { id: "closed", title: "Closed", hint: "Finished.", issues: [] },
+    { id: "closed", title: "Closed", hint: "Finished or cancelled.", issues: [] },
   ];
   const find = (id: Section["id"]) =>
     sections.find((section) => section.id === id)!;
@@ -688,11 +691,14 @@ function SectionBlock({
   actions,
   headerActions = null,
   detailsClassName,
+  collapsed = false,
 }: {
   section: Section;
   actions: IssueActions;
   headerActions?: ReactNode;
   detailsClassName?: string;
+  /** Show only the heading line (with its count), not the issues. */
+  collapsed?: boolean;
 }) {
   return (
     <section>
@@ -708,16 +714,18 @@ function SectionBlock({
         </div>
         {headerActions}
       </div>
-      <ul className="mt-2 divide-y divide-border overflow-hidden rounded-lg border border-border bg-card">
-        {section.issues.map((issue) => (
-          <IssueRow
-            key={issue.id}
-            issue={issue}
-            actions={actions}
-            detailsClassName={detailsClassName}
-          />
-        ))}
-      </ul>
+      {collapsed || section.issues.length === 0 ? null : (
+        <ul className="mt-2 divide-y divide-border overflow-hidden rounded-lg border border-border bg-card">
+          {section.issues.map((issue) => (
+            <IssueRow
+              key={issue.id}
+              issue={issue}
+              actions={actions}
+              detailsClassName={detailsClassName}
+            />
+          ))}
+        </ul>
+      )}
     </section>
   );
 }
@@ -922,14 +930,17 @@ function CreateIssue({
   );
 }
 
-/** What the user chose to see. Empty `types`/`priorities` means "all". */
+/**
+ * What the user chose to see. An empty list means "all". Whether closed
+ * issues are shown is not a filter: it is the Closed group's own Show/Hide
+ * button (see BeadsPanel).
+ */
 interface Filters {
-  showClosed: boolean;
   types: string[];
   priorities: number[];
 }
 
-const NO_FILTERS: Filters = { showClosed: false, types: [], priorities: [] };
+const NO_FILTERS: Filters = { types: [], priorities: [] };
 
 /**
  * Filters for one folder, remembered in the browser's local storage so they
@@ -951,12 +962,11 @@ function useFilters(path: string | null) {
         setFilters(NO_FILTERS);
         return;
       }
-      const { showClosed, types, priorities } = stored as Record<
+      const { types, priorities } = stored as Record<
         string,
         unknown
       >;
       setFilters({
-        showClosed: showClosed === true,
         types: Array.isArray(types)
           ? types.filter((value): value is string => typeof value === "string")
           : [],
@@ -1011,7 +1021,7 @@ function FilterOption({
 }
 
 /**
- * The Filter button and its menu: show closed, types, priorities.
+ * The Filter button and its menu: types and priorities.
  *
  * The button shows how many narrowing choices (types and priorities) are
  * active, so a shortened list is never mistaken for the whole list. The menu
@@ -1024,12 +1034,10 @@ function FilterMenu({
   filters,
   onChange,
   types,
-  closedCount,
 }: {
   filters: Filters;
   onChange: (next: Filters) => void;
   types: string[];
-  closedCount: number;
 }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
@@ -1062,13 +1070,6 @@ function FilterMenu({
       </Button>
       {open ? (
         <div className="absolute right-0 top-full z-20 mt-1 w-56 space-y-2 rounded-lg border border-border bg-popover p-2 text-popover-foreground shadow-md">
-          <FilterOption
-            label={`Show closed (${closedCount})`}
-            checked={filters.showClosed}
-            onChange={() =>
-              onChange({ ...filters, showClosed: !filters.showClosed })
-            }
-          />
           {types.length === 0 ? null : (
             <div>
               <div className="px-2 text-xs font-medium text-muted-foreground">
@@ -1160,19 +1161,29 @@ function BeadsPanel({ scope }: { scope: Scope }) {
       ].sort(),
     [others],
   );
-  const closedCount = others.filter((issue) => issue.status === "closed").length;
-  const visible = useMemo(() => {
+  // Closed issues are hidden each time the tab opens; the Closed group's
+  // own button shows them. Deliberately not remembered, so the tab always
+  // starts with the short list.
+  const [showClosed, setShowClosed] = useState(false);
+  const { openSections, closedSection } = useMemo(() => {
     const matching = others.filter(
       (issue) =>
-        (filters.showClosed || issue.status !== "closed") &&
         (filters.types.length === 0 ||
           (issue.type !== null && filters.types.includes(issue.type))) &&
         (filters.priorities.length === 0 ||
           (issue.priority !== null &&
             filters.priorities.includes(issue.priority))),
     );
-    return toSections(matching).filter((section) => section.issues.length > 0);
+    const sections = toSections(matching);
+    return {
+      openSections: sections.filter(
+        (section) => section.id !== "closed" && section.issues.length > 0,
+      ),
+      // Always present, even when empty, so the Closed heading never moves.
+      closedSection: sections.find((section) => section.id === "closed")!,
+    };
   }, [others, filters]);
+  const narrowed = filters.types.length + filters.priorities.length > 0;
   const reportProblem = (cause: unknown) =>
     setActionProblem(cause instanceof Error ? cause.message : String(cause));
   const loadComments = useCallback(
@@ -1308,7 +1319,6 @@ function BeadsPanel({ scope }: { scope: Scope }) {
               filters={filters}
               onChange={setFilters}
               types={types}
-              closedCount={closedCount}
             />
           ) : null}
           <Button
@@ -1344,21 +1354,43 @@ function BeadsPanel({ scope }: { scope: Scope }) {
           <Notice>{result.message}</Notice>
         ) : result.issues.length === 0 ? (
           <Notice>No issues yet. Create the first one below.</Notice>
-        ) : visible.length === 0 ? (
-          others.length === 0 ? null : (
-            <Notice>
-              No issues match the filter. Open Filter to show closed issues or
-              to widen the type and priority choices.
-            </Notice>
-          )
         ) : (
-          visible.map((section) => (
+          <>
+            {openSections.length > 0 ? (
+              openSections.map((section) => (
+                <SectionBlock
+                  key={section.id}
+                  section={section}
+                  actions={actions}
+                />
+              ))
+            ) : others.length === 0 ? null : (
+              <Notice>
+                {narrowed
+                  ? "No open issues match the filter."
+                  : "No open issues."}
+              </Notice>
+            )}
+            {/* The Closed heading is always here; its issues are folded
+                away until Show is pressed. */}
             <SectionBlock
-              key={section.id}
-              section={section}
+              section={closedSection}
               actions={actions}
+              collapsed={!showClosed}
+              headerActions={
+                closedSection.issues.length === 0 ? null : (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    aria-expanded={showClosed}
+                    onClick={() => setShowClosed((current) => !current)}
+                  >
+                    {showClosed ? "Hide" : "Show"}
+                  </Button>
+                )
+              }
             />
-          ))
+          </>
         )}
       </div>
       {/* One dialog, three wordings. Committing is only mentioned where it
