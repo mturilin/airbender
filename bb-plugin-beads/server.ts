@@ -39,6 +39,8 @@
 //   that file, so a reload never triggers another reload.
 //
 // Gotchas:
+// - `bd delete` does not rewrite `.beads/last-touched`, so an issue deleted
+//   outside the plugin stays on screen until the next refresh.
 // - `bd show` also rewrites `.beads/last-touched`, so an agent merely reading
 //   an issue causes one harmless reload of open tabs.
 // - The BB server may have a shorter PATH than your shell. If `bd` is not
@@ -493,6 +495,9 @@ export default async function plugin(bb: BbPluginApi) {
   /** How long to wait after a change before signalling, to merge bursts. */
   const WATCH_SETTLE_MS = 400;
 
+  /** Storage key for the list of watched folders, kept across reloads. */
+  const WATCHED_FOLDERS_KEY = "watchedFolders";
+
   /** Live watchers by folder path, in the order they were started. */
   const watchers = new Map<string, FSWatcher>();
 
@@ -546,6 +551,25 @@ export default async function plugin(bb: BbPluginApi) {
         watchers.get(oldest)?.close();
         watchers.delete(oldest);
       }
+    }
+    // Remember the folder so the watch comes back after the plugin is
+    // reloaded or BB restarts. Not awaited: a failed save only costs the
+    // watch until some tab next lists this folder.
+    bb.storage.kv
+      .set(WATCHED_FOLDERS_KEY, [...watchers.keys()])
+      .catch((cause) => bb.log.warn("could not save watched folders: " + cause));
+  }
+
+  // Watches live in memory, so a reload of the plugin (or a restart of BB)
+  // would otherwise leave tabs that are already open deaf to outside changes
+  // until something made them list again. Start them again from the saved
+  // list; folders that no longer use beads are skipped by watchFolder.
+  const savedFolders = await bb.storage.kv
+    .get<unknown>(WATCHED_FOLDERS_KEY)
+    .catch(() => undefined);
+  if (Array.isArray(savedFolders)) {
+    for (const folder of savedFolders.slice(-MAX_WATCHED_FOLDERS)) {
+      if (typeof folder === "string") watchFolder(folder);
     }
   }
 
