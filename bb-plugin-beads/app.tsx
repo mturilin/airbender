@@ -28,8 +28,8 @@
 //   and priority in place, and mark which bead a thread is working on (a
 //   note kept in BB, not in beads). It cannot edit an issue's text or
 //   delete one.
-// - "Ask the agent to flesh it out" only writes a request into the thread's
-//   message box; the user still decides whether to send it.
+// - "Flesh out" starts a background agent for the job and marks the row
+//   while it is busy; the thread the user is in is not touched.
 // - One component, two entry points: a thread tab passes its thread id, the
 //   New thread screen passes the selected project id. server.ts turns either
 //   into a folder.
@@ -50,7 +50,6 @@
 // - Colors come from BB's theme tokens (text-muted-foreground, border-border
 //   and so on), never fixed colors, so the tab follows the selected theme.
 import {
-  Component,
   useCallback,
   useEffect,
   useMemo,
@@ -61,7 +60,7 @@ import type { FormEvent, ReactNode } from "react";
 import {
   Markdown,
   definePluginApp,
-  useComposer,
+  useBbNavigate,
   useRealtime,
   useRpc,
 } from "@get-bb/plugin-sdk/app";
@@ -319,48 +318,63 @@ interface IssueActions {
     beadId: string,
     change: { type?: IssueType; priority?: number },
   ) => void;
+  /**
+   * Starts a background agent that fleshes the issue out. Does nothing
+   * visible here beyond the row showing that it is under way.
+   */
+  fleshOut: (beadId: string) => void;
   /** Reopens a closed issue; no confirmation. */
   reopen: (beadId: string) => void;
 }
 
 /**
- * Catches a crash in one optional control so it disappears on its own instead
- * of taking the whole tab with it.
+ * Starts fleshing an issue out with a background agent, so the thread the
+ * user is in is left alone. The agent runs in a hidden worker thread that is
+ * not in the sidebar; while it is busy the button turns into the one way to
+ * open it, in case the user wants to look in or it is waiting on a question.
  */
-class Optional extends Component<{ children: ReactNode }, { failed: boolean }> {
-  state = { failed: false };
-  static getDerivedStateFromError() {
-    return { failed: true };
+function FleshOutButton({
+  issue,
+  actions,
+  iconOnly = false,
+}: {
+  issue: Issue;
+  actions: IssueActions;
+  /**
+   * Draw it as a bare icon, in the same style as the row's close button.
+   * Used on a collapsed row, where a labelled button would crowd the title.
+   */
+  iconOnly?: boolean;
+}) {
+  const navigate = useBbNavigate();
+  const running = issue.fleshOutThreadId;
+  const look = iconOnly
+    ? ({
+        variant: "ghost",
+        size: "icon",
+        className: "m-1 size-7 shrink-0 text-muted-foreground",
+      } as const)
+    : ({ variant: "outline", size: "sm" } as const);
+  if (running !== null) {
+    return (
+      <Button
+        {...look}
+        aria-label={`Open the background agent that is fleshing out ${issue.id}`}
+        onClick={() => navigate.toThread(running)}
+      >
+        <Icon name="Loading" className="size-4 animate-spin" />
+        {iconOnly ? null : "Fleshing out… open"}
+      </Button>
+    );
   }
-  render() {
-    return this.state.failed ? null : this.props.children;
-  }
-}
-
-/**
- * Button that writes "please flesh out this bead" into the thread's message
- * box and puts the cursor there. Nothing is sent: the user reviews and sends.
- *
- * Rendered inside <Optional> because BB only provides the message box on
- * surfaces that have one; where it does not, this button simply is not shown.
- */
-function FleshOutButton({ issue }: { issue: Issue }) {
-  const composer = useComposer();
   return (
     <Button
-      variant="outline"
-      size="sm"
-      aria-label={`Ask the agent to flesh out ${issue.id}`}
-      onClick={() => {
-        const request = `Flesh out beads issue ${issue.id} ("${issue.title}"): read the relevant code, then update the issue with a clear description, acceptance criteria, the right type and priority, and any issues it depends on. Do not start the work itself.`;
-        composer.updateText((current) =>
-          current.trim() === "" ? request : `${current}\n\n${request}`,
-        );
-        composer.focus();
-      }}
+      {...look}
+      aria-label={`Flesh out ${issue.id} with a background agent`}
+      onClick={() => actions.fleshOut(issue.id)}
     >
       <Icon name="MessageSquare" className="size-4" />
-      Flesh out
+      {iconOnly ? null : "Flesh out"}
     </Button>
   );
 }
@@ -435,6 +449,7 @@ function IssueFacts({
       {issue.blocks.length === 0 ? null : (
         <Tag>holds up {issue.blocks.length}</Tag>
       )}
+      {issue.fleshOutThreadId === null ? null : <Tag strong>fleshing out…</Tag>}
       {issue.commentCount === 0 ? null : (
         <Tag>
           {issue.commentCount}{" "}
@@ -617,9 +632,7 @@ function IssueDetails({
       )}
       <div className="flex flex-wrap gap-2">
         {closed ? null : (
-          <Optional>
-            <FleshOutButton issue={issue} />
-          </Optional>
+          <FleshOutButton issue={issue} actions={actions} />
         )}
         {/* The current bead's "drop it" action lives here, out of the way,
             instead of on the row beside "Close & commit". */}
@@ -688,6 +701,13 @@ function IssueRow({
           {/* Closed issues are finished business: their facts stay fixed. */}
           <IssueFacts issue={issue} onEdit={closed ? undefined : actions.edit} />
         </div>
+        {/* An issue that is only a title is the one that most needs
+            fleshing out, so the button is on the row for it instead of
+            hidden inside the opened issue. Once the issue has a description
+            the button is found inside, as before. */}
+        {closed || issue.description.trim() !== "" ? null : (
+          <FleshOutButton issue={issue} actions={actions} iconOnly />
+        )}
         {/* Offered only while the thread has no bead: with one already
             chosen, a stray click here would redirect an agent mid-task. */}
         {actions.start === null ||
@@ -850,9 +870,7 @@ function CurrentSection({
         detailsClassName="max-h-[33vh] overflow-y-auto"
         headerActions={
           <>
-            <Optional>
-              <FleshOutButton issue={issue} />
-            </Optional>
+            <FleshOutButton issue={issue} actions={actions} />
             {clear}
           </>
         }
@@ -1309,6 +1327,15 @@ function BeadsPanel({ scope }: { scope: Scope }) {
       if (issue !== undefined) setClosing({ issue, commit });
     },
     reopen: (beadId) => applyOpen(beadId, true),
+    fleshOut: (beadId) => {
+      rpc.call("issue_flesh_out", { threadId, projectId, beadId }).then(
+        (outcome) => {
+          setActionProblem(outcome.message);
+          refresh();
+        },
+        reportProblem,
+      );
+    },
     edit: (beadId, change) => {
       rpc
         .call("issue_update", {

@@ -22,8 +22,11 @@ issues** under Actions. From top to bottom the tab shows:
 3. **Every other issue**, grouped by status; this part scrolls. While the
    thread has no bead, each open issue has a play button: it makes that issue
    the thread's bead and sends the agent a message to start on it. An opened
-   issue also offers Flesh out, which writes a request to the agent into the
-   message box without sending it.
+   issue also offers Flesh out, which starts a background agent that fills
+   in the issue's description, acceptance criteria and design. It does not
+   appear in the sidebar and the thread you are in is not touched; the row
+   is marked "fleshing out…" until it stops, and the button opens it.
+   An issue with no description shows the Flesh out button on its row.
    An opened issue shows its description, then a folded heading for each
    of acceptance criteria, design, notes, close reason and comments that the
    issue has; each opens on its own chevron.
@@ -58,10 +61,14 @@ this plugin, or one made by an agent or in a terminal with `bd`.
 - `bd` runs on the machine the BB server runs on. Threads whose folder is on
   another machine get an explanation instead of a list.
 
-## Setting
+## Settings
 
-`bd command` — name or full path of the `bd` tool. Change it only if BB cannot
-find `bd`; reload the plugin afterwards.
+- `bd command` — name or full path of the `bd` tool. Change it only if BB
+  cannot find `bd`.
+- `Flesh-out model` — model id the background agent uses for Flesh out
+  (default `claude-fable-5-1`). Empty uses the project's default model.
+
+Reload the plugin after changing a setting.
 
 ## Develop
 
