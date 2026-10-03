@@ -37,7 +37,8 @@ The agent can set the thread's bead itself with the `beads_set_current` tool,
 which BB offers to threads whose folder has a `.beads` directory.
 
 The list refreshes when the tab opens, when you press Refresh, when the BB
-window regains focus, and after any change made through this plugin.
+window regains focus, and after any change to the issues: one made through
+this plugin, or one made by an agent or in a terminal with `bd`.
 
 ## Limits of this version
 

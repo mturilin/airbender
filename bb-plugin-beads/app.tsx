@@ -31,7 +31,9 @@
 //   into a folder.
 // - The list is refreshed when the tab opens, when the Refresh button is
 //   pressed, when the BB window regains focus, and when server.ts signals a
-//   change made through this plugin. There is deliberately no
+//   change: one made through this plugin, or one made outside it (an agent or
+//   a terminal running bd), which server.ts notices by watching a file that
+//   beads rewrites on every write. There is deliberately no
 //   timer: beads keeps its database in a single local store, and polling it
 //   would compete with an agent that is writing issues at the same moment.
 //
@@ -149,8 +151,9 @@ function useIssues(scope: Scope) {
     window.addEventListener("focus", refresh);
     return () => window.removeEventListener("focus", refresh);
   }, [refresh]);
-  // server.ts publishes after an issue is created or a current bead changes,
-  // including when the agent does it, so the tab follows along on its own.
+  // server.ts publishes after any change it makes and after any change it
+  // sees made outside the plugin (an agent or a terminal running bd), so the
+  // tab follows along on its own.
   useRealtime(CHANGED_CHANNEL, refresh);
   return { rpc, result, failure, loading, refresh };
 }

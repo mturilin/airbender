@@ -28,13 +28,22 @@
 //   another machine) are returned as data with a `state`, not thrown, so the
 //   tab can explain them in plain words.
 //
+// - Changes made outside the plugin (an agent or a terminal running bd) reach
+//   open tabs through a file watcher, not a timer: bd rewrites
+//   `.beads/last-touched` on every write, and this backend watches that one
+//   file in each folder a tab has listed, then signals the tabs to reload.
+//   The plugin's own reads (`bd --readonly list` / `comments`) do not touch
+//   that file, so a reload never triggers another reload.
+//
 // Gotchas:
+// - `bd show` also rewrites `.beads/last-touched`, so an agent merely reading
+//   an issue causes one harmless reload of open tabs.
 // - The BB server may have a shorter PATH than your shell. If `bd` is not
 //   found by name, a few common install locations are tried; the "bd command"
 //   setting overrides all of that.
 // - Settings are read once per load: reload the plugin after changing one.
 import { execFile } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, watch, type FSWatcher } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { defineRpcContract, type BbPluginApi } from "@get-bb/plugin-sdk";
@@ -458,6 +467,74 @@ export default async function plugin(bb: BbPluginApi) {
     bb.realtime.publish(CHANGED_CHANNEL, { threadId });
   }
 
+  /** Most folders watched at once; the oldest is dropped beyond this. */
+  const MAX_WATCHED_FOLDERS = 32;
+
+  /** How long to wait after a change before signalling, to merge bursts. */
+  const WATCH_SETTLE_MS = 400;
+
+  /** Live watchers by folder path, in the order they were started. */
+  const watchers = new Map<string, FSWatcher>();
+
+  /**
+   * Starts telling open tabs about beads changes made outside this plugin in
+   * one folder. Safe to call on every list: a folder already watched is left
+   * alone.
+   *
+   * Watches the `.beads` directory rather than the `last-touched` file
+   * itself, because a file that is replaced (written to a temporary name and
+   * renamed) would silently end a watch placed on the old file.
+   *
+   * Side effects: holds one operating-system file watch per folder until the
+   *   plugin is reloaded or disabled (see the dispose hook below), or until
+   *   the watch fails, in which case it is dropped and restarted by the next
+   *   list.
+   */
+  function watchFolder(path: string): void {
+    if (watchers.has(path)) return;
+    const beadsDir = join(path, ".beads");
+    if (!existsSync(beadsDir)) return;
+    let timer: NodeJS.Timeout | null = null;
+    let watcher: FSWatcher;
+    try {
+      watcher = watch(beadsDir, (_event, filename) => {
+        if (filename !== "last-touched") return;
+        if (timer !== null) clearTimeout(timer);
+        timer = setTimeout(() => {
+          timer = null;
+          bb.log.info("beads changed in " + path + "; telling open tabs");
+          bb.realtime.publish(CHANGED_CHANNEL, { path });
+        }, WATCH_SETTLE_MS);
+      });
+    } catch (cause) {
+      bb.log.warn("could not watch " + beadsDir + ": " + cause);
+      return;
+    }
+    const stop = () => {
+      if (timer !== null) clearTimeout(timer);
+      watcher.close();
+      if (watchers.get(path) === watcher) watchers.delete(path);
+    };
+    watcher.on("error", stop);
+    watcher.on("close", () => {
+      if (timer !== null) clearTimeout(timer);
+    });
+    watchers.set(path, watcher);
+    if (watchers.size > MAX_WATCHED_FOLDERS) {
+      const oldest = watchers.keys().next().value;
+      if (oldest !== undefined) {
+        watchers.get(oldest)?.close();
+        watchers.delete(oldest);
+      }
+    }
+  }
+
+  // Release every file watch when the plugin is reloaded or disabled.
+  bb.onDispose(() => {
+    for (const watcher of watchers.values()) watcher.close();
+    watchers.clear();
+  });
+
   /**
    * Lists every beads issue for the folder behind a thread or project.
    *
@@ -531,6 +608,7 @@ export default async function plugin(bb: BbPluginApi) {
         ...empty,
       };
     }
+    watchFolder(path);
     const issues = toIssues(rows);
     // A closed issue is finished, so it is no longer what the thread works
     // on. The tab's own close button clears it directly, but an issue can
