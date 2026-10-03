@@ -10,8 +10,9 @@
 //
 // Design notes:
 // - Reading runs `bd --readonly`. The writes to the issue database are
-//   creating (`bd create`), closing (`bd close`) and reopening (`bd reopen`)
-//   an issue; nothing here edits or deletes.
+//   creating (`bd create`), closing (`bd close`), reopening (`bd reopen`)
+//   and changing an issue's type or priority (`bd update`); nothing here
+//   edits an issue's text or deletes one.
 // - The plugin speaks to an agent in two places, both by sending the thread
 //   a message: the play button ("work on this issue") and, when the user
 //   picks it, closing an issue ("commit this issue's work"). The plugin never
@@ -213,6 +214,18 @@ export const rpcContract = defineRpcContract({
        * without a thread, since there is then no agent to ask.
        */
       commit: z.boolean(),
+    }),
+    // `message` is null on success, else the reason in plain words.
+    output: z.object({ message: z.string().nullable() }),
+  },
+  issue_update: {
+    // Changes an issue's type and/or priority; a null field is left as is.
+    input: z.object({
+      threadId: z.string().nullable(),
+      projectId: z.string().nullable(),
+      beadId: z.string(),
+      type: z.enum(ISSUE_TYPES).nullable(),
+      priority: z.number().int().min(0).max(4).nullable(),
     }),
     // `message` is null on success, else the reason in plain words.
     output: z.object({ message: z.string().nullable() }),
@@ -841,6 +854,32 @@ export default async function plugin(bb: BbPluginApi) {
       return outcome;
     },
     issue_reopen: (input) => setIssueOpen("reopen", input),
+    issue_update: async ({ threadId, projectId, beadId, type, priority }) => {
+      if (!BEAD_ID_PATTERN.test(beadId)) {
+        return { message: `"${beadId}" is not a beads issue id.` };
+      }
+      if (type === null && priority === null) return { message: null };
+      const folder = await resolveFolder({ threadId, projectId });
+      if ("reason" in folder) return { message: folder.reason };
+      if (!existsSync(folder.path)) {
+        return {
+          message: `The folder ${folder.path} does not exist on the machine BB runs on.`,
+        };
+      }
+      // Values come from a fixed list (type) or a checked number (priority),
+      // so nothing free-form reaches bd's command line here.
+      const args = ["update", beadId, "--json"];
+      if (type !== null) args.push("--type", type);
+      if (priority !== null) args.push("--priority", `${priority}`);
+      const run = await runBdIn(folder.path, args);
+      if (run.kind === "not-found") return { message: BD_NOT_FOUND_MESSAGE };
+      if (run.kind === "failed") {
+        bb.log.warn("bd update failed in " + folder.path + ": " + run.message);
+        return { message: run.message };
+      }
+      bb.realtime.publish(CHANGED_CHANNEL, { threadId });
+      return { message: null };
+    },
     current_start: async ({ threadId, beadId }) => {
       if (!BEAD_ID_PATTERN.test(beadId)) {
         throw new Error(`"${beadId}" is not a beads issue id.`);

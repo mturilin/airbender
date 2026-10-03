@@ -24,9 +24,10 @@
 // - The Closed group's heading is always shown, last in the list, with its
 //   count and a Show/Hide button; its issues start hidden every time the
 //   tab opens.
-// - The tab can create, close and reopen issues, and can mark which bead a
-//   thread is working on (a note kept in BB, not in beads). It cannot edit
-//   or delete.
+// - The tab can create, close and reopen issues, change an issue's type
+//   and priority in place, and mark which bead a thread is working on (a
+//   note kept in BB, not in beads). It cannot edit an issue's text or
+//   delete one.
 // - "Ask the agent to flesh it out" only writes a request into the thread's
 //   message box; the user still decides whether to send it.
 // - One component, two entry points: a thread tab passes its thread id, the
@@ -96,6 +97,14 @@ const ISSUE_TYPES = [
   "decision",
 ] as const;
 type IssueType = (typeof ISSUE_TYPES)[number];
+
+/**
+ * A dropdown that looks like one of the small tags on an issue row, so the
+ * row reads the same as before but its priority and type can be changed in
+ * place. The browser's own arrow is kept as the hint that it opens.
+ */
+const TAG_SELECT_CLASS =
+  "shrink-0 cursor-pointer rounded border border-border bg-transparent py-px pl-1 pr-0.5 text-[11px] leading-4 hover:bg-state-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
 
 /** Shared look of the plain <select> and <textarea> in the create form. */
 const FIELD_CLASS =
@@ -301,6 +310,15 @@ interface IssueActions {
    * commit: the issue is dropped, not done.
    */
   close: (beadId: string, commit: boolean) => void;
+  /**
+   * Changes an issue's type and/or priority in beads, straight away and
+   * without confirmation (it is one click to change back). A field left out
+   * is not touched.
+   */
+  edit: (
+    beadId: string,
+    change: { type?: IssueType; priority?: number },
+  ) => void;
   /** Reopens a closed issue; no confirmation. */
   reopen: (beadId: string) => void;
 }
@@ -348,16 +366,71 @@ function FleshOutButton({ issue }: { issue: Issue }) {
 }
 
 /** Priority, type and similar small facts about an issue, on one line. */
-function IssueFacts({ issue }: { issue: Issue }) {
+function IssueFacts({
+  issue,
+  onEdit,
+}: {
+  issue: Issue;
+  /** When given, priority and type become small dropdowns that call this. */
+  onEdit?: IssueActions["edit"];
+}) {
+  // The current type is always offered, even if it is one this plugin does
+  // not otherwise list (beads has more types than the new-issue form).
+  const typeChoices: string[] =
+    issue.type === null || (ISSUE_TYPES as readonly string[]).includes(issue.type)
+      ? [...ISSUE_TYPES]
+      : [issue.type, ...ISSUE_TYPES];
   return (
     <span className="mt-1 flex flex-wrap items-center gap-1.5">
       <span className="font-mono text-xs text-muted-foreground">
         {issue.id}
       </span>
-      {issue.priority === null ? null : (
-        <Tag strong={issue.priority <= 1}>P{issue.priority}</Tag>
+      {onEdit === undefined ? (
+        <>
+          {issue.priority === null ? null : (
+            <Tag strong={issue.priority <= 1}>P{issue.priority}</Tag>
+          )}
+          {issue.type === null ? null : <Tag>{issue.type}</Tag>}
+        </>
+      ) : (
+        <>
+          <select
+            aria-label={`Priority of ${issue.id}`}
+            value={issue.priority ?? ""}
+            onChange={(event) =>
+              onEdit(issue.id, { priority: Number(event.target.value) })
+            }
+            className={cn(
+              TAG_SELECT_CLASS,
+              issue.priority !== null && issue.priority <= 1
+                ? "font-medium text-foreground"
+                : "text-muted-foreground",
+            )}
+          >
+            {issue.priority === null ? <option value="">P?</option> : null}
+            {[0, 1, 2, 3, 4].map((priority) => (
+              <option key={priority} value={priority}>
+                P{priority}
+              </option>
+            ))}
+          </select>
+          <select
+            aria-label={`Type of ${issue.id}`}
+            value={issue.type ?? ""}
+            onChange={(event) =>
+              onEdit(issue.id, { type: event.target.value as IssueType })
+            }
+            className={cn(TAG_SELECT_CLASS, "text-muted-foreground")}
+          >
+            {issue.type === null ? <option value="">type?</option> : null}
+            {typeChoices.map((type) => (
+              <option key={type} value={type}>
+                {type}
+              </option>
+            ))}
+          </select>
+        </>
       )}
-      {issue.type === null ? null : <Tag>{issue.type}</Tag>}
       {issue.assignee === null ? null : <Tag>{issue.assignee}</Tag>}
       {issue.blocks.length === 0 ? null : (
         <Tag>holds up {issue.blocks.length}</Tag>
@@ -585,28 +658,36 @@ function IssueRow({
   return (
     <li>
       <div className="flex items-start hover:bg-state-hover">
+        {/* The chevron and the title both open the issue. They are two
+            separate buttons with the facts line outside them, because the
+            priority and type dropdowns on that line are controls of their
+            own and may not sit inside a button. */}
         <button
           type="button"
           aria-expanded={open}
+          aria-label={open ? "Hide details" : "Show details"}
           onClick={() => setOpen((current) => !current)}
-          className="flex min-w-0 flex-1 cursor-pointer items-start gap-2 px-3 py-2 text-left text-sm"
+          className="cursor-pointer py-2 pl-3 pr-2"
         >
           <Icon
             name={open ? "ChevronDown" : "ChevronRight"}
             className="mt-0.5 size-4 shrink-0 text-muted-foreground"
           />
-          <span className="min-w-0 flex-1">
-            <span
-              className={cn(
-                "block",
-                closed && "text-muted-foreground line-through",
-              )}
-            >
-              {issue.title}
-            </span>
-            <IssueFacts issue={issue} />
-          </span>
         </button>
+        <div className="min-w-0 flex-1 py-2 pr-1 text-sm">
+          <button
+            type="button"
+            onClick={() => setOpen((current) => !current)}
+            className={cn(
+              "block w-full cursor-pointer text-left",
+              closed && "text-muted-foreground line-through",
+            )}
+          >
+            {issue.title}
+          </button>
+          {/* Closed issues are finished business: their facts stay fixed. */}
+          <IssueFacts issue={issue} onEdit={closed ? undefined : actions.edit} />
+        </div>
         {/* Offered only while the thread has no bead: with one already
             chosen, a stray click here would redirect an agent mid-task. */}
         {actions.start === null ||
@@ -1228,6 +1309,20 @@ function BeadsPanel({ scope }: { scope: Scope }) {
       if (issue !== undefined) setClosing({ issue, commit });
     },
     reopen: (beadId) => applyOpen(beadId, true),
+    edit: (beadId, change) => {
+      rpc
+        .call("issue_update", {
+          threadId,
+          projectId,
+          beadId,
+          type: change.type ?? null,
+          priority: change.priority ?? null,
+        })
+        .then((outcome) => {
+          setActionProblem(outcome.message);
+          refresh();
+        }, reportProblem);
+    },
     start:
       threadId === null
         ? null
