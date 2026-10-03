@@ -658,7 +658,7 @@ function IssueRow({
             variant="ghost"
             size="icon"
             className="m-1 size-7 shrink-0 text-muted-foreground"
-            aria-label={`Close without committing ${issue.id}: ${issue.title}`}
+            aria-label={`Close ${issue.id}: ${issue.title}`}
             onClick={() => actions.close(issue.id, false)}
           >
             <Icon name="CircleX" className="size-4" />
@@ -1203,6 +1203,10 @@ function BeadsPanel({ scope }: { scope: Scope }) {
       refresh();
     }, reportProblem);
   };
+  // Whether the issue in the close dialog is this thread's current bead,
+  // the only case in which committing is a meaningful part of the question.
+  const closingIsCurrent =
+    closing !== null && closing.issue.id === (result?.currentBeadId ?? null);
   const actions: IssueActions = {
     currentBeadId: result?.currentBeadId ?? null,
     loadComments,
@@ -1357,9 +1361,9 @@ function BeadsPanel({ scope }: { scope: Scope }) {
           ))
         )}
       </div>
-      {/* One dialog, two wordings, matching the two close buttons. The
-          button that backs out says "Keep open", not "Cancel", so it cannot
-          be mistaken for "cancel the issue". */}
+      {/* One dialog, three wordings. Committing is only mentioned where it
+          applies, which is the thread's current bead: closing any other
+          issue is a plain "are you sure", with Close and Cancel. */}
       <Dialog
         open={closing !== null}
         onOpenChange={(open) => {
@@ -1371,21 +1375,28 @@ function BeadsPanel({ scope }: { scope: Scope }) {
             <DialogTitle>
               {closing?.commit
                 ? "Close this issue and commit its work?"
-                : "Close this issue without committing?"}
+                : closingIsCurrent
+                  ? "Close this issue without committing?"
+                  : "Are you sure you want to close this issue?"}
             </DialogTitle>
             <DialogDescription>
               <span className="font-mono">{closing?.issue.id}</span>{" "}
               {closing?.issue.title}
             </DialogDescription>
           </DialogHeader>
-          <p className="text-sm text-muted-foreground">
-            {closing?.commit
-              ? "The issue is closed, and this thread's agent is asked to commit its work."
-              : "The issue is closed and nothing is committed. Use this to drop an issue."}
-          </p>
+          {closing?.commit ? (
+            <p className="text-sm text-muted-foreground">
+              The issue is closed, and this thread's agent is asked to commit
+              its work.
+            </p>
+          ) : closingIsCurrent ? (
+            <p className="text-sm text-muted-foreground">
+              The issue is closed and nothing is committed.
+            </p>
+          ) : null}
           <DialogFooter>
             <Button variant="outline" onClick={() => setClosing(null)}>
-              Keep open
+              Cancel
             </Button>
             <Button
               onClick={() => {
@@ -1395,7 +1406,11 @@ function BeadsPanel({ scope }: { scope: Scope }) {
                 setClosing(null);
               }}
             >
-              {closing?.commit ? "Close and commit" : "Close without commit"}
+              {closing?.commit
+                ? "Close and commit"
+                : closingIsCurrent
+                  ? "Close without commit"
+                  : "Close"}
             </Button>
           </DialogFooter>
         </DialogContent>
