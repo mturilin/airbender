@@ -12,8 +12,10 @@
 // - Reading runs `bd --readonly`. The writes to the issue database are
 //   creating (`bd create`), closing (`bd close`) and reopening (`bd reopen`)
 //   an issue; nothing here edits or deletes.
-// - The play button in the tab is the one place this plugin speaks to an
-//   agent: it sends the thread a "work on this issue" message.
+// - The plugin speaks to an agent in two places, both by sending the thread
+//   a message: the play button ("work on this issue") and, when the user
+//   picks it, closing an issue ("commit this issue's work"). The plugin never
+//   runs git itself.
 // - "Current bead" is BB's knowledge, not beads': which issue a given thread
 //   is working on. It is stored on the thread (BB's per-plugin thread
 //   metadata), set either by the user in the tab or by the thread's agent
@@ -206,6 +208,11 @@ export const rpcContract = defineRpcContract({
       threadId: z.string().nullable(),
       projectId: z.string().nullable(),
       beadId: z.string(),
+      /**
+       * Also ask the thread's agent to commit this issue's work. Ignored
+       * without a thread, since there is then no agent to ask.
+       */
+      commit: z.boolean(),
     }),
     // `message` is null on success, else the reason in plain words.
     output: z.object({ message: z.string().nullable() }),
@@ -796,7 +803,43 @@ export default async function plugin(bb: BbPluginApi) {
     issues_list: (input) => listIssues(input),
     issue_comments: (input) => listComments(input),
     issue_create: (input) => createIssue(input),
-    issue_close: (input) => setIssueOpen("close", input),
+    issue_close: async ({ commit, ...input }) => {
+      // Read the title before closing: it goes into the message to the agent
+      // and is not part of bd close's answer.
+      const title =
+        commit && input.threadId !== null
+          ? ((await listIssues(input)).issues.find(
+              (issue) => issue.id === input.beadId,
+            )?.title ?? null)
+          : null;
+      const outcome = await setIssueOpen("close", input);
+      // Only after bd close succeeded: a failed close (for example a blocked
+      // issue) must not leave the agent committing work that is not accepted.
+      if (outcome.message !== null || !commit || input.threadId === null) {
+        return outcome;
+      }
+      try {
+        // "auto" starts a turn when the agent is idle and queues behind the
+        // running turn otherwise. The plugin never runs git itself; the agent
+        // commits under its own rules, including any need to ask first.
+        await bb.sdk.threads.send({
+          threadId: input.threadId,
+          mode: "auto",
+          input: [
+            {
+              type: "text",
+              mentions: [],
+              text: `The user closed beads issue ${input.beadId}${title === null ? "" : `: ${JSON.stringify(title)}`} from the Beads tab and asked for its work to be committed. Commit the changes that belong to this issue, following the commit rules in AGENTS.md: only this issue's files, the issue's id and title in the subject line, and no push. If there is nothing to commit for it, say so.`,
+            },
+          ],
+        });
+      } catch (cause) {
+        return {
+          message: `The issue was closed, but the agent could not be asked to commit: ${cause instanceof Error ? cause.message : String(cause)}`,
+        };
+      }
+      return outcome;
+    },
     issue_reopen: (input) => setIssueOpen("reopen", input),
     current_start: async ({ threadId, beadId }) => {
       if (!BEAD_ID_PATTERN.test(beadId)) {

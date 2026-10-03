@@ -291,8 +291,15 @@ interface IssueActions {
    * rejects with a plain-language reason.
    */
   loadComments: (beadId: string) => Promise<IssueComment[]>;
-  /** Closes an open issue, or reopens a closed one, in beads. */
-  setOpen: (beadId: string, open: boolean) => void;
+  /**
+   * Asks to close an open issue (the user confirms in a dialog first).
+   * `commit` true is the happy path: the work is accepted, so the thread's
+   * agent is also asked to commit it. `commit` false closes without a
+   * commit: the issue is dropped, not done.
+   */
+  close: (beadId: string, commit: boolean) => void;
+  /** Reopens a closed issue; no confirmation. */
+  reopen: (beadId: string) => void;
 }
 
 /**
@@ -538,6 +545,19 @@ function IssueDetails({
             <FleshOutButton issue={issue} />
           </Optional>
         )}
+        {/* The current bead's "drop it" action lives here, out of the way,
+            instead of on the row beside "Close & commit". */}
+        {closed || actions.currentBeadId !== issue.id ? null : (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-muted-foreground"
+            onClick={() => actions.close(issue.id, false)}
+          >
+            <Icon name="CircleX" className="size-4" />
+            Close without commit
+          </Button>
+        )}
       </div>
     </div>
   );
@@ -599,21 +619,51 @@ function IssueRow({
             <Icon name="Play" className="size-4" />
           </Button>
         )}
-        {/* Closing asks for confirmation first (see BeadsPanel); reopening
-            does not, since it only puts an issue back on the list. */}
-        <Button
-          variant="ghost"
-          size="icon"
-          className="m-1 size-7 shrink-0"
-          aria-label={
-            closed
-              ? `Reopen ${issue.id}: ${issue.title}`
-              : `Close ${issue.id}: ${issue.title}`
-          }
-          onClick={() => actions.setOpen(issue.id, closed)}
-        >
-          <Icon name={closed ? "RotateCcw" : "CircleCheck"} className="size-4" />
-        </Button>
+        {/* Two different ways to close, two different icons.
+            - Finishing (check plus the words "Close & commit", in the
+              ordinary gray button style; the user did not want colour) is
+              the expected outcome, so on the thread's current bead it is the
+              one close button on the row. It exists only there, because that is the
+              work the thread's agent can commit.
+            - Dropping (cross) closes without a commit. On the current bead
+              it is kept off the row and shown only inside the opened issue
+              (see IssueDetails), so it cannot be mistaken for the default.
+              On every other open issue it is the only way to close, so it
+              stays on the row, muted.
+            Both ask for confirmation first (see BeadsPanel); reopening does
+            not, since it only puts an issue back on the list. */}
+        {closed ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="m-1 size-7 shrink-0"
+            aria-label={`Reopen ${issue.id}: ${issue.title}`}
+            onClick={() => actions.reopen(issue.id)}
+          >
+            <Icon name="RotateCcw" className="size-4" />
+          </Button>
+        ) : actions.currentBeadId === issue.id ? (
+          <Button
+            variant="outline"
+            size="sm"
+            className="m-1 h-7 shrink-0 px-2"
+            aria-label={`Close and commit ${issue.id}: ${issue.title}`}
+            onClick={() => actions.close(issue.id, true)}
+          >
+            <Icon name="CircleCheck" className="size-4" />
+            Close &amp; commit
+          </Button>
+        ) : (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="m-1 size-7 shrink-0 text-muted-foreground"
+            aria-label={`Close without committing ${issue.id}: ${issue.title}`}
+            onClick={() => actions.close(issue.id, false)}
+          >
+            <Icon name="CircleX" className="size-4" />
+          </Button>
+        )}
       </div>
       {open ? (
         <div
@@ -1082,7 +1132,10 @@ function BeadsPanel({ scope }: { scope: Scope }) {
   const [filters, setFilters] = useFilters(result?.path ?? null);
   const [actionProblem, setActionProblem] = useState<string | null>(null);
   // The issue waiting for the user's "yes, close it"; null when none is.
-  const [closing, setClosing] = useState<Issue | null>(null);
+  const [closing, setClosing] = useState<{
+    issue: Issue;
+    commit: boolean;
+  } | null>(null);
   const { threadId, projectId } = scope;
   // The current bead is shown in its own group, so it is left out of the
   // status groups to avoid listing it twice.
@@ -1134,33 +1187,32 @@ function BeadsPanel({ scope }: { scope: Scope }) {
     },
     [rpc, threadId, projectId],
   );
-  /** Closes (open=false) or reopens (open=true) an issue in beads. */
-  const applyOpen = (beadId: string, open: boolean) => {
-    rpc
-      .call(open ? "issue_reopen" : "issue_close", {
-        threadId,
-        projectId,
-        beadId,
-      })
-      .then((outcome) => {
-        setActionProblem(outcome.message);
-        refresh();
-      }, reportProblem);
+  /**
+   * Closes (open=false) or reopens (open=true) an issue in beads.
+   *
+   * @param commit When closing, also ask the thread's agent to commit the
+   *   issue's work. Has no effect when reopening or without a thread.
+   */
+  const applyOpen = (beadId: string, open: boolean, commit = false) => {
+    const target = { threadId, projectId, beadId };
+    (open
+      ? rpc.call("issue_reopen", target)
+      : rpc.call("issue_close", { ...target, commit })
+    ).then((outcome) => {
+      setActionProblem(outcome.message);
+      refresh();
+    }, reportProblem);
   };
   const actions: IssueActions = {
     currentBeadId: result?.currentBeadId ?? null,
     loadComments,
-    setOpen: (beadId, open) => {
-      if (open) {
-        applyOpen(beadId, true);
-        return;
-      }
-      // Closing is confirmed in a dialog first: remember which issue, and
-      // let the dialog below call applyOpen when the user agrees.
-      setClosing(
-        result?.issues.find((issue) => issue.id === beadId) ?? null,
-      );
+    close: (beadId, commit) => {
+      // Confirmed in a dialog first: remember which issue and which kind of
+      // close, and let the dialog below call applyOpen when the user agrees.
+      const issue = result?.issues.find((candidate) => candidate.id === beadId);
+      if (issue !== undefined) setClosing({ issue, commit });
     },
+    reopen: (beadId) => applyOpen(beadId, true),
     start:
       threadId === null
         ? null
@@ -1205,10 +1257,35 @@ function BeadsPanel({ scope }: { scope: Scope }) {
     [rpc, threadId, projectId, refresh],
   );
   const ok = result?.state === "ok";
+  // The scrolling band loses the width of its scrollbar; the pinned bands
+  // above and below have no scrollbar, so without this their cards would be
+  // that much wider than the cards in the list. Measuring is used rather
+  // than a fixed number because scrollbar width differs by system and theme
+  // (and is zero where scrollbars float over the content). The pinned bands
+  // cannot simply reserve a gutter of their own with CSS: that needs
+  // overflow clipping, which would cut off the filter menu that drops down
+  // out of the top band.
+  const scroller = useRef<HTMLDivElement>(null);
+  const [scrollbarWidth, setScrollbarWidth] = useState(0);
+  useEffect(() => {
+    const element = scroller.current;
+    if (element === null) return;
+    const measure = () =>
+      setScrollbarWidth(element.offsetWidth - element.clientWidth);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  // 12px is the bands' own padding (p-3), kept and added to.
+  const pinnedStyle = { paddingRight: 12 + scrollbarWidth };
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* Top band, pinned: Current, then the toolbar. */}
-      <div className="shrink-0 space-y-3 border-b border-border p-3">
+      <div
+        className="shrink-0 space-y-3 border-b border-border p-3"
+        style={pinnedStyle}
+      >
         {ok ? <CurrentSection issue={currentIssue} actions={actions} /> : null}
         {actionProblem === null ? null : (
           <p role="alert" className="text-sm text-destructive">
@@ -1246,7 +1323,10 @@ function BeadsPanel({ scope }: { scope: Scope }) {
         </div>
       </div>
       {/* Middle band, the only part that scrolls: the grouped issues. */}
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-3">
+      <div
+        ref={scroller}
+        className="min-h-0 flex-1 space-y-4 overflow-y-auto p-3 [scrollbar-gutter:stable]"
+      >
         {failure === null ? null : (
           <p role="alert" className="text-sm text-destructive">
             Could not load issues: {failure}
@@ -1277,6 +1357,9 @@ function BeadsPanel({ scope }: { scope: Scope }) {
           ))
         )}
       </div>
+      {/* One dialog, two wordings, matching the two close buttons. The
+          button that backs out says "Keep open", not "Cancel", so it cannot
+          be mistaken for "cancel the issue". */}
       <Dialog
         open={closing !== null}
         onOpenChange={(open) => {
@@ -1285,29 +1368,44 @@ function BeadsPanel({ scope }: { scope: Scope }) {
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Close this issue?</DialogTitle>
+            <DialogTitle>
+              {closing?.commit
+                ? "Close this issue and commit its work?"
+                : "Close this issue without committing?"}
+            </DialogTitle>
             <DialogDescription>
-              <span className="font-mono">{closing?.id}</span> {closing?.title}
+              <span className="font-mono">{closing?.issue.id}</span>{" "}
+              {closing?.issue.title}
             </DialogDescription>
           </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            {closing?.commit
+              ? "The issue is closed, and this thread's agent is asked to commit its work."
+              : "The issue is closed and nothing is committed. Use this to drop an issue."}
+          </p>
           <DialogFooter>
             <Button variant="outline" onClick={() => setClosing(null)}>
-              Cancel
+              Keep open
             </Button>
             <Button
               onClick={() => {
-                if (closing !== null) applyOpen(closing.id, false);
+                if (closing !== null) {
+                  applyOpen(closing.issue.id, false, closing.commit);
+                }
                 setClosing(null);
               }}
             >
-              Close issue
+              {closing?.commit ? "Close and commit" : "Close without commit"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
       {/* Bottom band, pinned: the field for a new issue. */}
       {ok ? (
-        <div className="shrink-0 border-t border-border p-3">
+        <div
+          className="shrink-0 border-t border-border p-3"
+          style={pinnedStyle}
+        >
           <CreateIssue onCreate={create} />
         </div>
       ) : null}

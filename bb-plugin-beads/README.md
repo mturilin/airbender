@@ -27,9 +27,13 @@ issues** under Actions. From top to bottom the tab shows:
    An opened issue shows its description, then a folded heading for each
    of acceptance criteria, design, notes, close reason and comments that the
    issue has; each opens on its own chevron.
-   Every row has a close button, which asks for confirmation; a closed row
-   has a reopen button instead.
-   Closing the thread's current bead also clears it as current.
+   There are two ways to close, each with its own icon and its own
+   confirmation. The "Close & commit" button, on the thread's current bead, closes the
+   issue and sends the agent a message asking it to commit the work. The
+   cross closes an issue without a commit: use it to drop an issue. On other
+   open issues it is on the row; on the current bead it is only inside the
+   opened issue, so "Close & commit" is the obvious choice there. A closed row has a reopen button instead. Closing the
+   thread's current bead also clears it as current.
 4. **New issue field** (pinned at the bottom): type a title and press Enter;
    the chevron adds type, priority and description.
 
