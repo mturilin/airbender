@@ -108,7 +108,9 @@ Collapsed, a row shows the title, the issue id, its priority and its type.
 
 Opening a row shows:
 
-- The description.
+- The description. **A long description is cut short**, to about four lines,
+  with "View more". View more opens the details window on that issue, where
+  the whole description is shown. `[5qt]`
 - **Acceptance criteria, design, notes, close reason and comments** — each
   under its own heading, **collapsed to start**, opened on its own chevron.
   Parts that are empty are not shown. `[un8]`
@@ -117,12 +119,67 @@ Opening a row shows:
   opens the issue. `[vve]`
 - The Define button (see "Define").
 
+## Sub-issues (epics)
+
+An issue can contain other issues, and those can contain more, to any depth.
+`[5qt]`
+
+- **Any issue can hold sub-issues.** The type "epic" is only a label.
+- **A sub-issue is shown indented under its parent**, whatever its own
+  status. It does not appear in the status groups.
+- **The panel shows one level only**: under a parent, just its direct
+  sub-issues.
+- **An issue's chevron opens its description and its sub-issues together.**
+  For an issue that has sub-issues the chevron is open by default.
+- **Every issue that has sub-issues has a details button.** It opens a modal
+  window showing that issue with its sub-issues, one level deep.
+- **The window is one window that is moved through**, not windows on top of
+  each other. Pressing details on a sub-issue inside it shows that sub-issue
+  with its own sub-issues. A clickable path at the top goes back up. This is
+  how deeper levels are reached: a hierarchy browser.
+- **The window is always the same size, and rather large.** Its size does
+  not depend on how many sub-issues the issue has.
+- **Adding a sub-issue in the window stays in the window.** The window has
+  its own new-issue field; "Add sub-issue" pressed inside the window uses
+  that field. "Add sub-issue" pressed in the panel uses the panel's field.
+  Neither sends the owner to the other.
+- **The window can do everything the list can**: open an issue, edit it,
+  change its type and priority, close it, Define it, add a sub-issue, and
+  drag to re-nest. Play closes the window.
+- **Drag and drop.** Every issue has a drag anchor: a grip on its row that
+  the issue is dragged by. Dragging an issue onto another makes it a
+  sub-issue of that one. Dragging a sub-issue onto a group heading or onto empty space in
+  the list moves it out to the top level.
+- **Move to.** An opened issue has a "Move to" button, for moving it quickly
+  to a new parent without dragging: it helps when there are many issues and
+  dragging is not possible. It opens a small search field with fuzzy
+  matching over the issues; picking one moves the issue inside it. For an
+  issue that has a parent, "Top level" is offered there too, which moves it
+  out.
+- **Add sub-issue.** An opened issue has an "Add sub-issue" button. It does
+  not add a second place to type: it selects that issue as the parent in the
+  new-issue field at the bottom and puts the cursor there. The row must not
+  get its own text field; that makes the panel too busy.
+- **Closed sub-issues of an open parent stay visible**, struck through.
+- **Sub-issue rows are leaner than top-level rows and look different**, so
+  the two are easy to tell apart:
+  - the block of sub-issues has a background only slightly darker than the
+    rows around it: a slight difference, not a strong one;
+  - a rail runs down its left edge;
+  - each sub-issue is one compact line, about half the height of a
+    top-level row;
+  - a sub-issue row has no buttons, not even on hover. Play, Define,
+    close and the way into the details window are inside the opened
+    sub-issue. Only the drag anchor appears while the pointer is on the row.
+
 ## Creating an issue
 
 - The entry field at the bottom: type a title and press Enter. `[pp7]`
 - A chevron beside the field reveals type, priority and description, for
   writing a full issue. Both the quick way and the full way are supported.
   `[pp7]`
+- **A parent can be selected there**, so the new issue is created inside
+  another issue. "Add sub-issue" on an issue selects it for you. `[5qt]`
 
 ## Current
 
@@ -154,6 +211,8 @@ One conversation works on at most one issue at a time: its current issue.
   assume the answers. `[avf]`
 - The thinking in steps 1 and 2 is done by the conversation's own agent, in
   the conversation. Play does not hand it to another agent. `[avf]`
+- **Play on an issue that has sub-issues** directs the agent to work on that
+  issue and all its sub-issues together. `[5qt]`
 - **The agent does not close the issue when it finishes.** It records what it
   did and how it checked it, leaves the issue in progress, and tells the owner
   it is ready. The owner validates and closes. `[e1d]`
@@ -189,6 +248,10 @@ There are two different actions, with two different icons: `[0rg]` `[d37]`
   the issue and tells the conversation's agent to commit that issue's work.
 - **Close without commit** — the issue is not needed; this is a cancel. It is
   the only way to close a backlog issue.
+
+**Close & commit on an issue with sub-issues closes all of them**: the issue
+and every sub-issue still open inside it, at any depth. The confirmation
+says how many sub-issues will be closed. `[5qt]`
 
 How they are presented: `[d37]`
 
@@ -276,3 +339,41 @@ breaking a requirement above.
 - The description is edited as plain Markdown text. Saving an empty
   description removes it; an empty title cannot be saved.
 - Deleting an issue outside the panel is not noticed until the next refresh.
+- A parent sits in the status group of its own status; its sub-issues follow
+  it there, each showing its own status as a tag.
+- A sub-issue that is the current issue is shown in Current, not under its
+  parent.
+- An open sub-issue whose parent is closed is shown at the top level, in its
+  own status group, so it is not hidden inside the folded Closed group.
+- The filter applies to top-level issues; the sub-issues of a shown parent
+  are always shown.
+- Under a parent, open sub-issues come first, then closed ones.
+- A closed-up row that has sub-issues says how many it has.
+- A compact sub-issue row shows, beside the title, its status and priority
+  (and how many sub-issues it has). Its id and type are shown inside the
+  opened sub-issue, where priority and type can also be changed.
+- The drag anchor of a compact row also appears while the keyboard focus
+  is on the row.
+- In Current, the opened description and the sub-issue list each scroll
+  inside a height limit, so the pinned band leaves room for the list.
+- "Move to" lists at most eight matches at a time; Enter takes the first,
+  Escape cancels. It offers open issues only, never the issue itself, its own
+  sub-issues, or the parent it is already in.
+- An issue cannot be moved inside itself or inside one of its own
+  sub-issues.
+- Dragging does not ask for confirmation.
+- A description counts as long above about 240 characters or four lines.
+- While a parent is selected in the new-issue field, a line above the field
+  names it and has a button to clear it. The parent stays selected after an
+  issue is created, so several sub-issues can be added in a row.
+- The window's new-issue field creates inside the issue the window is
+  showing unless another issue inside it was chosen; it cannot create a
+  top-level issue. It is not shown for a closed issue.
+- "View more" is offered on any issue with a long description, with or
+  without sub-issues. In the details window the issue being shown starts
+  opened.
+- Closing a parent without a commit does not close its sub-issues; while any
+  are open the tracker refuses, and the panel shows its message.
+- When an epic is closed with its sub-issues, the agent is asked for one
+  commit per issue where the changes can be told apart, otherwise one commit
+  that lists each issue.

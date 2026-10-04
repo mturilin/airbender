@@ -46,6 +46,19 @@ issues** under Actions. From top to bottom the tab shows:
    thread's current bead also clears it as current.
    The Closed group's heading is always last in the list, with its count
    and a Show/Hide button; closed issues start hidden.
+   Issues can sit inside other issues, to any depth. A sub-issue is drawn
+   indented under its parent and only one level is drawn. A details button
+   on any issue with sub-issues opens a window on it; the same button inside
+   the window goes deeper, and a path at the top goes back up. The window is a
+   fixed, large size and has its own new-issue field, so adding a sub-issue
+   there stays there. Drag an issue
+   onto another to nest it, or onto a group heading or empty space to move
+   it out; an opened issue has an "Add sub-issue" button, which selects it as the
+   parent in the new-issue field at the bottom, and a "Move to" button with a
+   search field for moving it into another issue or out to the top level.
+   An issue with sub-issues starts opened. A long description is cut to about four lines with
+   "View more", which opens the window. Play on an issue with sub-issues starts
+   the agent on all of them, and "Close & commit" on it closes all of them.
 4. **New issue field** (pinned at the bottom): type a title and press Enter;
    the chevron adds type, priority and description.
 

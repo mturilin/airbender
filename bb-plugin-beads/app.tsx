@@ -19,6 +19,12 @@
 // - Every issue is a collapsed row that opens on its chevron, so a long
 //   description never pushes the rest of the tab away; the Current row's
 //   opened text is additionally capped in height because it is pinned.
+// - Issues can sit inside other issues, to any depth. A sub-issue is drawn
+//   indented under its parent, whatever its status, and only one level is
+//   drawn; a details button on any issue with sub-issues opens a window on
+//   it, and the same button inside the window goes deeper. Dragging a row
+//   onto another nests it; dragging it onto anything that is not a row
+//   moves it out to the top level.
 // - Filters (types, priorities) hide rows; they never regroup and never hide
 //   Current. They are remembered per folder in the browser.
 // - The Closed group's heading is always shown, last in the list, with its
@@ -334,6 +340,38 @@ interface IssueActions {
    * visible here beyond the row showing that it is under way.
    */
   define: (beadId: string) => void;
+  /**
+   * The sub-issues drawn under an issue: its direct children, open ones
+   * first. Leaves out the thread's current bead, which is drawn in Current.
+   */
+  childrenOf: (beadId: string) => Issue[];
+  /**
+   * Opens the details window on an issue that has sub-issues, or moves the
+   * already open window to it.
+   */
+  openDetails: (beadId: string) => void;
+  /**
+   * Moves an issue inside another (parentId set) or out to the top level
+   * (parentId null). No confirmation: it is undone by moving it back.
+   */
+  setParent: (beadId: string, parentId: string | null) => void;
+  /**
+   * Whether `beadId` may be dropped into `parentId`: not into itself, not
+   * into one of its own sub-issues, and not where it already is.
+   */
+  canNest: (beadId: string, parentId: string) => boolean;
+  /**
+   * The issues `beadId` may be moved into: every open issue except itself,
+   * its own sub-issues at any depth, and the parent it is already in.
+   */
+  moveTargets: (beadId: string) => Issue[];
+  /**
+   * Gets the new-issue field at the bottom ready to create an issue inside
+   * `parentId`: selects it as the parent there and puts the cursor in the
+   * field. Nothing is created until the user types a title and presses
+   * Enter. There is deliberately no second text field for this on the row.
+   */
+  addSubIssue: (parentId: string) => void;
   /** Reopens a closed issue; no confirmation. */
   reopen: (beadId: string) => void;
 }
@@ -394,10 +432,16 @@ function DefineButton({
 function IssueFacts({
   issue,
   onEdit,
+  showStatus = false,
 }: {
   issue: Issue;
   /** When given, priority and type become small dropdowns that call this. */
   onEdit?: IssueActions["edit"];
+  /**
+   * Show the issue's status as a tag. Used for sub-issues, which sit under
+   * their parent and so are not under a status heading that would say it.
+   */
+  showStatus?: boolean;
 }) {
   // The current type is always offered, even if it is one this plugin does
   // not otherwise list (beads has more types than the new-issue form).
@@ -410,6 +454,13 @@ function IssueFacts({
       <span className="font-mono text-xs text-muted-foreground">
         {issue.id}
       </span>
+      {showStatus ? (
+        <Tag strong={issue.status === "in_progress"}>
+          {issue.blockedBy.length > 0 && issue.status !== "closed"
+            ? "blocked"
+            : issue.status.replace("_", " ")}
+        </Tag>
+      ) : null}
       {onEdit === undefined ? (
         <>
           {issue.priority === null ? null : (
@@ -603,6 +654,14 @@ function CommentList({
 }
 
 /**
+ * Id of the issue being dragged, or null. Kept here, outside React, because
+ * the browser does not let a row read what is being dragged while it is only
+ * hovering (the drag's data is readable on drop, not on drag-over), and the
+ * row has to decide during the hover whether it is a valid place to drop.
+ */
+let draggedBeadId: string | null = null;
+
+/**
  * The form that replaces an opened issue's description while its title and
  * description are being edited.
  *
@@ -678,21 +737,188 @@ function EditIssueText({
   );
 }
 
+/**
+ * How well `query` matches `text`, for the "Move to" search: higher is
+ * better, 0 is no match. A run of the query's letters found together beats
+ * the same letters found scattered, and a match at the start of a word beats
+ * one in the middle, so typing a few letters of an id or of a title's words
+ * finds it without typing it exactly.
+ */
+function fuzzyScore(query: string, text: string): number {
+  const needle = query.trim().toLowerCase();
+  if (needle === "") return 1;
+  const haystack = text.toLowerCase();
+  const at = haystack.indexOf(needle);
+  if (at !== -1) {
+    const atWordStart = at === 0 || /[^a-z0-9]/u.test(haystack[at - 1]!);
+    return 1000 + (atWordStart ? 100 : 0) - Math.min(at, 99);
+  }
+  // Otherwise every letter must appear in order; closer together is better.
+  let position = 0;
+  let gaps = 0;
+  for (const letter of needle.replaceAll(" ", "")) {
+    const found = haystack.indexOf(letter, position);
+    if (found === -1) return 0;
+    gaps += found - position;
+    position = found + 1;
+  }
+  return Math.max(1, 500 - gaps);
+}
+
+/** Most results the "Move to" picker lists at once. */
+const MOVE_TO_RESULTS = 8;
+
+/**
+ * The picker behind "Move to": a search field and a short list of issues to
+ * move this one into, with "Top level" first for an issue that has a parent.
+ *
+ * Drawn inside the opened issue rather than floating over it, because the
+ * list the rows sit in clips anything that hangs outside it.
+ *
+ * Keys: typing narrows the list, Enter takes the first result, Escape
+ * cancels.
+ *
+ * @param targets Issues this one may be moved into (already excludes itself,
+ *   its sub-issues and its present parent).
+ * @param onPick Called with the chosen parent's id, or null for top level.
+ */
+function MoveToPicker({
+  issue,
+  targets,
+  onPick,
+  onCancel,
+}: {
+  issue: Issue;
+  targets: Issue[];
+  onPick: (parentId: string | null) => void;
+  onCancel: () => void;
+}) {
+  const [query, setQuery] = useState("");
+  const matches = useMemo(
+    () =>
+      targets
+        .map((target) => ({
+          target,
+          score: fuzzyScore(query, `${target.id} ${target.title}`),
+        }))
+        .filter((entry) => entry.score > 0)
+        .sort(
+          (left, right) =>
+            right.score - left.score || byUrgency(left.target, right.target),
+        )
+        .map((entry) => entry.target),
+    [targets, query],
+  );
+  // "Top level" is offered while it would change something and the search
+  // does not rule it out.
+  const offerTopLevel =
+    issue.parentId !== null && fuzzyScore(query, "top level") > 0;
+  const shown = matches.slice(0, MOVE_TO_RESULTS);
+  const option =
+    "block w-full cursor-pointer truncate rounded px-2 py-1 text-left text-sm hover:bg-state-hover";
+  return (
+    <div className="space-y-1 rounded-lg border border-border p-2">
+      <Input
+        autoFocus
+        value={query}
+        onChange={(event) => setQuery(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            onCancel();
+          } else if (event.key === "Enter") {
+            event.preventDefault();
+            if (offerTopLevel && shown.length === 0) onPick(null);
+            else if (shown[0] !== undefined) onPick(shown[0].id);
+          }
+        }}
+        placeholder={`Move ${issue.id} into… type to search`}
+        aria-label={`Search for an issue to move ${issue.id} into`}
+      />
+      <ul>
+        {offerTopLevel ? (
+          <li>
+            <button type="button" className={option} onClick={() => onPick(null)}>
+              Top level{" "}
+              <span className="text-muted-foreground">(out of its parent)</span>
+            </button>
+          </li>
+        ) : null}
+        {shown.map((target) => (
+          <li key={target.id}>
+            <button
+              type="button"
+              className={option}
+              onClick={() => onPick(target.id)}
+            >
+              <span className="font-mono text-xs text-muted-foreground">
+                {target.id}
+              </span>{" "}
+              {target.title}
+            </button>
+          </li>
+        ))}
+      </ul>
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <span className="min-w-0 flex-1">
+          {shown.length === 0 && !offerTopLevel
+            ? "No issue matches."
+            : matches.length > shown.length
+              ? `${matches.length - shown.length} more — keep typing to narrow.`
+              : ""}
+        </span>
+        <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
+          Cancel
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Whether a description is long enough to be cut short in an opened row:
+ * more than about four lines' worth, by length or by line count.
+ */
+function isLongDescription(text: string): boolean {
+  return text.length > 240 || text.split("\n").length > 4;
+}
+
 /** Everything shown when an issue is opened: text, relations, actions. */
 function IssueDetails({
   issue,
   actions,
+  fullDescription = false,
+  showFacts = false,
 }: {
   issue: Issue;
   actions: IssueActions;
+  /**
+   * Show the id, priority and type line at the top. Used for compact
+   * sub-issue rows, whose one-line row has no room for them.
+   */
+  showFacts?: boolean;
+  /**
+   * Show the whole description. False (the default) cuts a long one to a
+   * few lines with "View more", which opens the details window; true is for
+   * the issue the details window is showing, where the full text belongs.
+   */
+  fullDescription?: boolean;
 }) {
   const closed = issue.status === "closed";
   // Whether the title and description are being edited. Kept here, in the
   // opened issue, so it ends when the issue is closed up; it also ends if
   // the row is rebuilt because the issue moved to another group.
   const [editing, setEditing] = useState(false);
+  // Whether the "Move to" picker is showing under the buttons.
+  const [moving, setMoving] = useState(false);
   return (
     <div className="space-y-3">
+      {showFacts ? (
+        <IssueFacts
+          issue={issue}
+          onEdit={closed ? undefined : actions.edit}
+        />
+      ) : null}
       {editing ? (
         <EditIssueText
           issue={issue}
@@ -701,8 +927,24 @@ function IssueDetails({
         />
       ) : issue.description.trim() === "" ? (
         <p className="text-xs text-muted-foreground">No description.</p>
-      ) : (
+      ) : fullDescription || !isLongDescription(issue.description) ? (
         <Markdown content={issue.description} className="text-sm" />
+      ) : (
+        // A long description is cut to about four lines so an opened row
+        // stays short; the rest is read in the details window.
+        <div>
+          <div className="relative max-h-[5.5rem] overflow-hidden">
+            <Markdown content={issue.description} className="text-sm" />
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-card to-transparent" />
+          </div>
+          <button
+            type="button"
+            className="mt-1 cursor-pointer text-xs text-muted-foreground hover:text-foreground hover:underline"
+            onClick={() => actions.openDetails(issue.id)}
+          >
+            View more
+          </button>
+        </div>
       )}
       <TextSection label="Acceptance criteria" text={issue.acceptance} />
       <TextSection label="Design" text={issue.design} />
@@ -737,6 +979,78 @@ function IssueDetails({
             Edit
           </Button>
         )}
+        {/* Does not create anything here: it selects this issue as the
+            parent in the new-issue field at the bottom and puts the cursor
+            there, so there is one place to type a new issue, not two. */}
+        {closed ? null : (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => actions.addSubIssue(issue.id)}
+          >
+            <Icon name="Plus" className="size-4" />
+            Add sub-issue
+          </Button>
+        )}
+        {/* Moving without dragging: for long lists, where the place to
+            drop is far off screen. It also covers moving out, so there is
+            one button for both. */}
+        {moving ? null : (
+          <Button variant="outline" size="sm" onClick={() => setMoving(true)}>
+            <Icon name="MoveTo" className="size-4" />
+            Move to
+          </Button>
+        )}
+        {/* A compact sub-issue row has no buttons of its own (see
+            IssueRow), so the ones a full row carries are repeated here:
+            play, and the way into the details window. */}
+        {showFacts &&
+        !closed &&
+        actions.start !== null &&
+        actions.currentBeadId === null ? (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => actions.start?.(issue.id)}
+          >
+            <Icon name="Play" className="size-4" />
+            Start work
+          </Button>
+        ) : null}
+        {showFacts && actions.childrenOf(issue.id).length > 0 ? (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => actions.openDetails(issue.id)}
+          >
+            <Icon name="Maximize2" className="size-4" />
+            Open with sub-issues
+          </Button>
+        ) : null}
+        {/* A compact sub-issue row has no close or reopen button of its own
+            (see IssueRow); they are here instead. The current bead's own
+            button follows below, so it is skipped here. */}
+        {!showFacts || actions.currentBeadId === issue.id ? null : closed ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-muted-foreground"
+            onClick={() => actions.reopen(issue.id)}
+          >
+            <Icon name="RotateCcw" className="size-4" />
+            Reopen
+          </Button>
+        ) : (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-muted-foreground"
+            onClick={() => actions.close(issue.id, false)}
+          >
+            <Icon name="CircleX" className="size-4" />
+            Close
+          </Button>
+        )}
         {/* The current bead's "drop it" action lives here, out of the way,
             instead of on the row beside "Close & commit". */}
         {closed || actions.currentBeadId !== issue.id ? null : (
@@ -751,29 +1065,157 @@ function IssueDetails({
           </Button>
         )}
       </div>
+      {moving ? (
+        <MoveToPicker
+          issue={issue}
+          targets={actions.moveTargets(issue.id)}
+          onPick={(parentId) => {
+            setMoving(false);
+            actions.setParent(issue.id, parentId);
+          }}
+          onCancel={() => setMoving(false)}
+        />
+      ) : null}
     </div>
   );
 }
 
 /**
- * One issue: a compact line that opens to show its details. Whether it is
- * open is kept in the row, so it resets when the tab is closed.
+ * One issue: a compact line that opens to show its details, with its
+ * sub-issues drawn indented underneath.
+ *
+ * Nesting is drawn one level deep only (the user's rule): a top-level row
+ * shows its direct sub-issues, and those show none of their own. Any row
+ * that has sub-issues carries a details button that opens the details
+ * window on it, which is how deeper levels are reached.
+ *
+ * The line is a drop target: dropping another issue on it moves that issue
+ * inside this one. Dragging starts only from the grip at its left edge.
+ *
+ * State kept in the row (so it resets when the tab is closed): whether the
+ * issue is opened. Opening shows both its details and its sub-issues.
  */
 function IssueRow({
   issue,
   actions,
   detailsClassName,
+  nested = false,
+  showSubIssues = true,
+  subIssuesClassName,
+  isDetailsRoot = false,
 }: {
   issue: Issue;
   actions: IssueActions;
   /** Extra classes for the opened area, e.g. a height cap for pinned rows. */
   detailsClassName?: string;
+  /** This row is a sub-issue drawn under its parent. */
+  nested?: boolean;
+  /** Draw this issue's direct sub-issues under it. False for nested rows. */
+  showSubIssues?: boolean;
+  /** Extra classes for the sub-issue list, e.g. a height cap when pinned. */
+  subIssuesClassName?: string;
+  /**
+   * This row is the issue the details window is showing, so it needs no
+   * button to open the details window on itself.
+   */
+  isDetailsRoot?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const subIssues = actions.childrenOf(issue.id);
+  const hasSubIssues = showSubIssues && subIssues.length > 0;
+  // One chevron opens everything about the issue: its description and its
+  // sub-issues. It starts open for an issue that has sub-issues (the user's
+  // rule), so the nesting is visible without clicking, and for the issue the
+  // details window is showing, which was opened to be read.
+  const [open, setOpen] = useState(isDetailsRoot || hasSubIssues);
+  // An issue that gains its first sub-issue while on screen opens too;
+  // otherwise the new sub-issue would be created out of sight.
+  useEffect(() => {
+    if (hasSubIssues) setOpen(true);
+  }, [hasSubIssues]);
+  // True while a draggable issue hovers over this row and may be dropped.
+  const [dropTarget, setDropTarget] = useState(false);
+  // The row's line, used as the picture that follows the pointer in a drag.
+  const line = useRef<HTMLDivElement>(null);
   const closed = issue.status === "closed";
+  // A sub-issue drawn under its parent is a leaner row than a top-level one
+  // (the user's request: they looked the same and were as tall): one line,
+  // smaller text, only status and priority beside the title, no buttons on
+  // the row at all, and the grip shown only while the pointer or the
+  // keyboard is on the row.
+  // The issue the details window shows is not compact: it is the subject
+  // there, not one of many.
+  const compact = nested && !isDetailsRoot;
+  const openCount = subIssues.filter(
+    (subIssue) => subIssue.status !== "closed",
+  ).length;
   return (
     <li>
-      <div className="flex items-start hover:bg-state-hover">
+      <div
+        ref={line}
+        onDragOver={(event) => {
+          // Always stop here, valid or not: an invalid drop on a row must not
+          // fall through to the list behind it and be taken as "move out".
+          event.stopPropagation();
+          if (
+            draggedBeadId === null ||
+            !actions.canNest(draggedBeadId, issue.id)
+          ) {
+            return;
+          }
+          event.preventDefault();
+          event.dataTransfer.dropEffect = "move";
+          setDropTarget(true);
+        }}
+        onDragLeave={() => setDropTarget(false)}
+        onDrop={(event) => {
+          event.stopPropagation();
+          setDropTarget(false);
+          const dragged = draggedBeadId;
+          draggedBeadId = null;
+          if (dragged === null || !actions.canNest(dragged, issue.id)) return;
+          event.preventDefault();
+          actions.setParent(dragged, issue.id);
+        }}
+        className={cn(
+          "group/row relative flex hover:bg-state-hover",
+          compact ? "items-center" : "items-start",
+          dropTarget && "bg-state-active outline outline-1 outline-ring",
+        )}
+      >
+        {/* The drag anchor. Only this grip starts a drag, so that selecting
+            the title's text, using the dropdowns and clicking buttons on the
+            row never drags it by accident. The whole line is shown as the
+            thing being dragged. */}
+        <span
+          draggable
+          role="img"
+          aria-label={`Drag ${issue.id} to move it into or out of another issue`}
+          onDragStart={(event) => {
+            draggedBeadId = issue.id;
+            event.dataTransfer.effectAllowed = "move";
+            // Some browsers will not start a drag without data.
+            event.dataTransfer.setData("text/plain", issue.id);
+            if (line.current !== null) {
+              event.dataTransfer.setDragImage(line.current, 12, 12);
+            }
+          }}
+          onDragEnd={() => {
+            draggedBeadId = null;
+          }}
+          className={cn(
+            "cursor-grab pl-2 text-muted-foreground/60 hover:text-foreground active:cursor-grabbing",
+            // Kept in the layout while invisible, so the title does not
+            // jump sideways when the grip appears.
+            compact
+              ? "py-1 opacity-0 group-focus-within/row:opacity-100 group-hover/row:opacity-100"
+              : "py-2",
+          )}
+        >
+          <Icon
+            name="DragDropVertical"
+            className={cn("size-4 shrink-0", !compact && "mt-0.5")}
+          />
+        </span>
         {/* The chevron and the title both open the issue. They are two
             separate buttons with the facts line outside them, because the
             priority and type dropdowns on that line are controls of their
@@ -783,27 +1225,90 @@ function IssueRow({
           aria-expanded={open}
           aria-label={open ? "Hide details" : "Show details"}
           onClick={() => setOpen((current) => !current)}
-          className="cursor-pointer py-2 pl-3 pr-2"
+          className={cn("cursor-pointer pl-1 pr-2", compact ? "py-1" : "py-2")}
         >
           <Icon
             name={open ? "ChevronDown" : "ChevronRight"}
-            className="mt-0.5 size-4 shrink-0 text-muted-foreground"
+            className={cn(
+              "size-4 shrink-0 text-muted-foreground",
+              !compact && "mt-0.5",
+            )}
           />
         </button>
-        <div className="min-w-0 flex-1 py-2 pr-1 text-sm">
-          <button
-            type="button"
-            onClick={() => setOpen((current) => !current)}
-            className={cn(
-              "block w-full cursor-pointer text-left",
-              closed && "text-muted-foreground line-through",
+        {compact ? (
+          // One line: the title, then status and priority. The id and the
+          // type are inside the opened issue (see IssueDetails).
+          <div className="flex min-w-0 flex-1 items-center gap-1.5 py-1 pr-2 text-[13px]">
+            <button
+              type="button"
+              onClick={() => setOpen((current) => !current)}
+              className={cn(
+                "min-w-0 flex-1 cursor-pointer truncate text-left",
+                closed && "text-muted-foreground line-through",
+              )}
+            >
+              {issue.title}
+            </button>
+            {hasSubIssues ? <Tag>{subIssues.length} sub</Tag> : null}
+            <Tag strong={issue.status === "in_progress"}>
+              {issue.blockedBy.length > 0 && !closed
+                ? "blocked"
+                : issue.status.replace("_", " ")}
+            </Tag>
+            {issue.priority === null ? null : (
+              <Tag strong={issue.priority <= 1}>P{issue.priority}</Tag>
             )}
+          </div>
+        ) : (
+          <div className="min-w-0 flex-1 py-2 pr-1 text-sm">
+            <button
+              type="button"
+              onClick={() => setOpen((current) => !current)}
+              className={cn(
+                "block w-full cursor-pointer text-left",
+                closed && "text-muted-foreground line-through",
+              )}
+            >
+              {issue.title}
+            </button>
+            {/* Closed issues are finished business: their facts stay fixed. */}
+            <IssueFacts
+              issue={issue}
+              onEdit={closed ? undefined : actions.edit}
+              showStatus={nested}
+            />
+            {/* Says that there is something nested here even while the row
+                is closed up. Not a control: the chevron opens it. */}
+            {hasSubIssues ? (
+              <span className="mt-1 block text-xs text-muted-foreground">
+                {subIssues.length}{" "}
+                {subIssues.length === 1 ? "sub-issue" : "sub-issues"}
+                {openCount === subIssues.length
+                  ? ""
+                  : `, ${subIssues.length - openCount} closed`}
+              </span>
+            ) : null}
+          </div>
+        )}
+        {/* The row's buttons. A compact sub-issue row has none (the user's
+            rule: no buttons on hover for sub-issues); everything they did is
+            inside the opened sub-issue instead (see IssueDetails). Only the
+            drag grip appears on hover, since it is a handle, not an action. */}
+        <div className={compact ? "hidden" : "contents"}>
+        {/* Opens the details window on this issue: the roomy view of an
+            issue with its sub-issues, and the only way to levels deeper than
+            the one drawn here. */}
+        {subIssues.length === 0 || isDetailsRoot ? null : (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="m-1 size-7 shrink-0 text-muted-foreground"
+            aria-label={`Open ${issue.id} and its sub-issues in the details window`}
+            onClick={() => actions.openDetails(issue.id)}
           >
-            {issue.title}
-          </button>
-          {/* Closed issues are finished business: their facts stay fixed. */}
-          <IssueFacts issue={issue} onEdit={closed ? undefined : actions.edit} />
-        </div>
+            <Icon name="Maximize2" className="size-4" />
+          </Button>
+        )}
         {/* An issue that is only a title is the one that most needs
             defining, so the button is on the row for it instead of
             hidden inside the opened issue. Once the issue has a description
@@ -839,7 +1344,10 @@ function IssueRow({
               stays on the row, muted.
             Both ask for confirmation first (see BeadsPanel); reopening does
             not, since it only puts an issue back on the list. */}
-        {closed ? (
+        {/* Not on a compact sub-issue row: closing (and reopening) a
+            sub-issue is done from inside the opened sub-issue, so a slip of
+            the pointer over a short row cannot cancel it. */}
+        {compact ? null : closed ? (
           <Button
             variant="ghost"
             size="icon"
@@ -871,16 +1379,44 @@ function IssueRow({
             <Icon name="CircleX" className="size-4" />
           </Button>
         )}
+        </div>
       </div>
       {open ? (
         <div
           className={cn(
-            "border-t border-border px-3 py-3 pl-9",
+            "border-t border-border px-3 py-3 pl-14",
             detailsClassName,
           )}
         >
-          <IssueDetails issue={issue} actions={actions} />
+          <IssueDetails
+            issue={issue}
+            actions={actions}
+            fullDescription={isDetailsRoot}
+            showFacts={compact}
+          />
         </div>
+      ) : null}
+      {hasSubIssues && open ? (
+        <ul
+          className={cn(
+            // A block only slightly darker than the rows around it (the user
+            // asked for a slight difference, half of the first attempt),
+            // with a rail down its left edge, so the sub-issues read as
+            // "inside" the row above them.
+            "ml-6 divide-y divide-border border-l-2 border-t border-border border-l-foreground/25 bg-black/[0.035]",
+            subIssuesClassName,
+          )}
+        >
+          {subIssues.map((subIssue) => (
+            <IssueRow
+              key={subIssue.id}
+              issue={subIssue}
+              actions={actions}
+              nested
+              showSubIssues={false}
+            />
+          ))}
+        </ul>
       ) : null}
     </li>
   );
@@ -896,6 +1432,7 @@ function SectionBlock({
   headerActions = null,
   detailsClassName,
   collapsed = false,
+  subIssuesClassName,
 }: {
   section: Section;
   actions: IssueActions;
@@ -903,6 +1440,8 @@ function SectionBlock({
   detailsClassName?: string;
   /** Show only the heading line (with its count), not the issues. */
   collapsed?: boolean;
+  /** Passed to each row; see IssueRow. */
+  subIssuesClassName?: string;
 }) {
   return (
     <section>
@@ -926,6 +1465,7 @@ function SectionBlock({
               issue={issue}
               actions={actions}
               detailsClassName={detailsClassName}
+              subIssuesClassName={subIssuesClassName}
             />
           ))}
         </ul>
@@ -969,8 +1509,11 @@ function CurrentSection({
         }}
         actions={actions}
         // Pinned, so an opened long description scrolls inside itself
-        // instead of covering the list below.
-        detailsClassName="max-h-[33vh] overflow-y-auto"
+        // instead of covering the list below. For the same reason the
+        // current bead's sub-issues scroll inside a cap. The two caps
+        // together leave at least half the panel to the list.
+        detailsClassName="max-h-[22vh] overflow-y-auto"
+        subIssuesClassName="max-h-[22vh] overflow-y-auto"
         headerActions={
           <>
             <DefineButton issue={issue} actions={actions} />
@@ -1018,6 +1561,11 @@ function CurrentSection({
  */
 function CreateIssue({
   onCreate,
+  parent,
+  onParentChange,
+  parentChoices,
+  focusRequest,
+  allowTopLevel = true,
 }: {
   onCreate: (draft: {
     title: string;
@@ -1025,7 +1573,28 @@ function CreateIssue({
     type: IssueType | null;
     priority: number | null;
   }) => Promise<string | null>;
+  /** The issue the new one will be created inside; null for the top level. */
+  parent: Issue | null;
+  onParentChange: (parentId: string | null) => void;
+  /** Open issues offered as a parent in the expanded form. */
+  parentChoices: Issue[];
+  /**
+   * Changes each time something outside (the "Add sub-issue" button) wants
+   * the cursor put in the title field.
+   */
+  focusRequest: number;
+  /**
+   * Whether "no parent" can be chosen. True in the panel. False in the
+   * details window, where a new issue always goes inside the issue being
+   * shown or one of the issues under it, so the choice is which, not
+   * whether.
+   */
+  allowTopLevel?: boolean;
 }) {
+  const titleField = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (focusRequest > 0) titleField.current?.focus();
+  }, [focusRequest]);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   // Empty string = "let beads decide" (task, priority 2).
@@ -1057,6 +1626,28 @@ function CreateIssue({
           Could not create the issue: {problem}
         </p>
       )}
+      {/* Always shown while a parent is selected, expanded or not, so a new
+          issue never lands inside another one unnoticed. It stays selected
+          after creating, to add several sub-issues in a row. */}
+      {parent === null ? null : (
+        <div className="flex items-center gap-2 pl-9 text-xs text-muted-foreground">
+          <span className="min-w-0 flex-1 truncate">
+            New sub-issue of{" "}
+            <span className="font-mono text-foreground">{parent.id}</span>{" "}
+            {parent.title}
+          </span>
+          {allowTopLevel ? (
+            <button
+              type="button"
+              aria-label="Create at the top level instead"
+              className="shrink-0 cursor-pointer hover:text-foreground"
+              onClick={() => onParentChange(null)}
+            >
+              <Icon name="CircleX" className="size-4" />
+            </button>
+          ) : null}
+        </div>
+      )}
       {more ? (
         <div className="space-y-2 pl-9">
           <div className="flex flex-wrap gap-2">
@@ -1084,6 +1675,25 @@ function CreateIssue({
               <option value="1">Priority: P1</option>
               <option value="3">Priority: P3</option>
               <option value="4">Priority: P4 (least urgent)</option>
+            </select>
+            <select
+              aria-label="Parent issue"
+              value={parent?.id ?? ""}
+              onChange={(event) =>
+                onParentChange(
+                  event.target.value === "" ? null : event.target.value,
+                )
+              }
+              className={cn(FIELD_CLASS, "min-w-0 max-w-full")}
+            >
+              {allowTopLevel ? (
+                <option value="">Parent: none (top level)</option>
+              ) : null}
+              {parentChoices.map((choice) => (
+                <option key={choice.id} value={choice.id}>
+                  Parent: {choice.id} {choice.title.slice(0, 50)}
+                </option>
+              ))}
             </select>
           </div>
           <textarea
@@ -1114,9 +1724,14 @@ function CreateIssue({
           />
         </Button>
         <Input
+          ref={titleField}
           value={title}
           onChange={(event) => setTitle(event.target.value)}
-          placeholder="New issue — type a title and press Enter"
+          placeholder={
+            parent === null
+              ? "New issue — type a title and press Enter"
+              : `New sub-issue of ${parent.id} — type a title and press Enter`
+          }
           aria-label="New issue title"
         />
         <Button
@@ -1348,13 +1963,98 @@ function BeadsPanel({ scope }: { scope: Scope }) {
       null,
     [result],
   );
-  const others = useMemo(
-    () =>
-      result?.state === "ok"
-        ? result.issues.filter((issue) => issue.id !== currentIssue?.id)
-        : [],
-    [result, currentIssue],
+  // The tree. beads gives each issue one parent; everything else is derived.
+  const tree = useMemo(() => {
+    const all = result?.state === "ok" ? result.issues : [];
+    const byId = new Map(all.map((issue) => [issue.id, issue]));
+    const currentId = currentIssue?.id ?? null;
+    // An issue is drawn under its parent unless:
+    // - it has none, or its parent is not in the list;
+    // - it is the thread's current bead, which is drawn in Current;
+    // - it is still open while its parent is closed: under its parent it
+    //   would be hidden inside the folded Closed group.
+    const drawnUnderParent = (issue: Issue) => {
+      if (issue.parentId === null || issue.id === currentId) return false;
+      const parent = byId.get(issue.parentId);
+      if (parent === undefined) return false;
+      return !(parent.status === "closed" && issue.status !== "closed");
+    };
+    const children = new Map<string, Issue[]>();
+    for (const issue of all) {
+      if (!drawnUnderParent(issue)) continue;
+      const list = children.get(issue.parentId!) ?? [];
+      list.push(issue);
+      children.set(issue.parentId!, list);
+    }
+    // Open sub-issues first, each part by urgency; closed ones stay listed,
+    // struck through, at the end (the user's choice).
+    for (const list of children.values()) {
+      list.sort(
+        (left, right) =>
+          Number(left.status === "closed") - Number(right.status === "closed") ||
+          byUrgency(left, right),
+      );
+    }
+    return {
+      byId,
+      children,
+      // What the status groups hold: everything not drawn somewhere else.
+      topLevel: all.filter(
+        (issue) => issue.id !== currentId && !drawnUnderParent(issue),
+      ),
+    };
+  }, [result, currentIssue]);
+  const others = tree.topLevel;
+  /** Every issue inside `beadId`, at any depth (by the stored parents). */
+  const descendantIds = useCallback(
+    (beadId: string) => {
+      const found = new Set<string>();
+      const queue = [beadId];
+      while (queue.length > 0) {
+        const parentId = queue.shift()!;
+        for (const issue of tree.byId.values()) {
+          if (issue.parentId !== parentId || found.has(issue.id)) continue;
+          if (issue.id === beadId) continue;
+          found.add(issue.id);
+          queue.push(issue.id);
+        }
+      }
+      return found;
+    },
+    [tree],
   );
+  // The issue the details window is showing; null when it is closed. The
+  // path shown at its top is worked out from the stored parents, so moving
+  // deeper or back up is just changing this one id.
+  const [detailsId, setDetailsId] = useState<string | null>(null);
+  // The parent selected in the new-issue field at the bottom, and a counter
+  // that asks that field to take the cursor (see CreateIssue).
+  const [newIssueParentId, setNewIssueParentId] = useState<string | null>(null);
+  const [focusNewIssue, setFocusNewIssue] = useState(0);
+  // A parent that has since been closed or deleted is no longer a parent to
+  // create into; the field falls back to the top level.
+  const newIssueParent =
+    newIssueParentId === null
+      ? null
+      : (tree.byId.get(newIssueParentId) ?? null);
+  const newIssueParentOpen =
+    newIssueParent !== null && newIssueParent.status !== "closed"
+      ? newIssueParent
+      : null;
+  const detailsIssue =
+    detailsId === null ? null : (tree.byId.get(detailsId) ?? null);
+  const detailsPath = useMemo(() => {
+    const path: Issue[] = [];
+    const seen = new Set<string>();
+    let step = detailsIssue;
+    while (step !== null && !seen.has(step.id)) {
+      seen.add(step.id);
+      path.unshift(step);
+      step =
+        step.parentId === null ? null : (tree.byId.get(step.parentId) ?? null);
+    }
+    return path;
+  }, [detailsIssue, tree]);
   // Types offered in the filter menu: those that actually occur here.
   const types = useMemo(
     () =>
@@ -1420,6 +2120,14 @@ function BeadsPanel({ scope }: { scope: Scope }) {
   // the only case in which committing is a meaningful part of the question.
   const closingIsCurrent =
     closing !== null && closing.issue.id === (result?.currentBeadId ?? null);
+  // "Close & commit" on an issue with sub-issues closes the open ones too;
+  // the dialog says how many, so it is never a surprise.
+  const closingOpenSubIssues =
+    closing === null || !closing.commit
+      ? 0
+      : [...descendantIds(closing.issue.id)].filter(
+          (id) => tree.byId.get(id)?.status !== "closed",
+        ).length;
   const actions: IssueActions = {
     currentBeadId: result?.currentBeadId ?? null,
     loadComments,
@@ -1430,6 +2138,37 @@ function BeadsPanel({ scope }: { scope: Scope }) {
       if (issue !== undefined) setClosing({ issue, commit });
     },
     reopen: (beadId) => applyOpen(beadId, true),
+    childrenOf: (beadId) => tree.children.get(beadId) ?? [],
+    openDetails: setDetailsId,
+    canNest: (beadId, parentId) =>
+      beadId !== parentId &&
+      tree.byId.get(beadId)?.parentId !== parentId &&
+      !descendantIds(beadId).has(parentId),
+    setParent: (beadId, parentId) => {
+      rpc
+        .call("issue_set_parent", { threadId, projectId, beadId, parentId })
+        .then((outcome) => {
+          setActionProblem(outcome.message);
+          refresh();
+        }, reportProblem);
+    },
+    moveTargets: (beadId) => {
+      const inside = descendantIds(beadId);
+      const presentParent = tree.byId.get(beadId)?.parentId ?? null;
+      return [...tree.byId.values()].filter(
+        (issue) =>
+          issue.status !== "closed" &&
+          issue.id !== beadId &&
+          issue.id !== presentParent &&
+          !inside.has(issue.id),
+      );
+    },
+    addSubIssue: (parentId) => {
+      setNewIssueParentId(parentId);
+      // The bottom field is behind the details window; get it out of the way.
+      setDetailsId(null);
+      setFocusNewIssue((count) => count + 1);
+    },
     define: (beadId) => {
       rpc.call("issue_define", { threadId, projectId, beadId }).then(
         (outcome) => {
@@ -1476,6 +2215,9 @@ function BeadsPanel({ scope }: { scope: Scope }) {
       threadId === null
         ? null
         : (beadId) => {
+            // Play starts the agent in the conversation, which the details
+            // window covers, so the window gets out of the way.
+            setDetailsId(null);
             rpc.call("current_start", { threadId, beadId }).then(() => {
               setActionProblem(null);
               refresh();
@@ -1494,27 +2236,58 @@ function BeadsPanel({ scope }: { scope: Scope }) {
             );
           },
   };
-  const create = useCallback(
-    async (draft: {
+  /**
+   * Creates an issue inside `parentId` (null for the top level). Shared by
+   * the panel's new-issue field and the one in the details window, which
+   * differ only in which parent they pass.
+   */
+  const createIn = async (
+    parentId: string | null,
+    draft: {
       title: string;
       description: string;
       type: IssueType | null;
       priority: number | null;
-    }) => {
-      try {
-        const created = await rpc.call("issue_create", {
-          threadId,
-          projectId,
-          ...draft,
-        });
-        refresh();
-        return created.message;
-      } catch (cause) {
-        return cause instanceof Error ? cause.message : String(cause);
-      }
     },
-    [rpc, threadId, projectId, refresh],
-  );
+  ) => {
+    try {
+      const created = await rpc.call("issue_create", {
+        threadId,
+        projectId,
+        ...draft,
+        parentId,
+      });
+      refresh();
+      return created.message;
+    } catch (cause) {
+      return cause instanceof Error ? cause.message : String(cause);
+    }
+  };
+  // The details window has its own new-issue field, so that adding a
+  // sub-issue there stays there (the user's rule: in the panel it stays in
+  // the panel, in the window it stays in the window). Its parent is the
+  // issue the window shows unless "Add sub-issue" on a row inside the window
+  // picked another; moving to a different issue puts it back.
+  const [windowParentId, setWindowParentId] = useState<string | null>(null);
+  const [focusWindowNewIssue, setFocusWindowNewIssue] = useState(0);
+  useEffect(() => {
+    setWindowParentId(null);
+  }, [detailsId]);
+  const windowPicked =
+    windowParentId === null ? null : (tree.byId.get(windowParentId) ?? null);
+  const windowParent =
+    windowPicked !== null && windowPicked.status !== "closed"
+      ? windowPicked
+      : detailsIssue;
+  // Inside the window, "Add sub-issue" readies the window's own field
+  // instead of closing the window and going to the panel's.
+  const windowActions: IssueActions = {
+    ...actions,
+    addSubIssue: (parentId) => {
+      setWindowParentId(parentId);
+      setFocusWindowNewIssue((count) => count + 1);
+    },
+  };
   const ok = result?.state === "ok";
   // The scrolling band loses the width of its scrollbar; the pinned bands
   // above and below have no scrollbar, so without this their cards would be
@@ -1581,8 +2354,31 @@ function BeadsPanel({ scope }: { scope: Scope }) {
         </div>
       </div>
       {/* Middle band, the only part that scrolls: the grouped issues. */}
+      {/* Dropping a dragged sub-issue anywhere in this band that is not a
+          row (a group heading, the gaps, the empty space below) moves it
+          out to the top level. Rows stop the event themselves, so this only
+          sees drops that missed every row. */}
       <div
         ref={scroller}
+        onDragOver={(event) => {
+          if (
+            draggedBeadId === null ||
+            tree.byId.get(draggedBeadId)?.parentId == null
+          ) {
+            return;
+          }
+          event.preventDefault();
+          event.dataTransfer.dropEffect = "move";
+        }}
+        onDrop={(event) => {
+          const dragged = draggedBeadId;
+          draggedBeadId = null;
+          if (dragged === null || tree.byId.get(dragged)?.parentId == null) {
+            return;
+          }
+          event.preventDefault();
+          actions.setParent(dragged, null);
+        }}
         className="min-h-0 flex-1 space-y-4 overflow-y-auto p-3 [scrollbar-gutter:stable]"
       >
         {failure === null ? null : (
@@ -1664,6 +2460,9 @@ function BeadsPanel({ scope }: { scope: Scope }) {
             <p className="text-sm text-muted-foreground">
               The issue is closed, and this thread's agent is asked to commit
               its work.
+              {closingOpenSubIssues === 0
+                ? ""
+                : ` Its ${closingOpenSubIssues} open ${closingOpenSubIssues === 1 ? "sub-issue is" : "sub-issues are"} closed with it.`}
             </p>
           ) : closingIsCurrent ? (
             <p className="text-sm text-muted-foreground">
@@ -1691,13 +2490,115 @@ function BeadsPanel({ scope }: { scope: Scope }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {/* The details window: one issue with its sub-issues, one level deep,
+          in a window wide enough to read a hierarchy. It is a single window
+          that is moved through, not a stack: a sub-issue's details button
+          changes which issue it shows, and the path at the top goes back
+          up. Its rows are the same rows as the list, so everything the list
+          can do works here too. */}
+      <Dialog
+        open={detailsIssue !== null}
+        onOpenChange={(open) => {
+          if (!open) setDetailsId(null);
+        }}
+      >
+        {/* A fixed, large size: the window is the same whether the issue has
+            one sub-issue or fifty (the user's rule), so it does not jump
+            about while moving through the hierarchy. The list scrolls
+            inside it. */}
+        <DialogContent className="flex h-[85vh] w-[min(64rem,92vw)] max-w-none flex-col">
+          <DialogHeader>
+            <DialogTitle>Issue details</DialogTitle>
+            <DialogDescription asChild>
+              <nav
+                aria-label="Path to this issue"
+                className="flex flex-wrap items-center gap-1 text-sm"
+              >
+                <button
+                  type="button"
+                  className="cursor-pointer text-muted-foreground hover:text-foreground hover:underline"
+                  onClick={() => setDetailsId(null)}
+                >
+                  All issues
+                </button>
+                {detailsPath.map((step, index) => (
+                  <span key={step.id} className="flex items-center gap-1">
+                    <Icon
+                      name="ChevronRight"
+                      className="size-3.5 text-muted-foreground"
+                    />
+                    {index === detailsPath.length - 1 ? (
+                      <span className="text-foreground">{step.title}</span>
+                    ) : (
+                      <button
+                        type="button"
+                        className="cursor-pointer text-muted-foreground hover:text-foreground hover:underline"
+                        onClick={() => setDetailsId(step.id)}
+                      >
+                        {step.title}
+                      </button>
+                    )}
+                  </span>
+                ))}
+              </nav>
+            </DialogDescription>
+          </DialogHeader>
+          {detailsIssue === null ? null : (
+            <ul className="min-h-0 flex-1 divide-y divide-border overflow-y-auto rounded-lg border border-border bg-card">
+              <IssueRow
+                // A fresh row per issue, so moving deeper does not carry the
+                // previous issue's opened or folded state along.
+                key={detailsIssue.id}
+                issue={detailsIssue}
+                actions={windowActions}
+                nested
+                isDetailsRoot
+              />
+            </ul>
+          )}
+          {/* The window's own new-issue field, fixed at its bottom like the
+              panel's. Closed issues take no new sub-issues. */}
+          {detailsIssue === null || detailsIssue.status === "closed" ? null : (
+            <div className="shrink-0">
+              <CreateIssue
+                onCreate={(draft) =>
+                  createIn(windowParent?.id ?? detailsIssue.id, draft)
+                }
+                parent={windowParent}
+                onParentChange={setWindowParentId}
+                parentChoices={[
+                  detailsIssue,
+                  ...[...descendantIds(detailsIssue.id)]
+                    .map((id) => tree.byId.get(id))
+                    .filter(
+                      (issue): issue is Issue =>
+                        issue !== undefined && issue.status !== "closed",
+                    ),
+                ]}
+                focusRequest={focusWindowNewIssue}
+                allowTopLevel={false}
+              />
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
       {/* Bottom band, pinned: the field for a new issue. */}
       {ok ? (
         <div
           className="shrink-0 border-t border-border p-3"
           style={pinnedStyle}
         >
-          <CreateIssue onCreate={create} />
+          <CreateIssue
+            onCreate={(draft) =>
+              createIn(newIssueParentOpen?.id ?? null, draft)
+            }
+            parent={newIssueParentOpen}
+            onParentChange={setNewIssueParentId}
+            parentChoices={(result?.issues ?? []).filter(
+              (issue) => issue.status !== "closed",
+            )}
+            focusRequest={focusNewIssue}
+          />
         </div>
       ) : null}
     </div>

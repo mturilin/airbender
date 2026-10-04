@@ -11,7 +11,7 @@
 // Design notes:
 // - Reading runs `bd --readonly`. The writes to the issue database are
 //   creating (`bd create`), closing (`bd close`), reopening (`bd reopen`)
-//   and changing an issue's type, priority, title or description
+//   and changing an issue's type, priority, title, description or parent
 //   (`bd update`); nothing here deletes an issue or edits its design,
 //   acceptance criteria, notes or comments.
 // - "Define" runs as a background agent: a hidden worker thread that is
@@ -44,6 +44,12 @@
 //   file in each folder a tab has listed, then signals the tabs to reload.
 //   The plugin's own reads (`bd --readonly list` / `comments`) do not touch
 //   that file, so a reload never triggers another reload.
+//
+// - Issues can sit inside other issues, to any depth. beads stores one
+//   `parent` per issue; this backend passes it through as `parentId` and the
+//   tab builds the tree. Play on an issue with sub-issues asks the agent to
+//   work on all of them, and "Close & commit" on it closes all of them
+//   (bead-bb-5qt).
 //
 // Gotchas:
 // - `bd delete` does not rewrite `.beads/last-touched`, so an issue deleted
@@ -89,6 +95,8 @@ const bdIssueSchema = z.object({
   id: z.string(),
   title: z.string(),
   description: z.string().optional(),
+  /** Id of the issue this one sits inside; absent for a top-level issue. */
+  parent: z.string().nullish(),
   design: z.string().optional(),
   acceptance_criteria: z.string().optional(),
   notes: z.string().optional(),
@@ -126,6 +134,12 @@ const issueSchema = z.object({
    * separately (issue_comments), because bd lists only their count.
    */
   commentCount: z.number(),
+  /**
+   * Id of the issue this one is a sub-issue of, or null for a top-level
+   * issue. Any issue can hold sub-issues, to any depth; the tab builds the
+   * tree from this one field.
+   */
+  parentId: z.string().nullable(),
   /**
    * Id of the hidden worker thread that is defining this issue right now,
    * or null. Known only to the running plugin: it is forgotten when the
@@ -199,6 +213,8 @@ export const rpcContract = defineRpcContract({
       type: z.enum(ISSUE_TYPES).nullable(),
       /** 0 (most urgent) to 4; null uses beads' default (2). */
       priority: z.number().int().min(0).max(4).nullable(),
+      /** Create it as a sub-issue of this issue; null for a top-level one. */
+      parentId: z.string().nullable(),
     }),
     // `id` is set on success; `message` explains a failure in plain words.
     output: z.object({ id: z.string().nullable(), message: z.string().nullable() }),
@@ -248,6 +264,19 @@ export const rpcContract = defineRpcContract({
       threadId: z.string().nullable(),
       message: z.string().nullable(),
     }),
+  },
+  issue_set_parent: {
+    // Moves an issue inside another issue (parentId set) or out to the top
+    // level (parentId null). Refused when it would put an issue inside
+    // itself or inside one of its own sub-issues.
+    input: z.object({
+      threadId: z.string().nullable(),
+      projectId: z.string().nullable(),
+      beadId: z.string(),
+      parentId: z.string().nullable(),
+    }),
+    // `message` is null on success, else the reason in plain words.
+    output: z.object({ message: z.string().nullable() }),
   },
   issue_update: {
     // Changes any of an issue's type, priority, title and description; a
@@ -385,6 +414,7 @@ function toIssues(rows: BdIssue[]): Issue[] {
     notes: row.notes ?? "",
     closeReason: row.close_reason ?? "",
     commentCount: row.comment_count ?? 0,
+    parentId: row.parent ?? null,
     defineThreadId: null,
     status: row.status,
     priority: row.priority ?? null,
@@ -395,6 +425,29 @@ function toIssues(rows: BdIssue[]): Issue[] {
     blockedBy: blockedBy.get(row.id) ?? [],
     blocks: blocks.get(row.id) ?? [],
   }));
+}
+
+/**
+ * Every issue inside `rootId`, at any depth, in an order where each issue
+ * comes before the issues inside it (parents before children).
+ *
+ * Guarded against a loop in the data (an issue that is, through bad data, its
+ * own ancestor): each issue is visited once.
+ */
+function descendantsOf(rootId: string, issues: Issue[]): Issue[] {
+  const found: Issue[] = [];
+  const seen = new Set<string>([rootId]);
+  const queue = [rootId];
+  while (queue.length > 0) {
+    const parentId = queue.shift()!;
+    for (const issue of issues) {
+      if (issue.parentId !== parentId || seen.has(issue.id)) continue;
+      seen.add(issue.id);
+      found.push(issue);
+      queue.push(issue.id);
+    }
+  }
+  return found;
 }
 
 /**
@@ -413,9 +466,28 @@ function toIssues(rows: BdIssue[]): Issue[] {
  * precisely because planning may be skipped: a forced plan request would
  * demand a plan and an approval even for a one-line fix.
  */
-function workRequest(beadId: string, title: string): string {
+function workRequest(
+  beadId: string,
+  title: string,
+  subIssues: Issue[],
+): string {
+  // An issue with sub-issues is worked as a whole: the user asked that play
+  // on an epic means "this issue and all its sub-issues" (bead-bb-5qt).
+  const epic =
+    subIssues.length === 0
+      ? []
+      : [
+          "",
+          "This issue has sub-issues. Work on it and all of them together, as one piece of work:",
+          ...subIssues.map(
+            (issue) => `- ${issue.id}: ${JSON.stringify(issue.title)}`,
+          ),
+          "",
+          "Read each sub-issue with `bd show` as well. Steps 1 and 2 below cover the whole set: one round of questions and one plan, which says the order you will take the sub-issues in. In step 3, mark each sub-issue in progress when you start it and add a comment to it when it is finished. Do not close any of them.",
+        ];
   return [
     `Work on beads issue ${beadId}: ${JSON.stringify(title)}. Start with \`bd show ${beadId}\` and \`bd comments ${beadId}\`.`,
+    ...epic,
     "",
     "Go through these steps in order.",
     "",
@@ -811,7 +883,14 @@ export default async function plugin(bb: BbPluginApi) {
     description: string;
     type: (typeof ISSUE_TYPES)[number] | null;
     priority: number | null;
+    parentId: string | null;
   }): Promise<{ id: string | null; message: string | null }> {
+    if (input.parentId !== null && !BEAD_ID_PATTERN.test(input.parentId)) {
+      return {
+        id: null,
+        message: `"${input.parentId}" is not a beads issue id.`,
+      };
+    }
     const folder = await resolveFolder(input);
     if ("reason" in folder) return { id: null, message: folder.reason };
     if (!existsSync(folder.path)) {
@@ -828,6 +907,7 @@ export default async function plugin(bb: BbPluginApi) {
     }
     if (input.type !== null) args.push("--type", input.type);
     if (input.priority !== null) args.push("--priority", `${input.priority}`);
+    if (input.parentId !== null) args.push("--parent", input.parentId);
     const run = await runBdIn(folder.path, args);
     if (run.kind === "not-found") {
       return { id: null, message: BD_NOT_FOUND_MESSAGE };
@@ -1062,14 +1142,36 @@ export default async function plugin(bb: BbPluginApi) {
     issue_comments: (input) => listComments(input),
     issue_create: (input) => createIssue(input),
     issue_close: async ({ commit, ...input }) => {
-      // Read the title before closing: it goes into the message to the agent
-      // and is not part of bd close's answer.
+      // Read the issue before closing: its title goes into the message to
+      // the agent, and its open sub-issues have to be closed first.
+      const before =
+        commit && input.threadId !== null ? await listIssues(input) : null;
       const title =
-        commit && input.threadId !== null
-          ? ((await listIssues(input)).issues.find(
-              (issue) => issue.id === input.beadId,
-            )?.title ?? null)
-          : null;
+        before?.issues.find((issue) => issue.id === input.beadId)?.title ??
+        null;
+      // "Close & commit" on an epic closes everything still open inside it
+      // (the user's decision, bead-bb-5qt). Deepest first, because beads
+      // refuses to close an issue that still has open sub-issues. A plain
+      // close (commit false) does not do this: it is the "drop this issue"
+      // action, and dropping a whole tree by one click would be too easy.
+      const closedSubIssues: Issue[] = [];
+      if (before !== null) {
+        const open = descendantsOf(input.beadId, before.issues).filter(
+          (issue) => issue.status !== CLOSED_STATUS,
+        );
+        for (const subIssue of open.reverse()) {
+          const closedOne = await setIssueOpen("close", {
+            ...input,
+            beadId: subIssue.id,
+          });
+          if (closedOne.message !== null) {
+            return {
+              message: `Could not close sub-issue ${subIssue.id}, so ${input.beadId} was left open: ${closedOne.message}`,
+            };
+          }
+          closedSubIssues.push(subIssue);
+        }
+      }
       const outcome = await setIssueOpen("close", input);
       // Only after bd close succeeded: a failed close (for example a blocked
       // issue) must not leave the agent committing work that is not accepted.
@@ -1087,7 +1189,15 @@ export default async function plugin(bb: BbPluginApi) {
             {
               type: "text",
               mentions: [],
-              text: `The user closed beads issue ${input.beadId}${title === null ? "" : `: ${JSON.stringify(title)}`} from the Beads tab and asked for its work to be committed. Commit the changes that belong to this issue, following the commit rules in AGENTS.md: only this issue's files, the issue's id and title in the subject line, and no push. If there is nothing to commit for it, say so.`,
+              text:
+                `The user closed beads issue ${input.beadId}${title === null ? "" : `: ${JSON.stringify(title)}`} from the Beads tab and asked for its work to be committed.` +
+                (closedSubIssues.length === 0
+                  ? " Commit the changes that belong to this issue, following the commit rules in AGENTS.md: only this issue's files, the issue's id and title in the subject line, and no push. If there is nothing to commit for it, say so."
+                  : ` Its sub-issues were closed with it: ${closedSubIssues
+                      .map((issue) => `${issue.id} (${JSON.stringify(issue.title)})`)
+                      .join(
+                        ", ",
+                      )}. Commit the changes that belong to this issue and those sub-issues, following the commit rules in AGENTS.md: one commit per issue where its changes can be told apart, otherwise one commit whose body lists each issue as id and title; only these issues' files; the issue's id and title in the subject line; and no push. If there is nothing to commit, say so.`),
             },
           ],
         });
@@ -1100,6 +1210,54 @@ export default async function plugin(bb: BbPluginApi) {
     },
     issue_reopen: (input) => setIssueOpen("reopen", input),
     issue_define: (input) => startDefine(input),
+    issue_set_parent: async ({ threadId, projectId, beadId, parentId }) => {
+      if (!BEAD_ID_PATTERN.test(beadId)) {
+        return { message: `"${beadId}" is not a beads issue id.` };
+      }
+      if (parentId !== null && !BEAD_ID_PATTERN.test(parentId)) {
+        return { message: `"${parentId}" is not a beads issue id.` };
+      }
+      const listed = await listIssues({ threadId, projectId });
+      if (listed.state !== "ok" || listed.path === null) {
+        return { message: listed.message ?? "The issues could not be read." };
+      }
+      if (!listed.issues.some((issue) => issue.id === beadId)) {
+        return { message: `Issue ${beadId} is no longer in the list.` };
+      }
+      if (parentId !== null) {
+        if (!listed.issues.some((issue) => issue.id === parentId)) {
+          return { message: `Issue ${parentId} is no longer in the list.` };
+        }
+        // Checked here and not left to bd: an issue inside itself would
+        // disappear from every view that walks the tree from the top.
+        if (
+          parentId === beadId ||
+          descendantsOf(beadId, listed.issues).some(
+            (issue) => issue.id === parentId,
+          )
+        ) {
+          return {
+            message:
+              "An issue cannot be moved inside itself or inside one of its own sub-issues.",
+          };
+        }
+      }
+      // An empty --parent is how bd takes an issue out of its parent.
+      const run = await runBdIn(listed.path, [
+        "update",
+        beadId,
+        "--json",
+        "--parent",
+        parentId ?? "",
+      ]);
+      if (run.kind === "not-found") return { message: BD_NOT_FOUND_MESSAGE };
+      if (run.kind === "failed") {
+        bb.log.warn("bd update --parent failed in " + listed.path + ": " + run.message);
+        return { message: run.message };
+      }
+      bb.realtime.publish(CHANGED_CHANNEL, { threadId });
+      return { message: null };
+    },
     issue_update: async ({
       threadId,
       projectId,
@@ -1169,7 +1327,13 @@ export default async function plugin(bb: BbPluginApi) {
           {
             type: "text",
             mentions: [],
-            text: workRequest(issue.id, issue.title),
+            text: workRequest(
+              issue.id,
+              issue.title,
+              descendantsOf(issue.id, listed.issues).filter(
+                (candidate) => candidate.status !== CLOSED_STATUS,
+              ),
+            ),
           },
         ],
       });
