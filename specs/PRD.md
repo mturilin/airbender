@@ -364,6 +364,8 @@ breaking a requirement above.
 - The category filter includes "No category", is offered once any category
   exists, and is remembered with the rest of the filter.
 - Closed issues show their category but it cannot be changed.
+- The product was first installed under another internal name. A
+  conversation's current issue chosen under that name is still honoured.
 - A push that fails does not undo the commit; the failure is reported and
   the commit stays local until it is pushed.
 - A commit is not amended once made, since it is already pushed; mistakes

@@ -1,4 +1,4 @@
-// bb-plugin-beads — frontend entry.
+// bb-plugin-airbender — frontend entry.
 //
 // What: the "Beads" tab in BB's right-hand panel. It lists the beads issues of
 // the folder a thread works in, grouped by what you can do about them.
@@ -2034,12 +2034,20 @@ const NO_FILTERS: Filters = { types: [], priorities: [], categories: [] };
  *   anything unexpected falls back to "no filters".
  */
 function useFilters(path: string | null) {
-  const key = path === null ? null : `bb-plugin-beads:filters:${path}`;
+  const key = path === null ? null : `bb-plugin-airbender:filters:${path}`;
+  // The key the filters were saved under before the plugin was renamed;
+  // read when nothing is saved under the new one, so the remembered filters
+  // survive the rename.
+  const legacyKey = path === null ? null : `bb-plugin-beads:filters:${path}`;
   const [filters, setFilters] = useState<Filters>(NO_FILTERS);
   useEffect(() => {
     if (key === null) return;
     try {
-      const stored: unknown = JSON.parse(localStorage.getItem(key) ?? "null");
+      const stored: unknown = JSON.parse(
+        localStorage.getItem(key) ??
+          (legacyKey === null ? null : localStorage.getItem(legacyKey)) ??
+          "null",
+      );
       if (typeof stored !== "object" || stored === null) {
         setFilters(NO_FILTERS);
         return;
@@ -2939,11 +2947,6 @@ function BeadsPanel({ scope }: { scope: Scope }) {
   );
 }
 
-// The tab is called "Airbender" in the UI (the product's name; the user
-// renamed it from "Beads issues"). The plugin's id stays "beads", because
-// the id names its settings, its stored per-thread data and its agent tool,
-// and changing it would orphan all three.
-//
 // Two registrations of the same tab: BB offers a different slot for an
 // existing thread than for the New thread screen, and each hands the tab a
 // different id to work from.

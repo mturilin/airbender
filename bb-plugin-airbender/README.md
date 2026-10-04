@@ -1,4 +1,4 @@
-# Airbender (bb-plugin-beads)
+# Airbender (bb-plugin-airbender)
 
 A BB plugin that shows a repository's beads issues in a tab in the right-hand
 panel, beside a thread or on the New thread screen.

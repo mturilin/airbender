@@ -1,4 +1,4 @@
-// bb-plugin-beads — backend entry.
+// bb-plugin-airbender — backend entry.
 //
 // What: the data behind the Beads tab. Lists the beads issues of the folder a
 // thread (or project) works in, creates new ones, and remembers which issue
@@ -343,6 +343,14 @@ export const rpcContract = defineRpcContract({
  * a thread's current bead changes, so every open tab reloads.
  */
 export const CHANGED_CHANNEL = "beads-changed";
+
+/**
+ * The id this plugin had before it was renamed to "airbender". BB keeps a
+ * plugin's per-thread data under the plugin's id, so each thread's current
+ * bead from before the rename is still stored under this one; it is read as
+ * a fallback (see readCurrentBead) and never written.
+ */
+const LEGACY_PLUGIN_ID = "beads";
 
 /** Key under which a thread's current bead id is stored in thread metadata. */
 const CURRENT_BEAD_KEY = "currentBead";
@@ -728,11 +736,22 @@ export default async function plugin(bb: BbPluginApi) {
    */
   async function readCurrentBead(threadId: string | null): Promise<string | null> {
     if (threadId === null) return null;
-    const metadata = await bb.sdk.threads.getPluginMetadata({ threadId });
-    const value = (metadata as Record<string, unknown>)[CURRENT_BEAD_KEY];
-    return typeof value === "string" && BEAD_ID_PATTERN.test(value)
-      ? value
-      : null;
+    const asBeadId = (value: unknown) =>
+      typeof value === "string" && BEAD_ID_PATTERN.test(value) ? value : null;
+    const own = (await bb.sdk.threads.getPluginMetadata({
+      threadId,
+    })) as Record<string, unknown>;
+    // Anything stored under this plugin's own id decides, including a
+    // stored "none" (see writeCurrentBead).
+    if (CURRENT_BEAD_KEY in own) return asBeadId(own[CURRENT_BEAD_KEY]);
+    // Nothing under our own id: the thread may have its choice from before
+    // the plugin was renamed, stored under the old id. Reading it here is
+    // what keeps that data across the rename. A failure to read it is not
+    // worth failing the whole list for.
+    const legacy = (await bb.sdk.threads
+      .getPluginMetadata({ threadId, pluginId: LEGACY_PLUGIN_ID })
+      .catch(() => ({}))) as Record<string, unknown>;
+    return asBeadId(legacy[CURRENT_BEAD_KEY]);
   }
 
   /**
@@ -747,11 +766,13 @@ export default async function plugin(bb: BbPluginApi) {
     threadId: string,
     beadId: string | null,
   ): Promise<void> {
-    await bb.sdk.threads.updatePluginMetadata(
-      beadId === null
-        ? { threadId, remove: [CURRENT_BEAD_KEY] }
-        : { threadId, set: { [CURRENT_BEAD_KEY]: beadId } },
-    );
+    // "None" is stored as an explicit null, not by removing the key: with
+    // the key gone, readCurrentBead would fall back to what the thread had
+    // under the plugin's old id, and a cleared choice would come back.
+    await bb.sdk.threads.updatePluginMetadata({
+      threadId,
+      set: { [CURRENT_BEAD_KEY]: beadId },
+    });
     bb.realtime.publish(CHANGED_CHANNEL, { threadId });
   }
 
@@ -937,9 +958,11 @@ export default async function plugin(bb: BbPluginApi) {
       current !== undefined &&
       current.status === CLOSED_STATUS
     ) {
+      // Stored as an explicit null, for the reason given in
+      // writeCurrentBead.
       await bb.sdk.threads.updatePluginMetadata({
         threadId: input.threadId,
-        remove: [CURRENT_BEAD_KEY],
+        set: { [CURRENT_BEAD_KEY]: null },
       });
       return { state: "ok", path, message: null, issues, currentBeadId: null };
     }
