@@ -77,6 +77,12 @@ priority and type (pick one in use, or "New category…" to type one), or in
 the new-issue form; a new sub-issue takes its parent's. It is stored as the
 beads label `category:<name>`. The Filter menu can narrow by category.
 
+In the new-issue field, tags in the title set things without opening the
+form: `#bug` (or any type), `#p0` to `#p4`, and `$name` for the category,
+for example `Fix login #bug #p1 $ux`. The tags are removed from the title. Typing `#` or `$` shows
+matching suggestions above the field: Up and Down to move, Tab or Enter to
+complete, Escape to close.
+
 ## Limits of this version
 
 - Issues can be created, closed and reopened, and their type, priority,

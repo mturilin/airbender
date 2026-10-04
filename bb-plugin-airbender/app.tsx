@@ -1787,6 +1787,135 @@ function CurrentSection({
   );
 }
 
+/** What the quick tags typed into a new issue's title came to. */
+interface QuickTags {
+  /** The title with the recognised tags taken out. */
+  title: string;
+  type: IssueType | null;
+  priority: number | null;
+  category: string | null;
+}
+
+/**
+ * Reads the quick tags out of a new issue's title (bead-bb-ky8):
+ *
+ * - `#task`, `#bug` and the other issue types set the type;
+ * - `#p0` to `#p4` set the priority;
+ * - `$name` sets the category.
+ *
+ * A tag counts only as a word of its own (at the start, or after a space),
+ * in any mix of capitals. Recognised tags are removed from the title;
+ * anything else, such as `#123` or `$5`, is left in it as typed. When a kind
+ * of tag appears twice, the last one wins.
+ *
+ * A category tag must start with a letter and may contain letters, digits,
+ * `-` and `_`. That rules out prices (`$5`); a title that really needs a
+ * word like `$HOME` in it has to be fixed up with Edit afterwards.
+ */
+function parseQuickTags(typed: string): QuickTags {
+  const found: QuickTags = {
+    title: "",
+    type: null,
+    priority: null,
+    category: null,
+  };
+  const kept: string[] = [];
+  for (const word of typed.split(/\s+/u)) {
+    const lower = word.toLowerCase();
+    const priority = /^#p([0-4])$/u.exec(lower);
+    if (priority !== null) {
+      found.priority = Number(priority[1]);
+    } else if (
+      lower.startsWith("#") &&
+      (ISSUE_TYPES as readonly string[]).includes(lower.slice(1))
+    ) {
+      found.type = lower.slice(1) as IssueType;
+    } else if (/^\$[a-z][a-z0-9_-]*$/u.test(lower)) {
+      found.category = lower.slice(1);
+    } else if (word !== "") {
+      kept.push(word);
+    }
+  }
+  found.title = kept.join(" ");
+  return found;
+}
+
+/** One entry in the tag auto-complete list. */
+interface TagSuggestion {
+  /** What is shown, e.g. "#bug" or "$ux polish". */
+  label: string;
+  /** A word saying what kind of thing it sets: type, priority or category. */
+  kind: "type" | "priority" | "category";
+  /** The value it sets, without the `#` or `$`. */
+  value: string;
+}
+
+/** Most suggestions listed at once. */
+const TAG_SUGGESTIONS_MAX = 8;
+
+/** Whether a category name can be typed as a `$tag` (one plain word). */
+function isTagSafeCategory(name: string): boolean {
+  return /^[a-z][a-z0-9_-]*$/u.test(name);
+}
+
+/**
+ * The tag being typed at the caret, if any: the run of characters from the
+ * last space before the caret up to the caret, when it starts with `#` or
+ * `$`. Returns where it starts in the title and what has been typed of it.
+ */
+function tagAtCaret(
+  title: string,
+  caret: number,
+): { start: number; token: string } | null {
+  const before = title.slice(0, caret);
+  const start = before.search(/\S*$/u);
+  const token = before.slice(start);
+  return token.startsWith("#") || token.startsWith("$")
+    ? { start, token }
+    : null;
+}
+
+/**
+ * What to offer for a partly typed tag. `#` offers the issue types and the
+ * priorities that start with what was typed; `$` offers the categories in
+ * use, those that start with it first, then those that merely contain it. Nothing is offered
+ * once the tag is typed in full, so the list gets out of the way.
+ */
+function suggestTags(token: string, categories: string[]): TagSuggestion[] {
+  const typed = token.slice(1).toLowerCase();
+  const all: TagSuggestion[] =
+    token[0] === "#"
+      ? [
+          ...ISSUE_TYPES.map((type) => ({
+            label: `#${type}`,
+            kind: "type" as const,
+            value: type,
+          })),
+          ...[0, 1, 2, 3, 4].map((priority) => ({
+            label: `#p${priority}`,
+            kind: "priority" as const,
+            value: `p${priority}`,
+          })),
+        ]
+      : categories.map((category) => ({
+          label: `$${category}`,
+          kind: "category" as const,
+          value: category,
+        }));
+  if (all.some((entry) => entry.value === typed)) return [];
+  return [
+    ...all.filter((entry) => entry.value.startsWith(typed)),
+    // "Contains" matches are for categories only, whose names the user may
+    // half remember. For `#` they would offer #epic for "#p", which is noise.
+    ...all.filter(
+      (entry) =>
+        entry.kind === "category" &&
+        !entry.value.startsWith(typed) &&
+        entry.value.includes(typed),
+    ),
+  ].slice(0, TAG_SUGGESTIONS_MAX);
+}
+
 /**
  * The line for creating an issue. Type a title and press Enter for the fast
  * path; the chevron on the left reveals type, priority and description for a
@@ -1846,16 +1975,66 @@ function CreateIssue({
   const [more, setMore] = useState(false);
   const [pending, setPending] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
+  // Quick tags in the title, read as the user types so the line under the
+  // field can show what they will do.
+  const tags = parseQuickTags(title);
+  // Auto-complete for a tag being typed. `caret` follows the text cursor;
+  // `active` is the highlighted suggestion; `dismissed` is the partly typed
+  // tag the user closed the list on with Escape, so it stays closed until
+  // they type something else.
+  const [caret, setCaret] = useState(0);
+  const [active, setActive] = useState(0);
+  const [dismissed, setDismissed] = useState<string | null>(null);
+  const typing = tagAtCaret(title, caret);
+  const suggestions =
+    typing === null || typing.token === dismissed
+      ? []
+      : suggestTags(typing.token, categories);
+  const highlighted = Math.min(active, Math.max(0, suggestions.length - 1));
+  // Where to put the text cursor after a completion has rewritten the title;
+  // applied once React has put the new text in the field.
+  const caretAfter = useRef<number | null>(null);
+  useEffect(() => {
+    if (caretAfter.current === null) return;
+    const position = caretAfter.current;
+    caretAfter.current = null;
+    titleField.current?.setSelectionRange(position, position);
+    setCaret(position);
+  }, [title]);
+  /**
+   * Completes the tag being typed with a suggestion.
+   *
+   * Usually that replaces the partly typed tag with the full one. A category
+   * whose name cannot be written as a tag (it has a space, say) is set
+   * directly instead, and the partly typed tag is removed from the title.
+   */
+  const complete = (suggestion: TagSuggestion) => {
+    if (typing === null) return;
+    const end = typing.start + typing.token.length;
+    const asTag =
+      suggestion.kind !== "category" || isTagSafeCategory(suggestion.value);
+    const inserted = asTag ? `${suggestion.label} ` : "";
+    if (!asTag) setCategory(suggestion.value);
+    // Do not leave two spaces behind when the tag was followed by one.
+    const rest = title.slice(end).replace(/^ /u, "");
+    setTitle(title.slice(0, typing.start) + inserted + rest);
+    caretAfter.current = typing.start + inserted.length;
+    setActive(0);
+    setDismissed(null);
+  };
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (title.trim() === "" || pending) return;
+    // A title that is nothing but tags is not an issue.
+    if (tags.title === "" || pending) return;
     setPending(true);
+    // A tag typed in the title wins over the same choice in the expanded
+    // form: it is the more recent, more deliberate of the two.
     const reason = await onCreate({
-      title: title.trim(),
+      title: tags.title,
       description,
-      type: type === "" ? null : type,
-      priority: priority === "" ? null : Number(priority),
-      category,
+      type: tags.type ?? (type === "" ? null : type),
+      priority: tags.priority ?? (priority === "" ? null : Number(priority)),
+      category: tags.category ?? category,
     });
     setPending(false);
     setProblem(reason);
@@ -1968,6 +2147,57 @@ function CreateIssue({
           />
         </div>
       ) : null}
+      {/* Auto-complete for a tag being typed. In the flow above the field,
+          not floating: the field sits at the bottom edge, and the list above
+          it clips anything that hangs outside. Clicking an entry must not
+          take the focus out of the field, hence onMouseDown. */}
+      {suggestions.length === 0 ? null : (
+        <ul
+          role="listbox"
+          aria-label="Tag suggestions"
+          className="ml-9 flex flex-wrap gap-1"
+        >
+          {suggestions.map((suggestion, index) => (
+            <li key={suggestion.label} role="option" aria-selected={index === highlighted}>
+              <button
+                type="button"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => complete(suggestion)}
+                className={cn(
+                  "cursor-pointer rounded border px-1.5 py-px text-xs",
+                  index === highlighted
+                    ? "border-foreground/40 bg-state-active text-foreground"
+                    : "border-border text-muted-foreground hover:bg-state-hover",
+                )}
+              >
+                {suggestion.label}
+              </button>
+            </li>
+          ))}
+          <li className="self-center text-[11px] text-muted-foreground">
+            Tab to complete
+          </li>
+        </ul>
+      )}
+      {/* What the quick tags in the title will do, shown while typing so
+          that a type, priority or category is never set by surprise. A
+          category picked from the suggestions without becoming a tag (its
+          name has a space) is shown here too. */}
+      {tags.type === null &&
+      tags.priority === null &&
+      (tags.category ?? category) === null ? null : (
+        <div className="flex flex-wrap items-center gap-1.5 pl-9 text-xs text-muted-foreground">
+          <span>Will be created as</span>
+          {tags.type === null ? null : <Tag strong>{tags.type}</Tag>}
+          {tags.priority === null ? null : (
+            <Tag strong>P{tags.priority}</Tag>
+          )}
+          {(tags.category ?? category) === null ? null : (
+            <Tag strong>category {tags.category ?? category}</Tag>
+          )}
+          {tags.title === "" ? <span>— add a title</span> : null}
+        </div>
+      )}
       <div className="flex items-center gap-2">
         {/* Same place as an issue row's chevron. The extra fields open
             upward, because this line sits on the bottom edge of the tab. */}
@@ -1989,10 +2219,43 @@ function CreateIssue({
         <Input
           ref={titleField}
           value={title}
-          onChange={(event) => setTitle(event.target.value)}
+          onChange={(event) => {
+            setTitle(event.target.value);
+            setCaret(event.target.selectionStart ?? event.target.value.length);
+            setActive(0);
+            setDismissed(null);
+          }}
+          // Fires when the text cursor moves without the text changing
+          // (arrow keys, a click), so the suggestions follow the cursor.
+          onSelect={(event) =>
+            setCaret(
+              event.currentTarget.selectionStart ??
+                event.currentTarget.value.length,
+            )
+          }
+          onKeyDown={(event) => {
+            // Only while suggestions are showing. Otherwise the keys keep
+            // their normal meaning; in particular Enter creates the issue.
+            if (suggestions.length === 0) return;
+            if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+              event.preventDefault();
+              const step = event.key === "ArrowDown" ? 1 : -1;
+              setActive(
+                (highlighted + step + suggestions.length) % suggestions.length,
+              );
+            } else if (event.key === "Tab" || event.key === "Enter") {
+              // With the list open, Enter completes the tag instead of
+              // creating the issue.
+              event.preventDefault();
+              complete(suggestions[highlighted]!);
+            } else if (event.key === "Escape") {
+              event.preventDefault();
+              setDismissed(typing?.token ?? null);
+            }
+          }}
           placeholder={
             parent === null
-              ? "New issue — type a title and press Enter"
+              ? "New issue — title, then Enter. #bug #p1 $category"
               : `New sub-issue of ${parent.id} — type a title and press Enter`
           }
           aria-label="New issue title"
@@ -2000,7 +2263,7 @@ function CreateIssue({
         <Button
           type="submit"
           size="sm"
-          disabled={pending || title.trim() === ""}
+          disabled={pending || tags.title === ""}
         >
           <Icon name="Plus" className="size-4" />
           Add

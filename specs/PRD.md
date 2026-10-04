@@ -210,6 +210,13 @@ An issue can contain other issues, and those can contain more, to any depth.
 - A chevron beside the field reveals type, priority and description, for
   writing a full issue. Both the quick way and the full way are supported.
   `[pp7]`
+- **Tags typed in the title set type, priority and category**, without
+  opening the rest of the form: `#` and a type (`#task`, `#bug` and so on)
+  sets the type, `#p0` to `#p4` sets the priority, and `$` and a name sets
+  the category. `[ky8]`
+- **The tags auto-complete.** Typing `#` or `$` offers the matching types,
+  priorities, or categories in use, and one can be picked to complete the
+  tag. `[ky8]`
 - **A parent can be selected there**, so the new issue is created inside
   another issue. "Add sub-issue" on an issue selects it for you. `[5qt]`
 - **After a sub-issue is added in the panel, the parent is cleared.**
@@ -370,6 +377,20 @@ breaking a requirement above.
   the commit stays local until it is pushed.
 - A commit is not amended once made, since it is already pushed; mistakes
   are fixed with a new commit.
+- A tag typed in the title is removed from the title. Tags work in any mix
+  of capitals and anywhere in the title, as words of their own. Anything not
+  recognised, such as `#123` or `$5`, stays in the title as typed. While
+  typing, a line by the field shows what was recognised. A tag in the title
+  wins over the same choice made in the form. A category tag is one word:
+  letters, digits, `-` and `_`, starting with a letter. A title that is only
+  tags is not created. The same works in the details window's field.
+- The tag suggestions appear above the field as soon as `#` or `$` starts a
+  word and narrow as more is typed; up to eight are shown. Up and Down move
+  through them, Tab or Enter completes, Escape closes them, and a click
+  picks one. While suggestions are showing, Enter completes the tag instead
+  of creating the issue. They disappear once a tag is typed in full.
+  Picking a category whose name is not a single word sets the category
+  without putting a tag in the title.
 - Within a group, issues are ordered by priority, most urgent first, then by
   most recently changed.
 - New issues default to type "task" and priority 2 when none is chosen.
