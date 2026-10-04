@@ -35,6 +35,8 @@ issues** under Actions. From top to bottom the tab shows:
    issue has; each opens on its own chevron.
    Priority and type are small dropdowns on each open issue's row; picking a
    value changes the issue straight away.
+   An opened open issue has an Edit button: it turns the title and
+   description into a form with Save and Cancel.
    There are two ways to close, each with its own icon and its own
    confirmation. The "Close & commit" button, on the thread's current bead, closes the
    issue and sends the agent a message asking it to commit the work. The
@@ -56,9 +58,9 @@ this plugin, or one made by an agent or in a terminal with `bd`.
 
 ## Limits of this version
 
-- Issues can be created, closed and reopened, and their type and priority
-  changed, but their text cannot be edited and they cannot be deleted from
-  the tab.
+- Issues can be created, closed and reopened, and their type, priority,
+  title and description changed. Design, acceptance criteria, notes and
+  comments cannot be edited, and issues cannot be deleted, from the tab.
 - The thread's bead is a note kept by BB on the thread; setting it does not
   change the issue's status in beads.
 - `bd` runs on the machine the BB server runs on. Threads whose folder is on

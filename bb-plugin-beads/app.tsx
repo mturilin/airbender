@@ -25,9 +25,10 @@
 //   count and a Show/Hide button; its issues start hidden every time the
 //   tab opens.
 // - The tab can create, close and reopen issues, change an issue's type
-//   and priority in place, and mark which bead a thread is working on (a
-//   note kept in BB, not in beads). It cannot edit an issue's text or
-//   delete one.
+//   and priority in place, edit its title and description from inside the
+//   opened issue, and mark which bead a thread is working on (a note kept
+//   in BB, not in beads). It cannot delete an issue or edit its design,
+//   acceptance criteria, notes or comments.
 // - "Define" starts a background agent for the job and marks the row
 //   while it is busy; the thread the user is in is not touched.
 // - One component, two entry points: a thread tab passes its thread id, the
@@ -320,6 +321,15 @@ interface IssueActions {
     change: { type?: IssueType; priority?: number },
   ) => void;
   /**
+   * Saves a new title and description for an issue. Resolves to null on
+   * success, or to a plain-language reason on failure, so the edit form can
+   * stay open with what was typed.
+   */
+  saveText: (
+    beadId: string,
+    text: { title: string; description: string },
+  ) => Promise<string | null>;
+  /**
    * Starts a background agent that defines the issue. Does nothing
    * visible here beyond the row showing that it is under way.
    */
@@ -592,6 +602,82 @@ function CommentList({
   );
 }
 
+/**
+ * The form that replaces an opened issue's description while its title and
+ * description are being edited.
+ *
+ * The description is edited as the raw Markdown beads stores. Saving an empty
+ * description clears it; an empty title cannot be saved. Cancel leaves the
+ * issue untouched. A failed save keeps the form open with what was typed and
+ * shows the reason.
+ *
+ * @param save Saves both fields; resolves to null on success or to the
+ *   reason on failure.
+ * @param onDone Called after a successful save or a cancel, to close the form.
+ */
+function EditIssueText({
+  issue,
+  save,
+  onDone,
+}: {
+  issue: Issue;
+  save: IssueActions["saveText"];
+  onDone: () => void;
+}) {
+  // Started from the issue as it was when Edit was pressed, and deliberately
+  // not refreshed afterwards: a list reload must not overwrite half-typed text.
+  const [title, setTitle] = useState(issue.title);
+  const [description, setDescription] = useState(issue.description);
+  const [pending, setPending] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (title.trim() === "" || pending) return;
+    setPending(true);
+    const reason = await save(issue.id, { title: title.trim(), description });
+    setPending(false);
+    setProblem(reason);
+    if (reason === null) onDone();
+  };
+  return (
+    <form onSubmit={submit} className="space-y-2">
+      <Input
+        value={title}
+        onChange={(event) => setTitle(event.target.value)}
+        aria-label={`Title of ${issue.id}`}
+        placeholder="Title"
+      />
+      <textarea
+        value={description}
+        onChange={(event) => setDescription(event.target.value)}
+        aria-label={`Description of ${issue.id}`}
+        placeholder="Description (Markdown, optional)"
+        rows={8}
+        className={cn(FIELD_CLASS, "block w-full resize-y font-mono text-xs")}
+      />
+      {problem === null ? null : (
+        <p role="alert" className="text-sm text-destructive">
+          Could not save: {problem}
+        </p>
+      )}
+      <div className="flex gap-2">
+        <Button type="submit" size="sm" disabled={pending || title.trim() === ""}>
+          Save
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={pending}
+          onClick={onDone}
+        >
+          Cancel
+        </Button>
+      </div>
+    </form>
+  );
+}
+
 /** Everything shown when an issue is opened: text, relations, actions. */
 function IssueDetails({
   issue,
@@ -601,9 +687,19 @@ function IssueDetails({
   actions: IssueActions;
 }) {
   const closed = issue.status === "closed";
+  // Whether the title and description are being edited. Kept here, in the
+  // opened issue, so it ends when the issue is closed up; it also ends if
+  // the row is rebuilt because the issue moved to another group.
+  const [editing, setEditing] = useState(false);
   return (
     <div className="space-y-3">
-      {issue.description.trim() === "" ? (
+      {editing ? (
+        <EditIssueText
+          issue={issue}
+          save={actions.saveText}
+          onDone={() => setEditing(false)}
+        />
+      ) : issue.description.trim() === "" ? (
         <p className="text-xs text-muted-foreground">No description.</p>
       ) : (
         <Markdown content={issue.description} className="text-sm" />
@@ -634,6 +730,12 @@ function IssueDetails({
       <div className="flex flex-wrap gap-2">
         {closed ? null : (
           <DefineButton issue={issue} actions={actions} />
+        )}
+        {closed || editing ? null : (
+          <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
+            <Icon name="EditFile" className="size-4" />
+            Edit
+          </Button>
         )}
         {/* The current bead's "drop it" action lives here, out of the way,
             instead of on the row beside "Close & commit". */}
@@ -1337,6 +1439,23 @@ function BeadsPanel({ scope }: { scope: Scope }) {
         reportProblem,
       );
     },
+    saveText: async (beadId, text) => {
+      try {
+        const outcome = await rpc.call("issue_update", {
+          threadId,
+          projectId,
+          beadId,
+          type: null,
+          priority: null,
+          title: text.title,
+          description: text.description,
+        });
+        if (outcome.message === null) refresh();
+        return outcome.message;
+      } catch (cause) {
+        return cause instanceof Error ? cause.message : String(cause);
+      }
+    },
     edit: (beadId, change) => {
       rpc
         .call("issue_update", {
@@ -1345,6 +1464,8 @@ function BeadsPanel({ scope }: { scope: Scope }) {
           beadId,
           type: change.type ?? null,
           priority: change.priority ?? null,
+          title: null,
+          description: null,
         })
         .then((outcome) => {
           setActionProblem(outcome.message);

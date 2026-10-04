@@ -11,8 +11,9 @@
 // Design notes:
 // - Reading runs `bd --readonly`. The writes to the issue database are
 //   creating (`bd create`), closing (`bd close`), reopening (`bd reopen`)
-//   and changing an issue's type or priority (`bd update`); nothing here
-//   edits an issue's text or deletes one.
+//   and changing an issue's type, priority, title or description
+//   (`bd update`); nothing here deletes an issue or edits its design,
+//   acceptance criteria, notes or comments.
 // - "Define" runs as a background agent: a hidden worker thread that is
 //   not shown in the sidebar and is archived and stopped when it finishes,
 //   so the thread the user is working in is not interrupted (bead-bb-4la).
@@ -249,13 +250,17 @@ export const rpcContract = defineRpcContract({
     }),
   },
   issue_update: {
-    // Changes an issue's type and/or priority; a null field is left as is.
+    // Changes any of an issue's type, priority, title and description; a
+    // null field is left as is. An empty description is a value, not "leave
+    // as is": it clears the description.
     input: z.object({
       threadId: z.string().nullable(),
       projectId: z.string().nullable(),
       beadId: z.string(),
       type: z.enum(ISSUE_TYPES).nullable(),
       priority: z.number().int().min(0).max(4).nullable(),
+      title: z.string().trim().min(1).max(500).nullable(),
+      description: z.string().max(20_000).nullable(),
     }),
     // `message` is null on success, else the reason in plain words.
     output: z.object({ message: z.string().nullable() }),
@@ -1095,11 +1100,26 @@ export default async function plugin(bb: BbPluginApi) {
     },
     issue_reopen: (input) => setIssueOpen("reopen", input),
     issue_define: (input) => startDefine(input),
-    issue_update: async ({ threadId, projectId, beadId, type, priority }) => {
+    issue_update: async ({
+      threadId,
+      projectId,
+      beadId,
+      type,
+      priority,
+      title,
+      description,
+    }) => {
       if (!BEAD_ID_PATTERN.test(beadId)) {
         return { message: `"${beadId}" is not a beads issue id.` };
       }
-      if (type === null && priority === null) return { message: null };
+      if (
+        type === null &&
+        priority === null &&
+        title === null &&
+        description === null
+      ) {
+        return { message: null };
+      }
       const folder = await resolveFolder({ threadId, projectId });
       if ("reason" in folder) return { message: folder.reason };
       if (!existsSync(folder.path)) {
@@ -1107,11 +1127,15 @@ export default async function plugin(bb: BbPluginApi) {
           message: `The folder ${folder.path} does not exist on the machine BB runs on.`,
         };
       }
-      // Values come from a fixed list (type) or a checked number (priority),
-      // so nothing free-form reaches bd's command line here.
+      // Type comes from a fixed list and priority is a checked number. Title
+      // and description are free text, so each is passed as the value of a
+      // named flag: text that starts with a dash can then never be read by
+      // bd as an option. No shell is involved (see runBd).
       const args = ["update", beadId, "--json"];
       if (type !== null) args.push("--type", type);
       if (priority !== null) args.push("--priority", `${priority}`);
+      if (title !== null) args.push("--title", title);
+      if (description !== null) args.push("--description", description);
       const run = await runBdIn(folder.path, args);
       if (run.kind === "not-found") return { message: BD_NOT_FOUND_MESSAGE };
       if (run.kind === "failed") {
