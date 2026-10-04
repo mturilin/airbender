@@ -60,8 +60,9 @@ Rules for the layout:
 
 - Current is a group like the others and looks like them: a heading and one
   row. It is not a large card. `[pp7]`
-- Every issue is one collapsed row with a chevron on the left. Opening the
-  chevron shows the rest. A long issue must never push the rest of the panel
+- Every issue is one row with a chevron on the left. Opening the chevron
+  shows the rest. Rows start collapsed, except an issue that has sub-issues
+  (see "Sub-issues"). A long issue must never push the rest of the panel
   down. `[pp7]`
 - The Current row is the same width as the rows in the groups. `[d37]`
 - The refresh button is small and shows only an icon: two circular arrows.
@@ -96,6 +97,9 @@ Rules:
   own button. `[a28]`
 
 ## An issue row
+
+This describes a top-level row. A sub-issue's row is leaner and is described
+under "Sub-issues".
 
 Collapsed, a row shows the title, the issue id, its priority and its type.
 
@@ -148,8 +152,8 @@ An issue can contain other issues, and those can contain more, to any depth.
   drag to re-nest. Play closes the window.
 - **Drag and drop.** Every issue has a drag anchor: a grip on its row that
   the issue is dragged by. Dragging an issue onto another makes it a
-  sub-issue of that one. Dragging a sub-issue onto a group heading or onto empty space in
-  the list moves it out to the top level.
+  sub-issue of that one. Dragging a sub-issue onto a group heading or onto
+  empty space in the list moves it out to the top level.
 - **Move to.** An opened issue has a "Move to" button, for moving it quickly
   to a new parent without dragging: it helps when there are many issues and
   dragging is not possible. It opens a small search field with fuzzy
@@ -194,8 +198,9 @@ One conversation works on at most one issue at a time: its current issue.
 
 ## Starting work (play)
 
-- **While there is no current issue, every open issue has a play button.**
-  `[pp7]`
+- **While there is no current issue, every open issue can be started with
+  play.** A top-level issue has the play button on its row; a sub-issue has
+  it inside the opened sub-issue. `[pp7]` `[5qt]`
 - Play makes the issue current and directs the conversation's agent to work
   on it. `[pp7]`
 - The agent then goes through these steps, in this order: `[avf]`
@@ -231,9 +236,10 @@ why, what "done" means, and a proposed approach.
   `[4la]`
 - It only writes onto the issue. It does not start the work, change files or
   close the issue. `[4la]`
-- **An issue with no description shows the Define button on its row**, as an
-  icon-only button of the same kind as the cancel button. Other issues have
-  it inside the opened issue. `[4la]`
+- **A top-level issue with no description shows the Define button on its
+  row**, as an icon-only button of the same kind as the cancel button. Other
+  issues, and all sub-issues, have it inside the opened issue. `[4la]`
+  `[5qt]`
 - The name is **Define** everywhere. `[—]`
 
 ## Closing
@@ -260,7 +266,8 @@ How they are presented: `[d37]`
   green.
 - For the current issue, Close without commit is less prominent: it is shown
   only inside the opened issue.
-- On a backlog row, the close button is a muted icon.
+- On a top-level backlog row, the close button is a muted icon. A sub-issue
+  is closed from inside the opened sub-issue. `[5qt]`
 - Confirmation for a backlog issue asks only "Are you sure you want to close
   this issue?", with **Close** and **Cancel**. It does not mention commits,
   because committing does not apply there.
@@ -314,7 +321,8 @@ breaking a requirement above.
 - New issues default to type "task" and priority 2 when none is chosen.
 - The types offered are task, feature, bug, chore, epic and decision.
   Priorities run from P0 (most urgent) to P4.
-- A closed row has a Reopen button. Reopening does not ask for confirmation.
+- A closed top-level row has a Reopen button; a closed sub-issue has it
+  inside the opened sub-issue. Reopening does not ask for confirmation.
   A reopened issue comes back as open and does not become current again.
 - Closed issues cannot be edited, and their priority and type cannot be
   changed.
