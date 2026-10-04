@@ -8,7 +8,7 @@
 //
 // Design notes:
 // - Three bands. Pinned at the top: Current (the bead this thread works on)
-//   and a toolbar with the folder, the filter menu and refresh. In the middle,
+//   and a toolbar with the folder and refresh. In the middle,
 //   scrolling: the issues grouped by status. Pinned at the bottom: the field
 //   for a new issue. The tab therefore asks BB for the "flush" layout and
 //   does its own scrolling.
@@ -27,6 +27,10 @@
 //   moves it out to the top level.
 // - Every issue can have one category, shown and changed on its row like
 //   type and priority. The list of categories is simply the ones in use.
+// - The Ready group can be divided into collapsible sub-groups by priority,
+//   type or category (the Group menu on the Ready heading, with the Filter
+//   menu beside it; Ready is therefore always shown). Grouping arranges;
+//   it is separate from filtering, which hides.
 // - Filters (types, priorities, categories) hide rows; they never regroup and never hide
 //   Current. They are remembered per folder in the browser.
 // - The Closed group's heading is always shown, last in the list, with its
@@ -1647,6 +1651,10 @@ function SectionBlock({
   subIssuesClassName,
   listClassName,
   rowHoverClassName,
+  subGroups = [],
+  collapsedSubGroups = [],
+  onToggleSubGroup,
+  emptyNote,
 }: {
   section: Section;
   actions: IssueActions;
@@ -1660,7 +1668,39 @@ function SectionBlock({
   listClassName?: string;
   /** Passed to each row as its hover background; see IssueRow. */
   rowHoverClassName?: string;
+  /**
+   * When not empty, the group is drawn as these sub-groups, each with its
+   * own collapsible heading, instead of one list. Used for Ready when a
+   * grouping is chosen. The group's own heading keeps the total count.
+   */
+  subGroups?: SubGroup[];
+  /** Keys of the sub-groups that are collapsed. */
+  collapsedSubGroups?: string[];
+  /** Collapses or opens a sub-group. */
+  onToggleSubGroup?: (key: string) => void;
+  /** Shown in place of the list when the group has no issues. */
+  emptyNote?: string;
 }) {
+  /** One boxed list of rows; a group has one, or one per sub-group. */
+  const rows = (issues: Issue[]) => (
+    <ul
+      className={cn(
+        "mt-2 divide-y divide-border overflow-hidden rounded-lg border border-border bg-card",
+        listClassName,
+      )}
+    >
+      {issues.map((issue) => (
+        <IssueRow
+          key={issue.id}
+          issue={issue}
+          actions={actions}
+          detailsClassName={detailsClassName}
+          subIssuesClassName={subIssuesClassName}
+          hoverClassName={rowHoverClassName}
+        />
+      ))}
+    </ul>
+  );
   return (
     <section>
       <div className="flex items-center gap-2">
@@ -1675,24 +1715,34 @@ function SectionBlock({
         </div>
         {headerActions}
       </div>
-      {collapsed || section.issues.length === 0 ? null : (
-        <ul
-          className={cn(
-            "mt-2 divide-y divide-border overflow-hidden rounded-lg border border-border bg-card",
-            listClassName,
-          )}
-        >
-          {section.issues.map((issue) => (
-            <IssueRow
-              key={issue.id}
-              issue={issue}
-              actions={actions}
-              detailsClassName={detailsClassName}
-              subIssuesClassName={subIssuesClassName}
-              hoverClassName={rowHoverClassName}
-            />
-          ))}
-        </ul>
+      {section.issues.length === 0 && emptyNote !== undefined ? (
+        <p className="mt-2 text-xs text-muted-foreground">{emptyNote}</p>
+      ) : null}
+      {collapsed || section.issues.length === 0 ? null : subGroups.length ===
+        0 ? (
+        rows(section.issues)
+      ) : (
+        subGroups.map((subGroup) => {
+          const folded = collapsedSubGroups.includes(subGroup.key);
+          return (
+            <div key={subGroup.key} className="mt-3">
+              <button
+                type="button"
+                aria-expanded={!folded}
+                onClick={() => onToggleSubGroup?.(subGroup.key)}
+                className="flex cursor-pointer items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
+              >
+                <Icon
+                  name={folded ? "ChevronRight" : "ChevronDown"}
+                  className="size-3.5 shrink-0"
+                />
+                {subGroup.label}
+                <span className="font-normal">· {subGroup.issues.length}</span>
+              </button>
+              {folded ? null : rows(subGroup.issues)}
+            </div>
+          );
+        })
       )}
     </section>
   );
@@ -2283,9 +2333,101 @@ interface Filters {
   priorities: number[];
   /** Category names; the empty string stands for "no category". */
   categories: string[];
+  /**
+   * How the Ready group is divided into sub-groups; "none" leaves it one
+   * list. Kept here, with the filter, because it is the same kind of thing:
+   * a remembered choice about how this folder's list is shown.
+   */
+  groupBy: GroupBy;
+  /**
+   * Sub-groups the user has collapsed, as "<grouping>:<value>" (for example
+   * "priority:1", "category:ux", "category:" for no category). Kept per
+   * grouping, so switching the grouping and back restores what was folded.
+   */
+  collapsed: string[];
 }
 
-const NO_FILTERS: Filters = { types: [], priorities: [], categories: [] };
+/** The ways the Ready group can be divided. */
+const GROUPINGS = ["none", "priority", "type", "category"] as const;
+type GroupBy = (typeof GROUPINGS)[number];
+
+const NO_FILTERS: Filters = {
+  types: [],
+  priorities: [],
+  categories: [],
+  groupBy: "none",
+  collapsed: [],
+};
+
+/** One sub-group of the Ready group. */
+interface SubGroup {
+  /** "<grouping>:<value>", the key used in Filters.collapsed. */
+  key: string;
+  /** Heading shown to the user, e.g. "P1", "bug", "ux", "No category". */
+  label: string;
+  issues: Issue[];
+}
+
+/**
+ * Divides issues into sub-groups by priority, type or category.
+ *
+ * Order: priority from P0 to P4; type in the order of the type dropdown,
+ * then any other type alphabetically; category alphabetically. Issues with
+ * no value come last, in a sub-group of their own. Sub-groups with no issues
+ * are left out. The order of issues inside a sub-group is the order they
+ * came in.
+ *
+ * Only the issues passed in are placed (top-level ones); an issue's
+ * sub-issues are drawn under it by the row and so travel with their parent,
+ * whatever their own values are.
+ *
+ * @returns An empty list for "none", meaning "do not divide".
+ */
+function toSubGroups(issues: Issue[], groupBy: GroupBy): SubGroup[] {
+  if (groupBy === "none") return [];
+  // The value an issue is grouped under; "" stands for "has none".
+  const valueOf = (issue: Issue): string =>
+    groupBy === "priority"
+      ? issue.priority === null
+        ? ""
+        : `${issue.priority}`
+      : groupBy === "type"
+        ? (issue.type ?? "")
+        : (issue.category ?? "");
+  const byValue = new Map<string, Issue[]>();
+  for (const issue of issues) {
+    const value = valueOf(issue);
+    byValue.set(value, [...(byValue.get(value) ?? []), issue]);
+  }
+  const known = ISSUE_TYPES as readonly string[];
+  const rank = (value: string): [number, string] =>
+    value === ""
+      ? [2, ""] // no value: last
+      : groupBy === "type" && known.includes(value)
+        ? [0, `${known.indexOf(value)}`.padStart(3, "0")] // dropdown order
+        : [groupBy === "type" ? 1 : 0, value]; // otherwise alphabetical
+  const label = (value: string) =>
+    value !== ""
+      ? groupBy === "priority"
+        ? `P${value}`
+        : value
+      : groupBy === "priority"
+        ? "No priority"
+        : groupBy === "type"
+          ? "No type"
+          : "No category";
+  return [...byValue.entries()]
+    .sort(([left], [right]) => {
+      const [leftRank, leftName] = rank(left);
+      const [rightRank, rightName] = rank(right);
+      return leftRank - rightRank || leftName.localeCompare(rightName);
+    })
+    .map(([value, grouped]) => ({
+      key: `${groupBy}:${value}`,
+      label: label(value),
+      issues: grouped,
+    }));
+}
 
 /**
  * Filters for one folder, remembered in the browser's local storage so they
@@ -2315,10 +2457,8 @@ function useFilters(path: string | null) {
         setFilters(NO_FILTERS);
         return;
       }
-      const { types, priorities, categories } = stored as Record<
-        string,
-        unknown
-      >;
+      const { types, priorities, categories, groupBy, collapsed } =
+        stored as Record<string, unknown>;
       setFilters({
         types: Array.isArray(types)
           ? types.filter((value): value is string => typeof value === "string")
@@ -2330,6 +2470,14 @@ function useFilters(path: string | null) {
           : [],
         categories: Array.isArray(categories)
           ? categories.filter(
+              (value): value is string => typeof value === "string",
+            )
+          : [],
+        groupBy: (GROUPINGS as readonly unknown[]).includes(groupBy)
+          ? (groupBy as GroupBy)
+          : "none",
+        collapsed: Array.isArray(collapsed)
+          ? collapsed.filter(
               (value): value is string => typeof value === "string",
             )
           : [],
@@ -2379,6 +2527,113 @@ function FilterOption({
 }
 
 /**
+ * Open/closed state for a small menu that hangs under its button.
+ *
+ * The menu closes on a press outside it or on Escape. Shared by the Filter
+ * and Group menus so both behave alike.
+ *
+ * @returns `open` and `setOpen`, and `root`: a ref to put on the element
+ *   that wraps both the button and the menu, so a press inside either does
+ *   not count as "outside".
+ */
+function useMenu() {
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!root.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+  return { open, setOpen, root };
+}
+
+/** What each grouping is called in the Group menu and on its button. */
+const GROUPING_LABELS: Record<GroupBy, string> = {
+  none: "None",
+  priority: "Priority",
+  type: "Type",
+  category: "Category",
+};
+
+/**
+ * The Group button and its menu, on the Ready heading: how the Ready group
+ * is divided into sub-groups (none, priority, type or category).
+ *
+ * Drawn like the Filter button beside it, and for the same reason shows the
+ * active choice on the button: a divided list should say what divides it.
+ * It replaced a browser dropdown, which the owner found ugly (its open list
+ * is drawn by the operating system, not in the app's style).
+ *
+ * Choosing an entry applies it and closes the menu.
+ */
+function GroupMenu({
+  groupBy,
+  onChange,
+}: {
+  groupBy: GroupBy;
+  onChange: (next: GroupBy) => void;
+}) {
+  const { open, setOpen, root } = useMenu();
+  return (
+    <div ref={root} className="relative shrink-0">
+      <Button
+        variant={groupBy === "none" ? "ghost" : "secondary"}
+        size="sm"
+        aria-expanded={open}
+        tip="Divide the Ready issues into sub-groups you can collapse"
+        onClick={() => setOpen((current) => !current)}
+      >
+        {groupBy === "none"
+          ? "Group"
+          : `By ${GROUPING_LABELS[groupBy].toLowerCase()}`}
+        <Icon name="ChevronDown" className="size-4" />
+      </Button>
+      {open ? (
+        <div
+          role="menu"
+          className="absolute right-0 top-full z-20 mt-1 w-40 rounded-lg border border-border bg-popover p-2 text-popover-foreground shadow-md"
+        >
+          <div className="px-2 pb-1 text-xs font-medium text-muted-foreground">
+            Group Ready by
+          </div>
+          {GROUPINGS.map((choice) => (
+            <button
+              key={choice}
+              type="button"
+              role="menuitemradio"
+              aria-checked={choice === groupBy}
+              onClick={() => {
+                onChange(choice);
+                setOpen(false);
+              }}
+              className={cn(
+                "flex w-full cursor-pointer items-center justify-between rounded px-2 py-1 text-left text-sm hover:bg-state-hover",
+                choice === groupBy && "font-medium",
+              )}
+            >
+              {GROUPING_LABELS[choice]}
+              {choice === groupBy ? (
+                <Icon name="Check" className="size-4 shrink-0" />
+              ) : null}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
  * The Filter button and its menu: types, priorities and categories.
  *
  * The button shows how many narrowing choices (types and priorities) are
@@ -2400,23 +2655,7 @@ function FilterMenu({
   /** Categories in use, so the menu only offers ones that can match. */
   categories: string[];
 }) {
-  const [open, setOpen] = useState(false);
-  const root = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const onPointerDown = (event: PointerEvent) => {
-      if (!root.current?.contains(event.target as Node)) setOpen(false);
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("pointerdown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [open]);
+  const { open, setOpen, root } = useMenu();
   const narrowing =
     filters.types.length +
     filters.priorities.length +
@@ -2500,7 +2739,7 @@ function FilterMenu({
               size="sm"
               className="w-full"
               onClick={() =>
-                onChange({ types: [], priorities: [], categories: [] })
+                onChange({ ...filters, types: [], priorities: [], categories: [] })
               }
             >
               Clear filters
@@ -2666,7 +2905,12 @@ function BeadsPanel({ scope }: { scope: Scope }) {
     const sections = toSections(matching);
     return {
       openSections: sections.filter(
-        (section) => section.id !== "closed" && section.issues.length > 0,
+        // Ready stays even when empty: its heading carries the Group and
+        // Filter buttons, and a filter that emptied Ready must still be
+        // reachable to undo.
+        (section) =>
+          section.id === "ready" ||
+          (section.id !== "closed" && section.issues.length > 0),
       ),
       // Always present, even when empty, so the Closed heading never moves.
       closedSection: sections.find((section) => section.id === "closed")!,
@@ -2932,14 +3176,6 @@ function BeadsPanel({ scope }: { scope: Scope }) {
           >
             {result?.path ?? ""}
           </p>
-          {ok ? (
-            <FilterMenu
-              filters={filters}
-              onChange={setFilters}
-              types={types}
-              categories={categories}
-            />
-          ) : null}
           <Button
             variant="ghost"
             size="icon"
@@ -2999,21 +3235,55 @@ function BeadsPanel({ scope }: { scope: Scope }) {
           <Notice>No issues yet. Create the first one below.</Notice>
         ) : (
           <>
-            {openSections.length > 0 ? (
-              openSections.map((section) => (
-                <SectionBlock
-                  key={section.id}
-                  section={section}
-                  actions={actions}
-                />
-              ))
-            ) : others.length === 0 ? null : (
-              <Notice>
-                {narrowed
-                  ? "No open issues match the filter."
-                  : "No open issues."}
-              </Notice>
-            )}
+            {openSections.map((section) => (
+              <SectionBlock
+                key={section.id}
+                section={section}
+                actions={actions}
+                // Only Ready is divided (the user's choice): it is the long
+                // group, the backlog to choose from.
+                subGroups={
+                  section.id === "ready"
+                    ? toSubGroups(section.issues, filters.groupBy)
+                    : []
+                }
+                collapsedSubGroups={filters.collapsed}
+                onToggleSubGroup={(key) =>
+                  setFilters({
+                    ...filters,
+                    collapsed: toggled(filters.collapsed, key),
+                  })
+                }
+                emptyNote={
+                  section.id !== "ready"
+                    ? undefined
+                    : narrowed
+                      ? "No ready issues match the filter."
+                      : "No ready issues."
+                }
+                // Group and Filter sit on the Ready heading (the owner's
+                // choice). Group only affects Ready; Filter still narrows
+                // every group below Current.
+                headerActions={
+                  section.id !== "ready" ? null : (
+                    <div className="flex shrink-0 items-center gap-1">
+                      <GroupMenu
+                        groupBy={filters.groupBy}
+                        onChange={(groupBy) =>
+                          setFilters({ ...filters, groupBy })
+                        }
+                      />
+                      <FilterMenu
+                        filters={filters}
+                        onChange={setFilters}
+                        types={types}
+                        categories={categories}
+                      />
+                    </div>
+                  )
+                }
+              />
+            ))}
             {/* The Closed heading is always here; its issues are folded
                 away until Show is pressed. */}
             <SectionBlock

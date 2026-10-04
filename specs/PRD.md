@@ -51,8 +51,8 @@ Four bands, top to bottom. `[pp7]`
 
 1. **Current** — the issue this conversation is working on. Stays in place
    when the list scrolls.
-2. **Toolbar** — the repository folder, the filter, and a refresh button.
-   Stays in place.
+2. **Toolbar** — the repository folder and a refresh button. Stays in
+   place.
 3. **Groups** — all other issues. The only part that scrolls.
 4. **New issue** — an entry field that is always there, fixed at the bottom.
 
@@ -108,13 +108,28 @@ An issue can have a category, which says what area it belongs to. `[7ct]`
 
 ## The filter
 
-- One filter control in the toolbar. It filters by **type**, by
-  **priority** and by **category**. `[pp7]` `[7ct]`
+- One filter control, on the **Ready heading**, beside the grouping
+  control. It filters by **type**, by **priority** and by **category**.
+  `[pp7]` `[7ct]` `[aze]`
 - Filtering hides issues. It does not regroup them. `[pp7]`
 - The filter never hides the current issue. `[pp7]`
 - The filter is remembered. `[pp7]`
 - Showing closed issues is not part of the filter; it is the Closed heading's
   own button. `[a28]`
+
+## Grouping the Ready issues
+
+- Besides filtering, the **Ready** group can be **grouped**: divided into
+  sub-groups by **priority**, by **type** or by **category**. `[aze]`
+- **Filter and grouping are both kept.** Filtering hides issues; grouping
+  arranges the ones that are left. `[aze]`
+- **Only the Ready group is divided.** The other groups stay as they are.
+  `[aze]`
+- **One grouping at a time**, or none. `[aze]`
+- **Each sub-group can be collapsed.** `[aze]`
+- **The grouping control sits on the Ready heading**, the group it changes.
+  It is a menu in the product's own style, not the browser's dropdown.
+  `[aze]`
 
 ## An issue row
 
@@ -358,6 +373,25 @@ Behaviour the owner did not ask for or decide. It is what the product does
 today, recorded so a rebuild matches. Any of it may be changed without
 breaking a requirement above.
 
+- The grouping menu offers none, priority, type and category, with a tick on
+  the active one; its button names the active grouping ("By priority").
+- The filter still narrows every group below Current, not only Ready, though
+  its button is on the Ready heading.
+- The Ready heading is always shown, even with no issues under it, so its
+  two controls can always be reached. An empty Ready says "No ready issues."
+  or "No ready issues match the filter."
+- Each sub-group has a heading with its name and how many issues it holds,
+  and a chevron that collapses it. The Ready heading keeps the total.
+- Sub-groups are ordered: priority from P0 to P4; type in the order of the
+  type dropdown, then any other type alphabetically; category
+  alphabetically. Issues with no value come last, under "No priority", "No
+  type" or "No category". A sub-group with no issues is not shown.
+- The filter is applied first; grouping divides what is left.
+- An issue is placed by its own value, and its sub-issues stay under it
+  whatever their own values are.
+- The chosen grouping and the collapsed sub-groups are remembered per
+  repository, on this computer, with the filter. Collapsed sub-groups are
+  remembered separately for each grouping.
 - The category is kept in the tracker as a label, `category:<name>`, so the
   tracker's own tools show it. That label is not shown among an issue's
   other labels.

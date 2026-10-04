@@ -17,9 +17,11 @@ under Actions. From top to bottom the tab shows:
 
 1. **Current** (pinned): the bead this thread is working on, as one row that
    opens on its chevron, with Define and Clear.
-2. **Toolbar** (pinned): the folder, the Filter menu (types, priorities;
-   remembered per folder), and a refresh button.
-3. **Every other issue**, grouped by status; this part scrolls. While the
+2. **Toolbar** (pinned): the folder and a refresh button.
+3. **Every other issue**, grouped by status; this part scrolls. The Ready
+   heading carries two menus, both remembered per folder: Group (divides
+   Ready into collapsible sub-groups by priority, type or category) and
+   Filter (types, priorities, categories; narrows every group). While the
    thread has no bead, each open issue has a play button: it makes that issue
    the thread's bead and sends the agent a message to start on it. The agent
    is told to clarify the requirements with you first, then agree an
