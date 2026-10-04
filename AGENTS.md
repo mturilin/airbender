@@ -13,6 +13,30 @@ This project uses **bd** (beads) for issue tracking. Run `bd prime` for full wor
 > source of truth; don't `bd import` during normal operation; don't
 > reach for third-party Dolt hosting before trying the default).
 
+## The spec
+
+`specs/PRD.md` is the source of truth for what this product does. It is
+written so the product could be rebuilt on another platform from it alone:
+behaviour from the owner's point of view, no implementation details.
+
+- **Read it before you plan or build.** A change must not break a
+  requirement in it without the user deciding so.
+- **Update it after EVERY change.** Any change to what the product does,
+  however small, is not finished until `specs/PRD.md` matches it. The spec
+  and the implementation are updated **in the same commit**: edit the spec
+  in the same piece of work, before you hand over, and commit it with that
+  bead's commit.
+- **The spec describes only what is built.** A new request that is not built
+  yet is not written into the spec; it lives in beads, as a bead. It enters
+  the spec when it is built, in the commit that builds it.
+- **Write only what the user asked for or decided**, in the section it
+  belongs to, with the bead id in brackets. Do not add your own reasoning or
+  ideas.
+- **Behaviour you chose yourself**, because the user did not specify it, goes
+  under "Unspecified details", never among the requirements.
+- When a requirement changes, replace the old text. The spec says what is
+  true now; the history stays on the beads.
+
 ## Record everything in beads
 
 Beads is this project's memory. Chat history is lost when a session ends;
@@ -73,6 +97,8 @@ not at the end.
 - Instead, add a comment that says what was done and how it was checked, and
   state plainly what was not tested: `bd comment <id> "..."`. Leave the bead
   in progress and tell the user it is ready for them to validate.
+- Update `specs/PRD.md` to match what you changed (see "The spec"), and say
+  in your hand-over comment that you did.
 - Anything left undone becomes a new bead before you hand over.
 
 **After the user closes a bead**
