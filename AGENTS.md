@@ -118,8 +118,15 @@ not at the end.
   - A commit that has to cover several beads lists each one in the body as
     `<id>: <title>`.
 - This project opts in to agents committing at this point; it replaces the
-  "do not run git commits" default in the Beads block below. It does not
-  cover pushing: do not push unless asked.
+  "do not run git commits" default in the Beads block below.
+- **Every commit is pushed automatically.** A git hook
+  (`.beads/hooks/post-commit`) pushes the branch to the remote `origin`
+  (the GitHub repository `airbender`) right after each commit. You do not
+  push by hand, and you do not need to be asked. If the hook reports that
+  the push failed, say so to the user with the error; the commit itself is
+  safe locally.
+- **Do not amend or rewrite a commit once it is made.** It is already on the
+  remote, and the hook does not force-push. Fix forward with a new commit.
 - If your own standing instructions require the user's approval for each
   commit, they still apply: propose the exact files and message, and commit
   once the user agrees.

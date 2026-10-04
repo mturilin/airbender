@@ -2939,13 +2939,18 @@ function BeadsPanel({ scope }: { scope: Scope }) {
   );
 }
 
+// The tab is called "Airbender" in the UI (the product's name; the user
+// renamed it from "Beads issues"). The plugin's id stays "beads", because
+// the id names its settings, its stored per-thread data and its agent tool,
+// and changing it would orphan all three.
+//
 // Two registrations of the same tab: BB offers a different slot for an
 // existing thread than for the New thread screen, and each hands the tab a
 // different id to work from.
 export default definePluginApp((app) => {
   app.slots.threadPanelAction({
     id: "issues",
-    title: "Beads issues",
+    title: "Airbender",
     icon: "ListTodo",
     // "flush": the tab does its own scrolling so its top and bottom stay put.
     layout: "flush",
@@ -2955,7 +2960,7 @@ export default definePluginApp((app) => {
   });
   app.slots.experimental_newThreadPanelAction({
     id: "issues",
-    title: "Beads issues",
+    title: "Airbender",
     icon: "ListTodo",
     layout: "flush",
     component: ({ projectId }) => (

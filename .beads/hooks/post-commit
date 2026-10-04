@@ -1,0 +1,55 @@
+#!/usr/bin/env sh
+# post-commit — push every commit as soon as it is made.
+#
+# What: after each commit on a branch, pushes that branch to the remote
+# named "origin".
+#
+# Why: the owner wants every commit backed up and available off this machine
+# without anyone, person or agent, having to remember to push (bead-bb-bfi).
+# A hook does this for every commit, whoever makes it; a written rule would
+# only cover agents that follow it.
+#
+# Design notes:
+# - It lives in .beads/hooks because this repository's core.hooksPath points
+#   there (beads set that up), so git looks for hooks nowhere else. The other
+#   files in that directory are managed by beads; this one is ours, and beads
+#   has no post-commit hook of its own to collide with.
+# - Plain sh, like the hooks beside it. The house default for scripts is
+#   Babashka, but on this machine the name `bb` is the BB app's command, not
+#   Babashka, so a `bb` script here would run the wrong program.
+# - A failed push never fails the commit: git ignores a post-commit hook's
+#   exit status anyway, and the hook says plainly that the commit is local
+#   only, so it can be pushed later with `git push`.
+# - It pushes the current branch to a branch of the same name and sets the
+#   upstream, so a new branch is published by its first commit.
+#
+# Gotchas:
+# - Amending a commit that was already pushed makes the next push fail
+#   ("non-fast-forward"), because the remote has the old commit. The hook
+#   does not force-push. Fix forward with a new commit instead of amending.
+# - It does nothing during a rebase or with a detached HEAD: there is no
+#   settled branch to push yet. Push by hand when the rebase is done.
+# - It pushes code only. The beads issue database is separate (see
+#   `bd dolt push`).
+# - Inside a sandbox with no network the push fails and the warning below is
+#   printed; the commit is still made.
+
+# Only when a remote called "origin" exists.
+git remote get-url origin >/dev/null 2>&1 || exit 0
+
+# Not in the middle of a rebase: commits made there are not final yet.
+git_dir=$(git rev-parse --git-dir 2>/dev/null) || exit 0
+if [ -d "$git_dir/rebase-merge" ] || [ -d "$git_dir/rebase-apply" ]; then
+  exit 0
+fi
+
+# Not with a detached HEAD: there is no branch to push to.
+branch=$(git symbolic-ref --quiet --short HEAD) || exit 0
+
+if git push --quiet --set-upstream origin "$branch"; then
+  echo "post-commit: pushed $branch to origin"
+else
+  echo >&2 "post-commit: the commit was made, but pushing $branch to origin FAILED."
+  echo >&2 "post-commit: it is local only. Run 'git push' once the problem is fixed."
+fi
+exit 0

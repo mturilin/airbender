@@ -671,7 +671,7 @@ export default async function plugin(bb: BbPluginApi) {
         if (environment.hostId !== primaryHostId) {
           return {
             reason:
-              "This thread works on another machine. The Beads tab can only read folders on the machine BB itself runs on.",
+              "This thread works on another machine. The Airbender tab can only read folders on the machine BB itself runs on.",
           };
         }
         if (environment.path !== null) return { path: environment.path };
@@ -1363,14 +1363,14 @@ export default async function plugin(bb: BbPluginApi) {
               type: "text",
               mentions: [],
               text:
-                `The user closed beads issue ${input.beadId}${title === null ? "" : `: ${JSON.stringify(title)}`} from the Beads tab and asked for its work to be committed.` +
+                `The user closed beads issue ${input.beadId}${title === null ? "" : `: ${JSON.stringify(title)}`} from the Airbender tab and asked for its work to be committed.` +
                 (closedSubIssues.length === 0
-                  ? " Commit the changes that belong to this issue, following the commit rules in AGENTS.md: only this issue's files, the issue's id and title in the subject line, and no push. If there is nothing to commit for it, say so."
+                  ? " Commit the changes that belong to this issue, following the commit rules in AGENTS.md: only this issue's files, and the issue's id and title in the subject line. The repository's hook pushes each commit by itself; tell the user if that push fails. If there is nothing to commit for it, say so."
                   : ` Its sub-issues were closed with it: ${closedSubIssues
                       .map((issue) => `${issue.id} (${JSON.stringify(issue.title)})`)
                       .join(
                         ", ",
-                      )}. Commit the changes that belong to this issue and those sub-issues, following the commit rules in AGENTS.md: one commit per issue where its changes can be told apart, otherwise one commit whose body lists each issue as id and title; only these issues' files; the issue's id and title in the subject line; and no push. If there is nothing to commit, say so.`),
+                      )}. Commit the changes that belong to this issue and those sub-issues, following the commit rules in AGENTS.md: one commit per issue where its changes can be told apart, otherwise one commit whose body lists each issue as id and title; only these issues' files; and the issue's id and title in the subject line. The repository's hook pushes each commit by itself; tell the user if that push fails. If there is nothing to commit, say so.`),
             },
           ],
         });
@@ -1529,7 +1529,7 @@ export default async function plugin(bb: BbPluginApi) {
   bb.agents.registerTool({
     name: "beads_set_current",
     description:
-      "Tell BB which beads issue this thread is working on, so the user sees it highlighted in the Beads tab. Pass an empty id to clear it.",
+      "Tell BB which beads issue this thread is working on, so the user sees it highlighted in the Airbender tab. Pass an empty id to clear it.",
     instructions:
       "This repository tracks work in beads. When you start working on a beads issue, or switch to another one, call beads_set_current with its id so the user can see what this thread is working on. Call it with an empty id when the thread is no longer working on any issue. It does not change the issue itself: still claim issues with bd. Do not close an issue when you finish it; the user validates the work and closes it.",
     presentation: {

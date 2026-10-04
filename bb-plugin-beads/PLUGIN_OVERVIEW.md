@@ -3,7 +3,7 @@ tab beside the conversation, without leaving BB.
 
 ## What you get
 
-- A **Beads issues** tab in the right-hand panel of every thread, and on the
+- An **Airbender** tab in the right-hand panel of every thread, and on the
   New thread screen.
 - Issues grouped by what you can do about them: in progress, ready, blocked,
   and closed (hidden until you ask).

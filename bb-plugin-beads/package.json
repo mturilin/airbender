@@ -7,7 +7,7 @@
     "bbPluginSdk": ">=0.5.29"
   },
   "bb": {
-    "name": "Beads",
+    "name": "Airbender",
     "description": "See the beads issues of the folder a thread works in, in a tab beside the conversation.",
     "branding": {
       "icon": "ListTodo"

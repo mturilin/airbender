@@ -1,4 +1,4 @@
-# Beads Tab — Product Requirements
+# Airbender — Product Requirements
 
 This is the source of truth for what the product does. It is written so the
 product could be rebuilt on a different platform from this document alone.
@@ -16,11 +16,11 @@ apart, in "Unspecified details" at the end.
 
 ## What it is
 
-A panel inside the coding-agent app, next to a conversation with an agent. It
-shows the issues of the repository that conversation is working in, lets the
-owner manage them, and connects them to the agent: start the agent on an
-issue, have an agent write an issue up, and have the agent commit the work
-when the owner accepts it.
+Airbender is a panel inside the coding-agent app, next to a conversation with
+an agent. It shows the issues of the repository that conversation is working
+in, lets the owner manage them, and connects them to the agent: start the
+agent on an issue, have an agent write an issue up, and have the agent commit
+the work when the owner accepts it.
 
 Issues are kept by the beads issue tracker, inside the repository. The panel
 is a view of that tracker, not a second tracker.
@@ -324,8 +324,9 @@ These rules apply to any agent working in a repository that uses the product.
 - **Requirements, then plan, then build**, as under "Starting work". `[avf]`
 - **Do not close issues.** The owner validates and closes. `[e1d]`
 - **Commit after the owner closes an issue.** One commit per issue. The
-  commit message carries the issue's id and its description. Nothing is
-  pushed unless asked. `[d37]`
+  commit message carries the issue's id and its description. `[d37]`
+- **Every commit is pushed** to the project's remote repository as soon as
+  it is made, automatically, whoever makes it. `[bfi]`
 - **Update this spec with every change.** The spec and the implementation
   are updated in the same commit. Requests that are not built yet stay in
   the tracker and are not written here. `[wie]`
@@ -338,7 +339,7 @@ These rules apply to any agent working in a repository that uses the product.
 - **Not an auto-closer.** Nothing closes an issue except the owner, or an
   agent the owner told to. `[e1d]`
 - **Not a git tool.** The panel never commits by itself; it asks the agent
-  to. `[d37]`
+  to. Pushing is done by the repository, not by the panel. `[d37]` `[bfi]`
 - **Not multi-machine.** It reads the repository on the machine the app
   itself runs on. `[02g]`
 - **No picker beside the message box.** Choosing the issue to work on from
@@ -363,6 +364,10 @@ breaking a requirement above.
 - The category filter includes "No category", is offered once any category
   exists, and is remembered with the rest of the filter.
 - Closed issues show their category but it cannot be changed.
+- A push that fails does not undo the commit; the failure is reported and
+  the commit stays local until it is pushed.
+- A commit is not amended once made, since it is already pushed; mistakes
+  are fixed with a new commit.
 - Within a group, issues are ordered by priority, most urgent first, then by
   most recently changed.
 - New issues default to type "task" and priority 2 when none is chosen.

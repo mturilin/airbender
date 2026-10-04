@@ -1,4 +1,4 @@
-# bb-plugin-beads
+# Airbender (bb-plugin-beads)
 
 A BB plugin that shows a repository's beads issues in a tab in the right-hand
 panel, beside a thread or on the New thread screen.
@@ -6,14 +6,14 @@ panel, beside a thread or on the New thread screen.
 - `server.ts` — the backend. Finds the folder a thread or project works in,
   runs `bd` there to list and create issues, works out "blocked by" and
   "holds up" from their dependencies, and stores each thread's current bead.
-- `app.tsx` — the frontend. The **Beads issues** tab: issues grouped into in
+- `app.tsx` — the frontend. The **Airbender** tab: issues grouped into in
   progress, ready, blocked, other, and closed.
 - `PLUGIN_OVERVIEW.md` — the text BB shows on the plugin's detail page.
 
 ## Use
 
-Open a thread, open the right-hand panel, choose new tab, then **Beads
-issues** under Actions. From top to bottom the tab shows:
+Open a thread, open the right-hand panel, choose new tab, then **Airbender**
+under Actions. From top to bottom the tab shows:
 
 1. **Current** (pinned): the bead this thread is working on, as one row that
    opens on its chevron, with Define and Clear.
