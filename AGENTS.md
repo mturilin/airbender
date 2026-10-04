@@ -47,6 +47,15 @@ not at the end.
 
 - Every piece of work has a bead. If the user asks for something that has no
   bead yet, create one first (`bd create`), then claim it.
+- **Make the bead you work on the thread's current bead**, by calling the
+  `beads_set_current` tool with its id, as soon as you start on it. This
+  matters most when the work began from a plain typed request and you
+  created the bead yourself: the play button sets the current bead for you,
+  a typed request does not. The Airbender tab offers the user "Close &
+  commit" only on the current bead, so a bead you work on without making it
+  current leaves the user with no button to close it and have it committed.
+  When you switch to another bead, set that one; when the work is committed
+  and you are on no bead, clear it.
 - Give the bead a real description: what is wanted and **why**, in the user's
   own words where possible. Set type and priority.
 - Write what "done" means: `bd update <id> --acceptance "..."`.
