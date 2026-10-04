@@ -336,7 +336,26 @@ export const rpcContract = defineRpcContract({
     input: z.object({ threadId: z.string(), beadId: z.string().nullable() }),
     output: z.object({ currentBeadId: z.string().nullable() }),
   },
+  thread_reply: {
+    // The quick-reply buttons in the message box: sends the thread's agent
+    // one of the fixed replies in QUICK_REPLIES.
+    input: z.object({ threadId: z.string(), kind: z.enum(["go", "agree"]) }),
+    output: z.object({ sent: z.literal(true) }),
+  },
 });
+
+/**
+ * The messages the quick-reply buttons send (bead-bb-lit). They exist so the
+ * user does not have to type "yes, go ahead" after every plan or question.
+ * Two flavours, as the user asked: a plain go-ahead, and one that also says
+ * the agent's recommendations are accepted. Kept here, beside the play
+ * message, so all wording sent to agents on the user's behalf is in one file;
+ * app.tsx repeats it only to show it in the buttons' tooltips.
+ */
+export const QUICK_REPLIES = {
+  go: "Go ahead.",
+  agree: "I agree with your recommendations. Go ahead.",
+} as const;
 
 /**
  * Realtime channel the tab listens on. Published after an issue is created or
@@ -1542,6 +1561,16 @@ export default async function plugin(bb: BbPluginApi) {
       }
       await writeCurrentBead(threadId, beadId);
       return { currentBeadId: beadId };
+    },
+    // Sent from the server, like the play message, rather than through the
+    // message box: that way whatever the user has typed there is left alone.
+    thread_reply: async ({ threadId, kind }) => {
+      await bb.sdk.threads.send({
+        threadId,
+        mode: "auto",
+        input: [{ type: "text", mentions: [], text: QUICK_REPLIES[kind] }],
+      });
+      return { sent: true as const };
     },
   });
 

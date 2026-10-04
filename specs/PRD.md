@@ -325,6 +325,22 @@ How they are presented: `[d37]`
   because committing does not apply there.
 - Confirmation for the current issue says whether a commit will follow.
 
+## In the main window
+
+Two additions outside the tab, in the row of controls inside the message
+box of a conversation, next to the folder and work tree. `[3l4]`
+
+- **Quick replies.** Two buttons that answer the agent without typing: one
+  sends a plain go-ahead, the other says the owner agrees with the agent's
+  recommendations and it should go ahead. One click sends the message.
+  They are icons with tooltips, not text buttons. They are disabled while
+  there is text in the message box. `[lit]`
+- **Current-issue pill.** A pill showing the title of the issue this
+  conversation is working on. Clicking it, or resting the pointer on it
+  for more than two seconds, opens a card with information on the issue: its ID, full title and description. The pill is subtle and
+  sits in the message box's row of controls. `[prr]`
+- With no current issue, the pill is not shown. `[prr]`
+
 ## Tooltips
 
 - **Buttons have tooltips** that say what they do. `[b5o]`
@@ -373,6 +389,24 @@ Behaviour the owner did not ask for or decide. It is what the product does
 today, recorded so a rebuild matches. Any of it may be changed without
 breaking a requirement above.
 
+- The quick-reply buttons are an arrow ("Go") and a tick ("Agree & go").
+  They send "Go ahead." and "I agree with your recommendations. Go ahead."
+  Each button's tooltip shows its name and its message.
+- The quick-reply buttons are disabled while the agent is working.
+- The quick replies and the pill appear only in an existing conversation,
+  not on the New thread screen.
+- The pill's card shows, top to bottom: "Current issue" and when it last
+  changed; the parent's title, for a sub-issue; the title; the ID (which
+  copies itself when clicked) with status, priority, type and category; the
+  description as formatted text; what "done" means, when the issue says;
+  and the sub-issues with a progress bar, closed ones struck through. Long
+  text scrolls inside the card. The card is read-only and opens upwards.
+- A card opened by a click stays until a click outside it or Escape. A
+  card opened by hovering goes away shortly after the pointer leaves both
+  the pill and the card; clicking the pill meanwhile keeps it.
+- The pill has no border, small muted text and a faint green dot; its
+  tooltip shows the full title.
+- The pill follows changes to the current issue by itself.
 - The grouping menu offers none, priority, type and category, with a tick on
   the active one; its button names the active grouping ("By priority").
 - The filter still narrows every group below Current, not only Ready, though

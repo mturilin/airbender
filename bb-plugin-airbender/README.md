@@ -13,7 +13,14 @@ panel, beside a thread or on the New thread screen.
 ## Use
 
 Open a thread, open the right-hand panel, choose new tab, then **Airbender**
-under Actions. From top to bottom the tab shows:
+under Actions.
+
+Outside the tab, in the message box of a thread (its row of controls, which
+BB hides in its compact layout): a pill with the current issue's title that
+opens a small pop-up with its details, and two quick-reply icon buttons, "Go" (arrow) and
+"Agree & go" (tick), that send the agent a go-ahead without typing.
+
+From top to bottom the tab shows:
 
 1. **Current** (pinned): the bead this thread is working on, as one row that
    opens on its chevron, with Define and Clear.
