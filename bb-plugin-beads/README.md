@@ -69,6 +69,9 @@ The list refreshes when the tab opens, when you press Refresh, when the BB
 window regains focus, and after any change to the issues: one made through
 this plugin, or one made by an agent or in a terminal with `bd`.
 
+Buttons have tooltips, clicking an issue's id copies it, and the current
+issue's row has a thicker border so it stands out.
+
 ## Limits of this version
 
 - Issues can be created, closed and reopened, and their type, priority,

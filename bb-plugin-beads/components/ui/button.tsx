@@ -4,6 +4,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 
 import { cn } from "../../lib/utils";
 import { CONTROL_HOVER_TRANSITION } from "./motion.js";
+import { Tip } from "./tip";
 
 const buttonVariants = cva(
   `inline-flex cursor-pointer items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ${CONTROL_HOVER_TRANSITION} focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 [&_[data-icon-root]]:pointer-events-none [&_[data-icon-root]]:size-4 [&_[data-icon-root]]:shrink-0`,
@@ -40,18 +41,24 @@ export interface ButtonProps
     Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, "title">,
     VariantProps<typeof buttonVariants> {
   asChild?: boolean;
+  /**
+   * Tooltip text. Added for the Beads tab (bead-bb-b5o): when set, the
+   * button is wrapped in a Tip that shows this text on hover and on focus.
+   */
+  tip?: string;
 }
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant, size, asChild = false, ...props }, ref) => {
+  ({ className, variant, size, asChild = false, tip, ...props }, ref) => {
     const Comp = asChild ? Slot : "button";
-    return (
+    const button = (
       <Comp
         className={cn(buttonVariants({ variant, size, className }))}
         ref={ref}
         {...props}
       />
     );
+    return tip === undefined ? button : <Tip label={tip}>{button}</Tip>;
   },
 );
 Button.displayName = "Button";

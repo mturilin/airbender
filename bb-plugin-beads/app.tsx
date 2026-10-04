@@ -88,7 +88,9 @@ import {
 } from "@/components/ui/dialog";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
+import { Tip } from "@/components/ui/tip";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 /** Must match CHANGED_CHANNEL in server.ts. */
 const CHANGED_CHANNEL = "beads-changed";
@@ -408,6 +410,7 @@ function DefineButton({
     return (
       <Button
         {...look}
+        tip="A background agent is writing this issue up. Click to open it."
         aria-label={`Open the background agent that is defining ${issue.id}`}
         onClick={() => navigate.toThread(running)}
       >
@@ -419,6 +422,7 @@ function DefineButton({
   return (
     <Button
       {...look}
+      tip="Define: have a background agent write this issue up (what is wanted, what done means, and an approach)"
       aria-label={`Define ${issue.id} with a background agent`}
       onClick={() => actions.define(issue.id)}
     >
@@ -451,9 +455,25 @@ function IssueFacts({
       : [issue.type, ...ISSUE_TYPES];
   return (
     <span className="mt-1 flex flex-wrap items-center gap-1.5">
-      <span className="font-mono text-xs text-muted-foreground">
-        {issue.id}
-      </span>
+      {/* Clicking the id copies it (bead-bb-c58): ids are what you type
+          to an agent or into bd, and they are awkward to select by hand
+          between the tags. */}
+      <Tip label="Copy the id">
+        <button
+          type="button"
+          className="cursor-copy font-mono text-xs text-muted-foreground hover:text-foreground"
+          onClick={() => {
+            // The clipboard can be refused (no permission, or the page is
+            // not focused); say so instead of failing silently.
+            navigator.clipboard.writeText(issue.id).then(
+              () => toast.success(`Copied ${issue.id}`),
+              () => toast.error(`Could not copy ${issue.id}`),
+            );
+          }}
+        >
+          {issue.id}
+        </button>
+      </Tip>
       {showStatus ? (
         <Tag strong={issue.status === "in_progress"}>
           {issue.blockedBy.length > 0 && issue.status !== "closed"
@@ -969,12 +989,21 @@ function IssueDetails({
           <CommentList issue={issue} load={actions.loadComments} />
         </Collapsible>
       )}
-      <div className="flex flex-wrap gap-2">
+      {/* The opened issue's buttons are deliberately quiet (the user's
+          request, bead-bb-zty.1): short, small text, no border, a soft
+          background, so a row of them does not pull the eye away from the
+          issue's text. Styled here once, for every button in the row. */}
+      <div className="flex flex-wrap gap-1.5 [&>button]:h-6 [&>button]:gap-1 [&>button]:rounded [&>button]:border-0 [&>button]:bg-foreground/[0.06] [&>button]:px-2 [&>button]:text-xs [&>button]:font-normal [&>button]:text-muted-foreground [&>button]:shadow-none [&>button:hover]:bg-foreground/[0.12] [&>button:hover]:text-foreground [&>button_[data-icon-root]]:size-3.5">
         {closed ? null : (
           <DefineButton issue={issue} actions={actions} />
         )}
         {closed || editing ? null : (
-          <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
+          <Button
+            variant="outline"
+            size="sm"
+            tip="Edit the title and description"
+            onClick={() => setEditing(true)}
+          >
             <Icon name="EditFile" className="size-4" />
             Edit
           </Button>
@@ -986,6 +1015,7 @@ function IssueDetails({
           <Button
             variant="outline"
             size="sm"
+            tip="Create a new issue inside this one, using the new-issue field below"
             onClick={() => actions.addSubIssue(issue.id)}
           >
             <Icon name="Plus" className="size-4" />
@@ -996,7 +1026,12 @@ function IssueDetails({
             drop is far off screen. It also covers moving out, so there is
             one button for both. */}
         {moving ? null : (
-          <Button variant="outline" size="sm" onClick={() => setMoving(true)}>
+          <Button
+            variant="outline"
+            size="sm"
+            tip="Move this issue inside another issue, or out to the top level"
+            onClick={() => setMoving(true)}
+          >
             <Icon name="MoveTo" className="size-4" />
             Move to
           </Button>
@@ -1011,6 +1046,7 @@ function IssueDetails({
           <Button
             variant="outline"
             size="sm"
+            tip="Make this the issue the conversation is working on and start the agent on it"
             onClick={() => actions.start?.(issue.id)}
           >
             <Icon name="Play" className="size-4" />
@@ -1021,6 +1057,7 @@ function IssueDetails({
           <Button
             variant="outline"
             size="sm"
+            tip="Open this issue and its sub-issues in the details window"
             onClick={() => actions.openDetails(issue.id)}
           >
             <Icon name="Maximize2" className="size-4" />
@@ -1035,6 +1072,7 @@ function IssueDetails({
             variant="ghost"
             size="sm"
             className="text-muted-foreground"
+            tip="Reopen this issue"
             onClick={() => actions.reopen(issue.id)}
           >
             <Icon name="RotateCcw" className="size-4" />
@@ -1045,6 +1083,7 @@ function IssueDetails({
             variant="ghost"
             size="sm"
             className="text-muted-foreground"
+            tip="Close this issue without committing anything"
             onClick={() => actions.close(issue.id, false)}
           >
             <Icon name="CircleX" className="size-4" />
@@ -1058,6 +1097,7 @@ function IssueDetails({
             variant="ghost"
             size="sm"
             className="text-muted-foreground"
+            tip="Close this issue without committing: use it to drop the issue"
             onClick={() => actions.close(issue.id, false)}
           >
             <Icon name="CircleX" className="size-4" />
@@ -1103,6 +1143,8 @@ function IssueRow({
   showSubIssues = true,
   subIssuesClassName,
   isDetailsRoot = false,
+  lean = false,
+  hoverClassName = "hover:bg-state-hover",
 }: {
   issue: Issue;
   actions: IssueActions;
@@ -1116,9 +1158,21 @@ function IssueRow({
   subIssuesClassName?: string;
   /**
    * This row is the issue the details window is showing, so it needs no
-   * button to open the details window on itself.
+   * button to open the details window on itself. Its sub-issues are drawn
+   * as full-size rows: the window has the room (bead-bb-zty.2).
    */
   isDetailsRoot?: boolean;
+  /**
+   * Draw this row as the lean one-line sub-issue row. Set by a parent row in
+   * the panel for its sub-issues.
+   */
+  lean?: boolean;
+  /**
+   * The background a row's line takes while the pointer is on it. The
+   * default is the app's gray hover. Current passes a green one: the gray,
+   * laid over Current's green background, came out gray-green.
+   */
+  hoverClassName?: string;
 }) {
   const subIssues = actions.childrenOf(issue.id);
   const hasSubIssues = showSubIssues && subIssues.length > 0;
@@ -1137,14 +1191,14 @@ function IssueRow({
   // The row's line, used as the picture that follows the pointer in a drag.
   const line = useRef<HTMLDivElement>(null);
   const closed = issue.status === "closed";
-  // A sub-issue drawn under its parent is a leaner row than a top-level one
-  // (the user's request: they looked the same and were as tall): one line,
-  // smaller text, only status and priority beside the title, no buttons on
-  // the row at all, and the grip shown only while the pointer or the
-  // keyboard is on the row.
-  // The issue the details window shows is not compact: it is the subject
-  // there, not one of many.
-  const compact = nested && !isDetailsRoot;
+  // A sub-issue drawn under its parent in the panel is a leaner row than a
+  // top-level one (the user's request: they looked the same and were as
+  // tall): one line, smaller text, only status and priority beside the
+  // title, no buttons on the row at all, and the grip shown only while the
+  // pointer or the keyboard is on the row. In the details window sub-issues
+  // are full-size rows instead, so `lean` is passed down, not worked out
+  // from `nested`.
+  const compact = lean;
   const openCount = subIssues.filter(
     (subIssue) => subIssue.status !== "closed",
   ).length;
@@ -1177,7 +1231,8 @@ function IssueRow({
           actions.setParent(dragged, issue.id);
         }}
         className={cn(
-          "group/row relative flex hover:bg-state-hover",
+          "group/row relative flex",
+          hoverClassName,
           compact ? "items-center" : "items-start",
           dropTarget && "bg-state-active outline outline-1 outline-ring",
         )}
@@ -1186,6 +1241,7 @@ function IssueRow({
             the title's text, using the dropdowns and clicking buttons on the
             row never drags it by accident. The whole line is shown as the
             thing being dragged. */}
+        <Tip label="Drag onto another issue to nest it, or onto a group heading to move it out">
         <span
           draggable
           role="img"
@@ -1216,6 +1272,7 @@ function IssueRow({
             className={cn("size-4 shrink-0", !compact && "mt-0.5")}
           />
         </span>
+        </Tip>
         {/* The chevron and the title both open the issue. They are two
             separate buttons with the facts line outside them, because the
             priority and type dropdowns on that line are controls of their
@@ -1303,6 +1360,7 @@ function IssueRow({
             variant="ghost"
             size="icon"
             className="m-1 size-7 shrink-0 text-muted-foreground"
+            tip="Open this issue and its sub-issues in the details window"
             aria-label={`Open ${issue.id} and its sub-issues in the details window`}
             onClick={() => actions.openDetails(issue.id)}
           >
@@ -1325,6 +1383,7 @@ function IssueRow({
             variant="ghost"
             size="icon"
             className="m-1 size-7 shrink-0"
+            tip="Start work: make this the current issue and start the agent on it"
             aria-label={`Start work on ${issue.id}: ${issue.title}`}
             onClick={() => actions.start?.(issue.id)}
           >
@@ -1352,6 +1411,7 @@ function IssueRow({
             variant="ghost"
             size="icon"
             className="m-1 size-7 shrink-0"
+            tip="Reopen this issue"
             aria-label={`Reopen ${issue.id}: ${issue.title}`}
             onClick={() => actions.reopen(issue.id)}
           >
@@ -1362,6 +1422,7 @@ function IssueRow({
             variant="outline"
             size="sm"
             className="m-1 h-7 shrink-0 px-2"
+            tip="The work is accepted: close the issue and ask the agent to commit it"
             aria-label={`Close and commit ${issue.id}: ${issue.title}`}
             onClick={() => actions.close(issue.id, true)}
           >
@@ -1373,6 +1434,7 @@ function IssueRow({
             variant="ghost"
             size="icon"
             className="m-1 size-7 shrink-0 text-muted-foreground"
+            tip="Close this issue without committing: use it to drop the issue"
             aria-label={`Close ${issue.id}: ${issue.title}`}
             onClick={() => actions.close(issue.id, false)}
           >
@@ -1399,11 +1461,13 @@ function IssueRow({
       {hasSubIssues && open ? (
         <ul
           className={cn(
-            // A block only slightly darker than the rows around it (the user
-            // asked for a slight difference, half of the first attempt),
-            // with a rail down its left edge, so the sub-issues read as
-            // "inside" the row above them.
-            "ml-6 divide-y divide-border border-l-2 border-t border-border border-l-foreground/25 bg-black/[0.035]",
+            // A rail down the left edge, so the sub-issues read as "inside"
+            // the row above them. In the panel the block is also slightly
+            // darker than the rows around it (the user asked for a slight
+            // difference); in the details window the rows are full size and
+            // need no tint to be told apart.
+            "ml-6 divide-y divide-border border-l-2 border-t border-border border-l-foreground/25",
+            !isDetailsRoot && "bg-black/[0.035]",
             subIssuesClassName,
           )}
         >
@@ -1414,6 +1478,8 @@ function IssueRow({
               actions={actions}
               nested
               showSubIssues={false}
+              lean={!isDetailsRoot}
+              hoverClassName={hoverClassName}
             />
           ))}
         </ul>
@@ -1433,6 +1499,8 @@ function SectionBlock({
   detailsClassName,
   collapsed = false,
   subIssuesClassName,
+  listClassName,
+  rowHoverClassName,
 }: {
   section: Section;
   actions: IssueActions;
@@ -1442,6 +1510,10 @@ function SectionBlock({
   collapsed?: boolean;
   /** Passed to each row; see IssueRow. */
   subIssuesClassName?: string;
+  /** Extra classes for the box around the rows, e.g. Current's border. */
+  listClassName?: string;
+  /** Passed to each row as its hover background; see IssueRow. */
+  rowHoverClassName?: string;
 }) {
   return (
     <section>
@@ -1458,7 +1530,12 @@ function SectionBlock({
         {headerActions}
       </div>
       {collapsed || section.issues.length === 0 ? null : (
-        <ul className="mt-2 divide-y divide-border overflow-hidden rounded-lg border border-border bg-card">
+        <ul
+          className={cn(
+            "mt-2 divide-y divide-border overflow-hidden rounded-lg border border-border bg-card",
+            listClassName,
+          )}
+        >
           {section.issues.map((issue) => (
             <IssueRow
               key={issue.id}
@@ -1466,6 +1543,7 @@ function SectionBlock({
               actions={actions}
               detailsClassName={detailsClassName}
               subIssuesClassName={subIssuesClassName}
+              hoverClassName={rowHoverClassName}
             />
           ))}
         </ul>
@@ -1494,7 +1572,12 @@ function CurrentSection({
   const { currentBeadId, setCurrent } = actions;
   if (setCurrent === null) return null;
   const clear = (
-    <Button variant="ghost" size="sm" onClick={() => setCurrent(null)}>
+    <Button
+      variant="ghost"
+      size="sm"
+      tip="Stop treating this as the issue the conversation is working on"
+      onClick={() => setCurrent(null)}
+    >
       Clear
     </Button>
   );
@@ -1513,13 +1596,21 @@ function CurrentSection({
         // current bead's sub-issues scroll inside a cap. The two caps
         // together leave at least half the panel to the list.
         detailsClassName="max-h-[22vh] overflow-y-auto"
-        subIssuesClassName="max-h-[22vh] overflow-y-auto"
-        headerActions={
-          <>
-            <DefineButton issue={issue} actions={actions} />
-            {clear}
-          </>
-        }
+        // The current issue stands out by a box with a thicker border and a
+        // light green background, the look the user chose after trying it
+        // (bead-bb-6ui).
+        //
+        // The green is BB's theme "success" colour mixed INTO the card
+        // colour, giving a solid colour. The first attempts used the green
+        // at low opacity instead, which let whatever lay underneath show
+        // through: the panel's gray background at rest, and the gray hover
+        // on top, so it read as gray-green. A solid mix cannot pick up gray.
+        // Hover is the same mix with more green, nothing else.
+        listClassName="border-2 border-success/40 bg-[color:color-mix(in_oklab,var(--success)_9%,var(--card))]"
+        rowHoverClassName="hover:bg-[color:color-mix(in_oklab,var(--success)_18%,var(--card))]"
+        // The current issue's sub-issues get no darker tint of their own:
+        // gray over green is the same gray-green again.
+        subIssuesClassName="max-h-[22vh] overflow-y-auto bg-transparent"
       />
     );
   }
@@ -1618,6 +1709,11 @@ function CreateIssue({
     if (reason !== null) return;
     setTitle("");
     setDescription("");
+    // The parent is for the one issue just created (the user's rule,
+    // bead-bb-zty.5): left selected, the next issue typed here would land
+    // inside it unnoticed. In the details window this puts the field back to
+    // the issue the window is showing.
+    onParentChange(null);
   };
   return (
     <form onSubmit={submit} className="space-y-2">
@@ -1627,8 +1723,7 @@ function CreateIssue({
         </p>
       )}
       {/* Always shown while a parent is selected, expanded or not, so a new
-          issue never lands inside another one unnoticed. It stays selected
-          after creating, to add several sub-issues in a row. */}
+          issue never lands inside another one unnoticed. */}
       {parent === null ? null : (
         <div className="flex items-center gap-2 pl-9 text-xs text-muted-foreground">
           <span className="min-w-0 flex-1 truncate">
@@ -1715,6 +1810,7 @@ function CreateIssue({
           size="icon"
           className="size-7 shrink-0"
           aria-expanded={more}
+          tip="Set type, priority, description and parent"
           aria-label={more ? "Hide type, priority and description" : "Add type, priority and description"}
           onClick={() => setMore((current) => !current)}
         >
@@ -2342,6 +2438,7 @@ function BeadsPanel({ scope }: { scope: Scope }) {
             variant="ghost"
             size="icon"
             className="size-8 shrink-0"
+            tip="Refresh the list"
             aria-label="Refresh"
             disabled={loading}
             onClick={refresh}

@@ -60,6 +60,10 @@ Rules for the layout:
 
 - Current is a group like the others and looks like them: a heading and one
   row. It is not a large card. `[pp7]`
+- The current issue is displayed more prominently than the other rows: its
+  row has a box around it with a light green background. On hover the green
+  gets a little stronger; it must stay green and never turn gray-green.
+  `[6ui]`
 - Every issue is one row with a chevron on the left. Opening the chevron
   shows the rest. Rows start collapsed, except an issue that has sub-issues
   (see "Sub-issues"). A long issue must never push the rest of the panel
@@ -105,6 +109,7 @@ Collapsed, a row shows the title, the issue id, its priority and its type.
 
 - **Priority and type are changed right on the row**, for open issues.
   `[ssf]`
+- **Clicking the issue's id copies it** to the clipboard. `[c58]`
 - Buttons on the row are described under "Starting work", "Define" and
   "Closing".
 
@@ -122,6 +127,9 @@ Opening a row shows:
   into a form with Save and Cancel. Clicking a title does not edit it; it
   opens the issue. `[vve]`
 - The Define button (see "Define").
+- **The buttons inside an opened issue are lean and quiet**: little vertical
+  padding, and less prominent than ordinary buttons, with no sharp border,
+  so they do not take much space or attract too much attention. `[zty.1]`
 
 ## Sub-issues (epics)
 
@@ -172,6 +180,9 @@ An issue can contain other issues, and those can contain more, to any depth.
   - a rail runs down its left edge;
   - each sub-issue is one compact line, about half the height of a
     top-level row;
+  - this lean row is for the panel only. **In the details window sub-issues
+    are full-size rows**, the same as normal issues in the panel, because
+    the window has the room; `[zty.2]`
   - a sub-issue row has no buttons, not even on hover. Play, Define,
     close and the way into the details window are inside the opened
     sub-issue. Only the drag anchor appears while the pointer is on the row.
@@ -184,6 +195,8 @@ An issue can contain other issues, and those can contain more, to any depth.
   `[pp7]`
 - **A parent can be selected there**, so the new issue is created inside
   another issue. "Add sub-issue" on an issue selects it for you. `[5qt]`
+- **After a sub-issue is added in the panel, the parent is cleared.**
+  `[zty.5]`
 
 ## Current
 
@@ -272,6 +285,10 @@ How they are presented: `[d37]`
   this issue?", with **Close** and **Cancel**. It does not mention commits,
   because committing does not apply there.
 - Confirmation for the current issue says whether a commit will follow.
+
+## Tooltips
+
+- **Buttons have tooltips** that say what they do. `[b5o]`
 
 ## Staying up to date
 
@@ -372,8 +389,19 @@ breaking a requirement above.
 - Dragging does not ask for confirmation.
 - A description counts as long above about 240 characters or four lines.
 - While a parent is selected in the new-issue field, a line above the field
-  names it and has a button to clear it. The parent stays selected after an
-  issue is created, so several sub-issues can be added in a row.
+  names it and has a button to clear it.
+- In the details window, after a sub-issue is added the field goes back to
+  the issue the window is showing.
+- Copying an id is confirmed by a short message; a refused copy says so.
+- Tooltips are on every icon-only control and on labelled buttons whose
+  effect is not obvious from the label; they also show on keyboard focus.
+- The box around the current issue has a thicker border than other rows,
+  also green. The green is the theme's own "success" green, mixed lightly
+  into the row's normal background.
+- The current issue's sub-issues sit on the same green, without the darker
+  tint sub-issues have elsewhere.
+- In the details window the block of sub-issues keeps its left rail but has
+  no darker background.
 - The window's new-issue field creates inside the issue the window is
   showing unless another issue inside it was chosen; it cannot create a
   top-level issue. It is not shown for a closed issue.
