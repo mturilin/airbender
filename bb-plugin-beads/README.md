@@ -72,6 +72,11 @@ this plugin, or one made by an agent or in a terminal with `bd`.
 Buttons have tooltips, clicking an issue's id copies it, and the current
 issue's row has a thicker border so it stands out.
 
+An issue can have one category, set from a dropdown on its row next to
+priority and type (pick one in use, or "New category…" to type one), or in
+the new-issue form; a new sub-issue takes its parent's. It is stored as the
+beads label `category:<name>`. The Filter menu can narrow by category.
+
 ## Limits of this version
 
 - Issues can be created, closed and reopened, and their type, priority,

@@ -25,7 +25,9 @@
 //   it, and the same button inside the window goes deeper. Dragging a row
 //   onto another nests it; dragging it onto anything that is not a row
 //   moves it out to the top level.
-// - Filters (types, priorities) hide rows; they never regroup and never hide
+// - Every issue can have one category, shown and changed on its row like
+//   type and priority. The list of categories is simply the ones in use.
+// - Filters (types, priorities, categories) hide rows; they never regroup and never hide
 //   Current. They are remembered per folder in the browser.
 // - The Closed group's heading is always shown, last in the list, with its
 //   count and a Show/Hide button; its issues start hidden every time the
@@ -362,6 +364,14 @@ interface IssueActions {
    * into one of its own sub-issues, and not where it already is.
    */
   canNest: (beadId: string, parentId: string) => boolean;
+  /** The categories in use in this repository, in alphabetical order. */
+  categories: string[];
+  /**
+   * Sets an issue's category (replacing the one it has) or, with null,
+   * clears it. Straight away and without confirmation, like type and
+   * priority.
+   */
+  setCategory: (beadId: string, category: string | null) => void;
   /**
    * The issues `beadId` may be moved into: every open issue except itself,
    * its own sub-issues at any depth, and the parent it is already in.
@@ -433,14 +443,117 @@ function DefineButton({
 }
 
 /** Priority, type and similar small facts about an issue, on one line. */
+/** Value of the dropdown entry that switches CategorySelect to typing. */
+const NEW_CATEGORY = "\u0000new";
+
+/**
+ * Chooses a category: one already in use, none, or a new one typed in.
+ *
+ * A plain dropdown cannot be typed into, so "New category…" swaps the
+ * dropdown for a short text field: Enter saves what was typed, Escape or
+ * leaving the field empty goes back to the dropdown. The list of categories
+ * grows only through this field; there is no separate list to maintain.
+ *
+ * @param value The current category; null for none.
+ * @param noneLabel What the "no category" entry reads, e.g. "category" on a
+ *   row or "Category: same as parent" in the new-issue form.
+ * @param prefix Put before each category name in the list, e.g. "Category: ".
+ * @param onChange Called with the chosen or typed name, or null for none.
+ *   The name is passed as typed; the backend tidies it and reuses the
+ *   spelling of an existing category.
+ */
+function CategorySelect({
+  value,
+  choices,
+  onChange,
+  noneLabel,
+  prefix = "",
+  className,
+  ariaLabel,
+}: {
+  value: string | null;
+  choices: string[];
+  onChange: (category: string | null) => void;
+  noneLabel: string;
+  prefix?: string;
+  className?: string;
+  ariaLabel: string;
+}) {
+  const [typing, setTyping] = useState(false);
+  const [draft, setDraft] = useState("");
+  if (typing) {
+    const finish = (save: boolean) => {
+      const name = draft.trim();
+      setTyping(false);
+      setDraft("");
+      if (save && name !== "") onChange(name);
+    };
+    return (
+      <input
+        autoFocus
+        value={draft}
+        maxLength={40}
+        aria-label={`${ariaLabel}: new category name`}
+        placeholder="new category"
+        onChange={(event) => setDraft(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            // Not a form submit: inside the new-issue form Enter here must
+            // save the category, not create the issue.
+            event.preventDefault();
+            finish(true);
+          } else if (event.key === "Escape") {
+            event.preventDefault();
+            finish(false);
+          }
+        }}
+        onBlur={() => finish(true)}
+        className={cn(className, "w-32 cursor-text")}
+      />
+    );
+  }
+  // A category the issue has that is not (yet) in the list is still shown.
+  const listed =
+    value === null || choices.includes(value) ? choices : [value, ...choices];
+  return (
+    <select
+      aria-label={ariaLabel}
+      value={value ?? ""}
+      onChange={(event) => {
+        if (event.target.value === NEW_CATEGORY) setTyping(true);
+        else onChange(event.target.value === "" ? null : event.target.value);
+      }}
+      className={className}
+    >
+      <option value="">{noneLabel}</option>
+      {listed.map((name) => (
+        <option key={name} value={name}>
+          {prefix}
+          {name}
+        </option>
+      ))}
+      <option value={NEW_CATEGORY}>New category…</option>
+    </select>
+  );
+}
+
 function IssueFacts({
   issue,
   onEdit,
+  category,
   showStatus = false,
 }: {
   issue: Issue;
   /** When given, priority and type become small dropdowns that call this. */
   onEdit?: IssueActions["edit"];
+  /**
+   * When given, the category becomes a dropdown too: `choices` are the
+   * categories in use, `onChange` sets or clears this issue's.
+   */
+  category?: {
+    choices: string[];
+    onChange: IssueActions["setCategory"];
+  };
   /**
    * Show the issue's status as a tag. Used for sub-issues, which sit under
    * their parent and so are not under a status heading that would say it.
@@ -526,6 +639,26 @@ function IssueFacts({
             ))}
           </select>
         </>
+      )}
+      {/* The category: a dropdown where it can be changed, a plain tag
+          where it cannot (closed issues), nothing when there is none. */}
+      {category !== undefined ? (
+        <CategorySelect
+          value={issue.category}
+          choices={category.choices}
+          onChange={(next) => category.onChange(issue.id, next)}
+          noneLabel="category"
+          ariaLabel={`Category of ${issue.id}`}
+          className={cn(
+            TAG_SELECT_CLASS,
+            "max-w-40",
+            issue.category === null
+              ? "text-muted-foreground/60"
+              : "text-muted-foreground",
+          )}
+        />
+      ) : issue.category === null ? null : (
+        <Tag>{issue.category}</Tag>
       )}
       {issue.assignee === null ? null : <Tag>{issue.assignee}</Tag>}
       {issue.blocks.length === 0 ? null : (
@@ -937,6 +1070,11 @@ function IssueDetails({
         <IssueFacts
           issue={issue}
           onEdit={closed ? undefined : actions.edit}
+          category={
+            closed
+              ? undefined
+              : { choices: actions.categories, onChange: actions.setCategory }
+          }
         />
       ) : null}
       {editing ? (
@@ -1332,6 +1470,14 @@ function IssueRow({
             <IssueFacts
               issue={issue}
               onEdit={closed ? undefined : actions.edit}
+              category={
+                closed
+                  ? undefined
+                  : {
+                      choices: actions.categories,
+                      onChange: actions.setCategory,
+                    }
+              }
               showStatus={nested}
             />
             {/* Says that there is something nested here even while the row
@@ -1656,6 +1802,7 @@ function CreateIssue({
   onParentChange,
   parentChoices,
   focusRequest,
+  categories,
   allowTopLevel = true,
 }: {
   onCreate: (draft: {
@@ -1663,6 +1810,7 @@ function CreateIssue({
     description: string;
     type: IssueType | null;
     priority: number | null;
+    category: string | null;
   }) => Promise<string | null>;
   /** The issue the new one will be created inside; null for the top level. */
   parent: Issue | null;
@@ -1674,6 +1822,8 @@ function CreateIssue({
    * the cursor put in the title field.
    */
   focusRequest: number;
+  /** Categories in use, offered in the expanded form. */
+  categories: string[];
   /**
    * Whether "no parent" can be chosen. True in the panel. False in the
    * details window, where a new issue always goes inside the issue being
@@ -1691,6 +1841,8 @@ function CreateIssue({
   // Empty string = "let beads decide" (task, priority 2).
   const [type, setType] = useState<IssueType | "">("");
   const [priority, setPriority] = useState("");
+  // Null = not chosen: a sub-issue then takes its parent's category.
+  const [category, setCategory] = useState<string | null>(null);
   const [more, setMore] = useState(false);
   const [pending, setPending] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
@@ -1703,12 +1855,14 @@ function CreateIssue({
       description,
       type: type === "" ? null : type,
       priority: priority === "" ? null : Number(priority),
+      category,
     });
     setPending(false);
     setProblem(reason);
     if (reason !== null) return;
     setTitle("");
     setDescription("");
+    setCategory(null);
     // The parent is for the one issue just created (the user's rule,
     // bead-bb-zty.5): left selected, the next issue typed here would land
     // inside it unnoticed. In the details window this puts the field back to
@@ -1771,6 +1925,19 @@ function CreateIssue({
               <option value="3">Priority: P3</option>
               <option value="4">Priority: P4 (least urgent)</option>
             </select>
+            <CategorySelect
+              value={category}
+              choices={categories}
+              onChange={setCategory}
+              noneLabel={
+                parent === null
+                  ? "Category: none"
+                  : `Category: same as parent${parent.category === null ? " (none)" : ` (${parent.category})`}`
+              }
+              prefix="Category: "
+              ariaLabel="Category"
+              className={cn(FIELD_CLASS, "min-w-0 max-w-full")}
+            />
             <select
               aria-label="Parent issue"
               value={parent?.id ?? ""}
@@ -1851,9 +2018,11 @@ function CreateIssue({
 interface Filters {
   types: string[];
   priorities: number[];
+  /** Category names; the empty string stands for "no category". */
+  categories: string[];
 }
 
-const NO_FILTERS: Filters = { types: [], priorities: [] };
+const NO_FILTERS: Filters = { types: [], priorities: [], categories: [] };
 
 /**
  * Filters for one folder, remembered in the browser's local storage so they
@@ -1875,7 +2044,7 @@ function useFilters(path: string | null) {
         setFilters(NO_FILTERS);
         return;
       }
-      const { types, priorities } = stored as Record<
+      const { types, priorities, categories } = stored as Record<
         string,
         unknown
       >;
@@ -1886,6 +2055,11 @@ function useFilters(path: string | null) {
         priorities: Array.isArray(priorities)
           ? priorities.filter(
               (value): value is number => typeof value === "number",
+            )
+          : [],
+        categories: Array.isArray(categories)
+          ? categories.filter(
+              (value): value is string => typeof value === "string",
             )
           : [],
       });
@@ -1934,7 +2108,7 @@ function FilterOption({
 }
 
 /**
- * The Filter button and its menu: types and priorities.
+ * The Filter button and its menu: types, priorities and categories.
  *
  * The button shows how many narrowing choices (types and priorities) are
  * active, so a shortened list is never mistaken for the whole list. The menu
@@ -1947,10 +2121,13 @@ function FilterMenu({
   filters,
   onChange,
   types,
+  categories,
 }: {
   filters: Filters;
   onChange: (next: Filters) => void;
   types: string[];
+  /** Categories in use, so the menu only offers ones that can match. */
+  categories: string[];
 }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
@@ -1969,7 +2146,10 @@ function FilterMenu({
       document.removeEventListener("keydown", onKeyDown);
     };
   }, [open]);
-  const narrowing = filters.types.length + filters.priorities.length;
+  const narrowing =
+    filters.types.length +
+    filters.priorities.length +
+    filters.categories.length;
   return (
     <div ref={root} className="relative shrink-0">
       <Button
@@ -2018,17 +2198,41 @@ function FilterMenu({
               />
             ))}
           </div>
+          {/* Shown only once a category exists: with none in use there is
+              nothing to narrow by. */}
+          {categories.length === 0 ? null : (
+            <div>
+              <div className="px-2 text-xs font-medium text-muted-foreground">
+                Category
+              </div>
+              {["", ...categories].map((category) => (
+                <FilterOption
+                  key={category}
+                  label={category === "" ? "No category" : category}
+                  checked={filters.categories.includes(category)}
+                  onChange={() =>
+                    onChange({
+                      ...filters,
+                      categories: toggled(filters.categories, category),
+                    })
+                  }
+                />
+              ))}
+            </div>
+          )}
           <p className="px-2 text-xs text-muted-foreground">
-            Nothing ticked under Type or Priority shows all of them.
+            Nothing ticked under a heading shows all of them.
           </p>
           {narrowing === 0 ? null : (
             <Button
               variant="ghost"
               size="sm"
               className="w-full"
-              onClick={() => onChange({ ...filters, types: [], priorities: [] })}
+              onClick={() =>
+                onChange({ types: [], priorities: [], categories: [] })
+              }
             >
-              Clear type and priority
+              Clear filters
             </Button>
           )}
         </div>
@@ -2159,6 +2363,19 @@ function BeadsPanel({ scope }: { scope: Scope }) {
       ].sort(),
     [others],
   );
+  // Categories in use anywhere in the repository (not only at the top
+  // level), for the dropdowns and the filter menu.
+  const categories = useMemo(
+    () =>
+      [
+        ...new Set(
+          (result?.issues ?? []).flatMap((issue) =>
+            issue.category === null ? [] : [issue.category],
+          ),
+        ),
+      ].sort((left, right) => left.localeCompare(right)),
+    [result],
+  );
   // Closed issues are hidden each time the tab opens; the Closed group's
   // own button shows them. Deliberately not remembered, so the tab always
   // starts with the short list.
@@ -2170,7 +2387,10 @@ function BeadsPanel({ scope }: { scope: Scope }) {
           (issue.type !== null && filters.types.includes(issue.type))) &&
         (filters.priorities.length === 0 ||
           (issue.priority !== null &&
-            filters.priorities.includes(issue.priority))),
+            filters.priorities.includes(issue.priority))) &&
+        // "" in the filter stands for "no category".
+        (filters.categories.length === 0 ||
+          filters.categories.includes(issue.category ?? "")),
     );
     const sections = toSections(matching);
     return {
@@ -2181,7 +2401,11 @@ function BeadsPanel({ scope }: { scope: Scope }) {
       closedSection: sections.find((section) => section.id === "closed")!,
     };
   }, [others, filters]);
-  const narrowed = filters.types.length + filters.priorities.length > 0;
+  const narrowed =
+    filters.types.length +
+    filters.priorities.length +
+    filters.categories.length >
+    0;
   const reportProblem = (cause: unknown) =>
     setActionProblem(cause instanceof Error ? cause.message : String(cause));
   const loadComments = useCallback(
@@ -2234,6 +2458,15 @@ function BeadsPanel({ scope }: { scope: Scope }) {
       if (issue !== undefined) setClosing({ issue, commit });
     },
     reopen: (beadId) => applyOpen(beadId, true),
+    categories,
+    setCategory: (beadId, category) => {
+      rpc
+        .call("issue_set_category", { threadId, projectId, beadId, category })
+        .then((outcome) => {
+          setActionProblem(outcome.message);
+          refresh();
+        }, reportProblem);
+    },
     childrenOf: (beadId) => tree.children.get(beadId) ?? [],
     openDetails: setDetailsId,
     canNest: (beadId, parentId) =>
@@ -2344,6 +2577,7 @@ function BeadsPanel({ scope }: { scope: Scope }) {
       description: string;
       type: IssueType | null;
       priority: number | null;
+      category: string | null;
     },
   ) => {
     try {
@@ -2432,6 +2666,7 @@ function BeadsPanel({ scope }: { scope: Scope }) {
               filters={filters}
               onChange={setFilters}
               types={types}
+              categories={categories}
             />
           ) : null}
           <Button
@@ -2673,6 +2908,7 @@ function BeadsPanel({ scope }: { scope: Scope }) {
                     ),
                 ]}
                 focusRequest={focusWindowNewIssue}
+                categories={categories}
                 allowTopLevel={false}
               />
             </div>
@@ -2695,6 +2931,7 @@ function BeadsPanel({ scope }: { scope: Scope }) {
               (issue) => issue.status !== "closed",
             )}
             focusRequest={focusNewIssue}
+            categories={categories}
           />
         </div>
       ) : null}

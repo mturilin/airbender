@@ -11,8 +11,8 @@
 // Design notes:
 // - Reading runs `bd --readonly`. The writes to the issue database are
 //   creating (`bd create`), closing (`bd close`), reopening (`bd reopen`)
-//   and changing an issue's type, priority, title, description or parent
-//   (`bd update`); nothing here deletes an issue or edits its design,
+//   and changing an issue's type, priority, title, description, parent or
+//   category (`bd update`); nothing here deletes an issue or edits its design,
 //   acceptance criteria, notes or comments.
 // - "Define" runs as a background agent: a hidden worker thread that is
 //   not shown in the sidebar and is archived and stopped when it finishes,
@@ -151,6 +151,12 @@ const issueSchema = z.object({
   priority: z.number().nullable(),
   type: z.string().nullable(),
   assignee: z.string().nullable(),
+  /**
+   * The issue's category, or null when it has none. One per issue. Kept in
+   * beads as a label of the form `category:<name>` (see CATEGORY_PREFIX).
+   */
+  category: z.string().nullable(),
+  /** The issue's labels, without the one that carries its category. */
   labels: z.array(z.string()),
   updatedAt: z.string().nullable(),
   /** Unfinished issues this one waits on. Empty for closed issues. */
@@ -215,6 +221,11 @@ export const rpcContract = defineRpcContract({
       priority: z.number().int().min(0).max(4).nullable(),
       /** Create it as a sub-issue of this issue; null for a top-level one. */
       parentId: z.string().nullable(),
+      /**
+       * Category for the new issue. Null means "not chosen": a sub-issue
+       * then takes its parent's category, a top-level issue gets none.
+       */
+      category: z.string().nullable(),
     }),
     // `id` is set on success; `message` explains a failure in plain words.
     output: z.object({ id: z.string().nullable(), message: z.string().nullable() }),
@@ -264,6 +275,18 @@ export const rpcContract = defineRpcContract({
       threadId: z.string().nullable(),
       message: z.string().nullable(),
     }),
+  },
+  issue_set_category: {
+    // Sets an issue's category (replacing any it has) or, with null, clears
+    // it.
+    input: z.object({
+      threadId: z.string().nullable(),
+      projectId: z.string().nullable(),
+      beadId: z.string(),
+      category: z.string().nullable(),
+    }),
+    // `message` is null on success, else the reason in plain words.
+    output: z.object({ message: z.string().nullable() }),
   },
   issue_set_parent: {
     // Moves an issue inside another issue (parentId set) or out to the top
@@ -323,6 +346,58 @@ export const CHANGED_CHANNEL = "beads-changed";
 
 /** Key under which a thread's current bead id is stored in thread metadata. */
 const CURRENT_BEAD_KEY = "currentBead";
+
+/**
+ * How an issue's category is kept in beads: as a label "category:<name>".
+ *
+ * beads has no category field. It has free-text labels, and a convention for
+ * an attribute with a single value: a label of the form `<dimension>:<value>`
+ * (what `bd state <id> <dimension>` reads). Using it means bd and any other
+ * beads tool show the category, with nothing stored outside beads. "One per
+ * issue" is not enforced by beads; this plugin enforces it by removing every
+ * category label before adding one.
+ */
+const CATEGORY_PREFIX = "category:";
+
+/** Longest category name accepted. */
+const CATEGORY_MAX_LENGTH = 40;
+
+/** The category carried by a set of labels, or null. The first one wins. */
+function categoryOf(labels: string[]): string | null {
+  const label = labels.find((candidate) =>
+    candidate.startsWith(CATEGORY_PREFIX),
+  );
+  // Lower-cased on the way in as well as on the way out (see
+  // cleanCategory), so a label written with capitals by hand or by another
+  // tool still counts as the same category.
+  const name = label?.slice(CATEGORY_PREFIX.length).trim().toLowerCase() ?? "";
+  return name === "" ? null : name;
+}
+
+/**
+ * Checks and tidies a category name typed by the user.
+ *
+ * Categories are always lower case (the user's decision): it matches how
+ * type and status read on a row, and it means capital letters can never
+ * split one category into two, whoever sets it.
+ *
+ * @returns `{ name }`, or `{ reason }` in plain words when it cannot be used.
+ */
+function cleanCategory(typed: string): { name: string } | { reason: string } {
+  const name = typed.trim().replace(/\s+/gu, " ").toLowerCase();
+  if (name === "") return { reason: "A category needs a name." };
+  if (name.length > CATEGORY_MAX_LENGTH) {
+    return {
+      reason: `A category name can be at most ${CATEGORY_MAX_LENGTH} characters.`,
+    };
+  }
+  // bd splits a label on commas, so a comma would turn one category into
+  // several labels.
+  if (name.includes(",")) {
+    return { reason: "A category name cannot contain a comma." };
+  }
+  return { name };
+}
 
 /** Shape every beads issue id has; also keeps ids safe to pass to bd. */
 const BEAD_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
@@ -420,7 +495,10 @@ function toIssues(rows: BdIssue[]): Issue[] {
     priority: row.priority ?? null,
     type: row.issue_type ?? null,
     assignee: row.assignee ?? null,
-    labels: row.labels ?? [],
+    category: categoryOf(row.labels ?? []),
+    labels: (row.labels ?? []).filter(
+      (label) => !label.startsWith(CATEGORY_PREFIX),
+    ),
     updatedAt: row.updated_at ?? row.created_at ?? null,
     blockedBy: blockedBy.get(row.id) ?? [],
     blocks: blocks.get(row.id) ?? [],
@@ -869,6 +947,81 @@ export default async function plugin(bb: BbPluginApi) {
   }
 
   /**
+   * Sets or clears one issue's category.
+   *
+   * Every category label the issue has is removed first, so an issue never
+   * ends up with two, even if one was added by hand with bd.
+   *
+   * @returns `{ message: null }` on success, else the reason in plain words.
+   * Side effects: one `bd update`, which writes to the beads database;
+   *   publishes CHANGED_CHANNEL on success.
+   */
+  async function setCategory(input: {
+    threadId: string | null;
+    projectId: string | null;
+    beadId: string;
+    category: string | null;
+  }): Promise<{ message: string | null }> {
+    if (!BEAD_ID_PATTERN.test(input.beadId)) {
+      return { message: `"${input.beadId}" is not a beads issue id.` };
+    }
+    const listed = await listIssues(input);
+    if (listed.state !== "ok" || listed.path === null) {
+      return { message: listed.message ?? "The issues could not be read." };
+    }
+    if (!listed.issues.some((issue) => issue.id === input.beadId)) {
+      return { message: `Issue ${input.beadId} is no longer in the list.` };
+    }
+    let next: string | null = null;
+    if (input.category !== null) {
+      const cleaned = cleanCategory(input.category);
+      if ("reason" in cleaned) return { message: cleaned.reason };
+      next = cleaned.name;
+    }
+    // The list this plugin returns has the category labels taken out, so the
+    // raw labels are read again here to know exactly which ones to remove.
+    const raw = await runBdIn(listed.path, [
+      "--readonly",
+      "label",
+      "list",
+      input.beadId,
+      "--json",
+    ]);
+    if (raw.kind === "not-found") return { message: BD_NOT_FOUND_MESSAGE };
+    if (raw.kind === "failed") return { message: raw.message };
+    let present: string[];
+    try {
+      present = z
+        .array(z.string())
+        .nullable()
+        .transform((labels) => labels ?? [])
+        .parse(JSON.parse(raw.stdout))
+        .filter((label) => label.startsWith(CATEGORY_PREFIX));
+    } catch {
+      return {
+        message: "bd answered in a format this plugin does not understand.",
+      };
+    }
+    const wanted = next === null ? null : CATEGORY_PREFIX + next;
+    const args = ["update", input.beadId, "--json"];
+    for (const label of present) {
+      if (label !== wanted) args.push("--remove-label", label);
+    }
+    if (wanted !== null && !present.includes(wanted)) {
+      args.push("--add-label", wanted);
+    }
+    if (args.length === 3) return { message: null }; // Nothing to change.
+    const run = await runBdIn(listed.path, args);
+    if (run.kind === "not-found") return { message: BD_NOT_FOUND_MESSAGE };
+    if (run.kind === "failed") {
+      bb.log.warn("bd update (category) failed in " + listed.path + ": " + run.message);
+      return { message: run.message };
+    }
+    bb.realtime.publish(CHANGED_CHANNEL, { threadId: input.threadId });
+    return { message: null };
+  }
+
+  /**
    * Creates one issue in the folder behind a thread or project.
    *
    * @returns `{ id }` of the new issue, or `{ message }` saying in plain words
@@ -884,6 +1037,7 @@ export default async function plugin(bb: BbPluginApi) {
     type: (typeof ISSUE_TYPES)[number] | null;
     priority: number | null;
     parentId: string | null;
+    category: string | null;
   }): Promise<{ id: string | null; message: string | null }> {
     if (input.parentId !== null && !BEAD_ID_PATTERN.test(input.parentId)) {
       return {
@@ -908,6 +1062,25 @@ export default async function plugin(bb: BbPluginApi) {
     if (input.type !== null) args.push("--type", input.type);
     if (input.priority !== null) args.push("--priority", `${input.priority}`);
     if (input.parentId !== null) args.push("--parent", input.parentId);
+    // The category: the one chosen, else the parent's (a new sub-issue
+    // inherits its parent's category; this happens once, here, and later
+    // changes to the parent do not follow).
+    if (input.category !== null || input.parentId !== null) {
+      const listed = await listIssues(input);
+      let category: string | null = null;
+      if (input.category !== null) {
+        const cleaned = cleanCategory(input.category);
+        if ("reason" in cleaned) return { id: null, message: cleaned.reason };
+        category = cleaned.name;
+      } else {
+        category =
+          listed.issues.find((issue) => issue.id === input.parentId)
+            ?.category ?? null;
+      }
+      // Safe as a flag value: it always starts with "category:", never a
+      // dash, and cleanCategory has ruled out commas.
+      if (category !== null) args.push("--labels", CATEGORY_PREFIX + category);
+    }
     const run = await runBdIn(folder.path, args);
     if (run.kind === "not-found") {
       return { id: null, message: BD_NOT_FOUND_MESSAGE };
@@ -1210,6 +1383,7 @@ export default async function plugin(bb: BbPluginApi) {
     },
     issue_reopen: (input) => setIssueOpen("reopen", input),
     issue_define: (input) => startDefine(input),
+    issue_set_category: (input) => setCategory(input),
     issue_set_parent: async ({ threadId, projectId, beadId, parentId }) => {
       if (!BEAD_ID_PATTERN.test(beadId)) {
         return { message: `"${beadId}" is not a beads issue id.` };

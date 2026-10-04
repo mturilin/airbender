@@ -90,10 +90,26 @@ Rules:
   by default. A Show / Hide button on the heading reveals and hides them.
   `[a28]`
 
+## Categories
+
+An issue can have a category, which says what area it belongs to. `[7ct]`
+
+- **One category per issue, or none.**
+- **Category names are always lower case.** Whatever is typed is stored and
+  shown in lower case.
+- **The list of categories grows as it is used**: a category is picked from
+  the ones already used in the repository, or a new one is typed.
+- **It is set on the issue's row**, next to priority and type. For a
+  sub-issue's lean row it is set inside the opened sub-issue.
+- **It can be set in the new-issue form.**
+- **A new sub-issue inherits its parent's category**, and can be changed
+  afterwards.
+- **The filter can narrow the list by category.**
+
 ## The filter
 
-- One filter control in the toolbar. It filters by **type** and by
-  **priority**. `[pp7]`
+- One filter control in the toolbar. It filters by **type**, by
+  **priority** and by **category**. `[pp7]` `[7ct]`
 - Filtering hides issues. It does not regroup them. `[pp7]`
 - The filter never hides the current issue. `[pp7]`
 - The filter is remembered. `[pp7]`
@@ -105,7 +121,8 @@ Rules:
 This describes a top-level row. A sub-issue's row is leaner and is described
 under "Sub-issues".
 
-Collapsed, a row shows the title, the issue id, its priority and its type.
+Collapsed, a row shows the title, the issue id, its priority, its type and
+its category.
 
 - **Priority and type are changed right on the row**, for open issues.
   `[ssf]`
@@ -333,6 +350,19 @@ Behaviour the owner did not ask for or decide. It is what the product does
 today, recorded so a rebuild matches. Any of it may be changed without
 breaking a requirement above.
 
+- The category is kept in the tracker as a label, `category:<name>`, so the
+  tracker's own tools show it. That label is not shown among an issue's
+  other labels.
+- A category name is at most 40 characters and cannot contain a comma. A
+  category written with capital letters by another tool is read as lower
+  case.
+- A category leaves the list when no issue uses it any more.
+- Inheritance happens once, when the sub-issue is created. Changing the
+  parent's category later, or moving an issue to another parent, does not
+  change the sub-issue's category.
+- The category filter includes "No category", is offered once any category
+  exists, and is remembered with the rest of the filter.
+- Closed issues show their category but it cannot be changed.
 - Within a group, issues are ordered by priority, most urgent first, then by
   most recently changed.
 - New issues default to type "task" and priority 2 when none is chosen.
