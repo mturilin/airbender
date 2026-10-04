@@ -117,6 +117,50 @@ type BdIssue = z.infer<typeof bdIssueSchema>;
 
 const issueRefSchema = z.object({ id: z.string(), title: z.string() });
 
+/**
+ * The link kinds the tab lets the user add (bead-bb-zty.4): beads' own
+ * dependency types, under beads' own names, and nothing else (the user:
+ * "standard bead to bead rels semantics, nothing additional").
+ *
+ * Two of beads' types are left out on purpose. "parent-child" has its own
+ * controls in the tab (sub-issues). "relates-to" is what "related" becomes:
+ * the tab creates a "related" link with `bd dep relate`, beads' own command
+ * for a see-also link, which stores a "relates-to" link on both issues.
+ */
+export const LINK_KINDS = [
+  "blocks",
+  "discovered-from",
+  "related",
+  "tracks",
+  "until",
+  "caused-by",
+  "validates",
+  "supersedes",
+] as const;
+
+/** Beads' type for the two-way link that `bd dep relate` creates. */
+const RELATES_TO = "relates-to";
+/** Beads' type for sub-issues; handled through `parent`, never as a link. */
+const PARENT_CHILD = "parent-child";
+
+/**
+ * One link between this issue and another, as beads stores it.
+ *
+ * `kind` is beads' dependency type, passed through as is (it may be one this
+ * plugin does not list). `direction` says which end this issue is: "out"
+ * when the link is stored on this issue and points at the other ("this issue
+ * is blocked by the other"), "in" when it is stored on the other and points
+ * here. `closed` is the other issue's state, so the tab can strike it out.
+ */
+const issueLinkSchema = z.object({
+  kind: z.string(),
+  direction: z.enum(["out", "in"]),
+  id: z.string(),
+  title: z.string(),
+  closed: z.boolean(),
+});
+export type IssueLink = z.infer<typeof issueLinkSchema>;
+
 const issueSchema = z.object({
   id: z.string(),
   title: z.string(),
@@ -159,10 +203,29 @@ const issueSchema = z.object({
   /** The issue's labels, without the one that carries its category. */
   labels: z.array(z.string()),
   updatedAt: z.string().nullable(),
-  /** Unfinished issues this one waits on. Empty for closed issues. */
+  /**
+   * Unfinished issues this one waits on. Empty for closed issues. Includes
+   * what the issues it sits inside wait on: a sub-issue of a blocked issue
+   * is blocked too, which is beads' own rule (`bd blocked` lists it).
+   */
   blockedBy: z.array(issueRefSchema),
+  /**
+   * True for an open issue that has open sub-issues, every one of which is
+   * blocked: there is nothing in it that can be worked on. The tab treats
+   * such an issue as blocked. This is the tab's reading, at the user's
+   * request; beads itself still calls the issue ready, and nothing is
+   * written to beads for it.
+   */
+  subIssuesBlocked: z.boolean(),
   /** Unfinished issues waiting on this one. */
   blocks: z.array(issueRefSchema),
+  /**
+   * Every link between this issue and another, of any kind except
+   * parent-child, in both directions, whatever the other issue's status.
+   * This is what the opened issue shows; `blockedBy` and `blocks` above stay
+   * as the narrower "what is in the way right now" used for grouping.
+   */
+  links: z.array(issueLinkSchema),
 });
 export type Issue = z.infer<typeof issueSchema>;
 
@@ -275,6 +338,31 @@ export const rpcContract = defineRpcContract({
       threadId: z.string().nullable(),
       message: z.string().nullable(),
     }),
+  },
+  issue_link: {
+    // Adds a link of one of beads' kinds, stored on `fromId` and pointing at
+    // `toId` ("fromId is blocked by toId"). "related" has no direction.
+    input: z.object({
+      threadId: z.string().nullable(),
+      projectId: z.string().nullable(),
+      fromId: z.string(),
+      toId: z.string(),
+      kind: z.enum(LINK_KINDS),
+    }),
+    // `message` is null on success, else the reason in plain words.
+    output: z.object({ message: z.string().nullable() }),
+  },
+  issue_unlink: {
+    // Removes the link stored on `fromId` that points at `toId`. `kind` is
+    // the link's beads type as listed; it decides which bd command undoes it.
+    input: z.object({
+      threadId: z.string().nullable(),
+      projectId: z.string().nullable(),
+      fromId: z.string(),
+      toId: z.string(),
+      kind: z.string(),
+    }),
+    output: z.object({ message: z.string().nullable() }),
   },
   issue_set_category: {
     // Sets an issue's category (replacing any it has) or, with null, clears
@@ -485,8 +573,15 @@ function runBd(command: string, args: string[], cwd: string): Promise<BdRun> {
  *
  * An issue is blocked by another when it has a "blocks"-type dependency on it
  * and that other issue is not closed. Closed issues are never shown as blocked.
+ * Blocking also passes down to sub-issues and, when every open sub-issue is
+ * blocked, up to the issue that holds them (see the two passes below).
  * Other dependency types (parent-child, discovered-from, related) do not stop
- * work in beads, so they are ignored here.
+ * work in beads, so they do not count as blocking.
+ *
+ * Separately, it collects every link of every kind except parent-child for
+ * each issue, from both ends (`links`). A two-way "relates-to" pair is
+ * stored on both issues; it is listed once per issue, as "out", so the tab
+ * shows one chip for it and not two.
  */
 function toIssues(rows: BdIssue[]): Issue[] {
   const byId = new Map(rows.map((row) => [row.id, row]));
@@ -505,6 +600,92 @@ function toIssues(rows: BdIssue[]): Issue[] {
       const held = blocks.get(blocker.id) ?? [];
       held.push({ id: row.id, title: row.title });
       blocks.set(blocker.id, held);
+    }
+  }
+  // Downwards (beads' rule): an open issue also waits on whatever the open
+  // issues it sits inside wait on. Worked out from the direct blockers
+  // gathered above, before anything is added, so the result does not depend
+  // on the order of the rows. `seen` stops a loop in bad parent data.
+  const direct = new Map(blockedBy);
+  for (const row of rows) {
+    if (!isOpen(row)) continue;
+    const seen = new Set<string>([row.id]);
+    let parent = row.parent == null ? undefined : byId.get(row.parent);
+    while (parent !== undefined && !seen.has(parent.id)) {
+      seen.add(parent.id);
+      if (isOpen(parent)) {
+        for (const blocker of direct.get(parent.id) ?? []) {
+          const waiting = blockedBy.get(row.id) ?? [];
+          if (!waiting.some((known) => known.id === blocker.id)) {
+            blockedBy.set(row.id, [...waiting, blocker]);
+          }
+        }
+      }
+      parent = parent.parent == null ? undefined : byId.get(parent.parent);
+    }
+  }
+  // Upwards (the user's rule): an open issue all of whose open sub-issues
+  // are blocked is blocked itself; one workable sub-issue keeps it
+  // actionable. A sub-issue that has sub-issues of its own counts as blocked
+  // by the same rule, so this goes through every level. Closed sub-issues
+  // are ignored, and an issue with no open sub-issue is never blocked this
+  // way (all closed means it is ready to be closed).
+  const openChildren = new Map<string, BdIssue[]>();
+  for (const row of rows) {
+    if (!isOpen(row) || row.parent == null) continue;
+    openChildren.set(row.parent, [...(openChildren.get(row.parent) ?? []), row]);
+  }
+  const subIssuesBlocked = new Map<string, boolean>();
+  const allSubIssuesBlocked = (id: string, path: Set<string>): boolean => {
+    const known = subIssuesBlocked.get(id);
+    if (known !== undefined) return known;
+    const children = openChildren.get(id) ?? [];
+    // `path` holds the issues being worked out above this one; meeting one
+    // again means the parent data loops, and the loop is not followed.
+    const answer =
+      children.length > 0 &&
+      children.every(
+        (child) =>
+          (blockedBy.get(child.id) ?? []).length > 0 ||
+          (!path.has(child.id) &&
+            allSubIssuesBlocked(child.id, new Set([...path, id]))),
+      );
+    subIssuesBlocked.set(id, answer);
+    return answer;
+  };
+  const links = new Map<string, IssueLink[]>();
+  const addLink = (ownerId: string, link: IssueLink) =>
+    links.set(ownerId, [...(links.get(ownerId) ?? []), link]);
+  for (const row of rows) {
+    for (const dependency of row.dependencies ?? []) {
+      if (dependency.type === PARENT_CHILD) continue;
+      const other = byId.get(dependency.depends_on_id);
+      // A link to an issue outside this list (deleted, or in another
+      // project) has no title to show and nothing to open; left out.
+      if (other === undefined) continue;
+      addLink(row.id, {
+        kind: dependency.type,
+        direction: "out",
+        id: other.id,
+        title: other.title,
+        closed: !isOpen(other),
+      });
+      // The other end. Skipped for a two-way link whose mirror image is
+      // stored there too, which that issue lists as its own "out".
+      const mirrored =
+        dependency.type === RELATES_TO &&
+        (other.dependencies ?? []).some(
+          (back) => back.type === RELATES_TO && back.depends_on_id === row.id,
+        );
+      if (!mirrored) {
+        addLink(other.id, {
+          kind: dependency.type,
+          direction: "in",
+          id: row.id,
+          title: row.title,
+          closed: !isOpen(row),
+        });
+      }
     }
   }
   return rows.map((row) => ({
@@ -528,7 +709,9 @@ function toIssues(rows: BdIssue[]): Issue[] {
     ),
     updatedAt: row.updated_at ?? row.created_at ?? null,
     blockedBy: blockedBy.get(row.id) ?? [],
+    subIssuesBlocked: isOpen(row) && allSubIssuesBlocked(row.id, new Set()),
     blocks: blocks.get(row.id) ?? [],
+    links: links.get(row.id) ?? [],
   }));
 }
 
@@ -744,6 +927,42 @@ export default async function plugin(bb: BbPluginApi) {
       if (run.kind !== "not-found") break;
     }
     return run;
+  }
+
+  /**
+   * Shared checks for adding and removing a link: both ids look like beads
+   * ids, are different, and are in the folder's list.
+   *
+   * @returns The folder to run bd in, or `{ message }` saying in plain words
+   *   why the link cannot be touched.
+   */
+  async function linkEnds(input: {
+    threadId: string | null;
+    projectId: string | null;
+    fromId: string;
+    toId: string;
+  }): Promise<{ path: string } | { message: string }> {
+    for (const id of [input.fromId, input.toId]) {
+      if (!BEAD_ID_PATTERN.test(id)) {
+        return { message: `"${id}" is not a beads issue id.` };
+      }
+    }
+    if (input.fromId === input.toId) {
+      return { message: "An issue cannot be linked to itself." };
+    }
+    const listed = await listIssues({
+      threadId: input.threadId,
+      projectId: input.projectId,
+    });
+    if (listed.state !== "ok" || listed.path === null) {
+      return { message: listed.message ?? "The issues could not be read." };
+    }
+    for (const id of [input.fromId, input.toId]) {
+      if (!listed.issues.some((issue) => issue.id === id)) {
+        return { message: `Issue ${id} is no longer in the list.` };
+      }
+    }
+    return { path: listed.path };
   }
 
   /**
@@ -1426,6 +1645,47 @@ export default async function plugin(bb: BbPluginApi) {
     issue_reopen: (input) => setIssueOpen("reopen", input),
     issue_define: (input) => startDefine(input),
     issue_set_category: (input) => setCategory(input),
+    issue_link: async ({ threadId, projectId, fromId, toId, kind }) => {
+      const checked = await linkEnds({ threadId, projectId, fromId, toId });
+      if ("message" in checked) return checked;
+      // "related" goes through beads' own see-also command, which links both
+      // issues to each other; every other kind is a one-way dependency.
+      // Cycles and duplicates are left to bd, whose message is passed on.
+      const run = await runBdIn(
+        checked.path,
+        kind === "related"
+          ? ["dep", "relate", fromId, toId, "--json"]
+          : ["dep", "add", fromId, toId, "--type", kind, "--json"],
+      );
+      if (run.kind === "not-found") return { message: BD_NOT_FOUND_MESSAGE };
+      if (run.kind === "failed") {
+        bb.log.warn("bd dep add failed in " + checked.path + ": " + run.message);
+        return { message: run.message };
+      }
+      bb.realtime.publish(CHANGED_CHANNEL, { threadId });
+      return { message: null };
+    },
+    issue_unlink: async ({ threadId, projectId, fromId, toId, kind }) => {
+      const checked = await linkEnds({ threadId, projectId, fromId, toId });
+      if ("message" in checked) return checked;
+      // A two-way link is undone with the command that made it, so both
+      // halves go; `dep remove` would leave the other issue's half behind.
+      const run = await runBdIn(
+        checked.path,
+        kind === RELATES_TO
+          ? ["dep", "unrelate", fromId, toId, "--json"]
+          : ["dep", "remove", fromId, toId, "--json"],
+      );
+      if (run.kind === "not-found") return { message: BD_NOT_FOUND_MESSAGE };
+      if (run.kind === "failed") {
+        bb.log.warn(
+          "bd dep remove failed in " + checked.path + ": " + run.message,
+        );
+        return { message: run.message };
+      }
+      bb.realtime.publish(CHANGED_CHANNEL, { threadId });
+      return { message: null };
+    },
     issue_set_parent: async ({ threadId, projectId, beadId, parentId }) => {
       if (!BEAD_ID_PATTERN.test(beadId)) {
         return { message: `"${beadId}" is not a beads issue id.` };

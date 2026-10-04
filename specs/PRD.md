@@ -163,6 +163,33 @@ Opening a row shows:
   padding, and less prominent than ordinary buttons, with no sharp border,
   so they do not take much space or attract too much attention. `[zty.1]`
 
+## Links between issues
+
+- The tab supports the tracker's **own kinds of link between issues, and
+  nothing additional**: blocked by, discovered from, related, tracks, until,
+  caused by, validates, supersedes. `[zty.4]`
+- An opened issue has a **Link** button. It opens a small search box, like
+  "Move to", with a dropdown of the kinds, starting on "blocked by".
+  `[zty.4]`
+- The box reads as a sentence: "This issue — blocked by — the issue you
+  search for". A **swap button** turns it round: "the issue you search
+  for — blocked by — this issue". `[zty.4]`
+- An opened issue shows its links on **one "Links" line, as chips**: the
+  kind and the other issue's title. Links recorded on this issue and links
+  from other issues that point at it are both shown. `[zty.4]`
+- **Clicking a chip opens that issue. A small × on hover removes the link.**
+  `[zty.4]`
+- Rows and the new-issue form are not changed by this. Nothing is linked
+  automatically. `[zty.4]`
+- Where an issue is tagged "blocked", the tag's **tooltip names what it is
+  waiting for**. Blocked issues are not otherwise marked more strongly.
+  `[zty.4]`
+- **An issue whose sub-issues are all blocked is blocked too.** If even one
+  of its sub-issues can be worked on, it is actionable and is not blocked.
+  `[zty.4]`
+- **A sub-issue of a blocked issue is blocked too**, as in the tracker
+  itself. `[zty.4]`
+
 ## Sub-issues (epics)
 
 An issue can contain other issues, and those can contain more, to any depth.
@@ -389,6 +416,30 @@ Behaviour the owner did not ask for or decide. It is what the product does
 today, recorded so a rebuild matches. Any of it may be changed without
 breaking a requirement above.
 
+- For "all sub-issues are blocked", only open sub-issues count, and it
+  works through every level: a sub-issue with sub-issues of its own counts
+  as blocked by the same rule. An issue whose sub-issues are all closed is
+  not blocked. Its "blocked" tooltip reads "All its sub-issues are blocked".
+  Nothing is written to the tracker for this; it only changes how the tab
+  groups and tags the issue.
+- A sub-issue blocked through the issue it sits inside names that issue's
+  blockers in its tooltip.
+- Sub-issue (parent and child) is one of the tracker's link kinds but is
+  not offered in the Link box; it has its own controls.
+- A "related" link is recorded on both issues, has no direction, and its
+  swap button is off. It shows as one chip on each issue.
+- A link pointing at this issue from another reads "blocks · title" for a
+  blocking link and "title · discovered from this" (and likewise) for the
+  other kinds. A closed issue's title in a chip is struck through.
+- The Links line is shown only when the issue has links. Links to issues
+  that are not in the list are not shown.
+- The Link box lists every issue except the open one, open issues first,
+  and closed ones struck through. Enter takes the first result; Escape
+  cancels. Removing a link does not ask for confirmation.
+- The Link button is not shown on a closed issue; its chips and their ×
+  still are.
+- When the tracker refuses a link (it exists already, or it would make a
+  loop), its message is shown.
 - The quick-reply buttons are an arrow ("Go") and a tick ("Agree & go").
   They send "Go ahead." and "I agree with your recommendations. Go ahead."
   Each button's tooltip shows its name and its message.

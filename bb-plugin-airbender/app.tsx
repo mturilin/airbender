@@ -85,6 +85,7 @@ import {
 import type {
   Issue,
   IssueComment,
+  IssueLink,
   IssuesResult,
   rpcContract,
 } from "./server";
@@ -190,6 +191,21 @@ function useIssues(scope: Scope) {
   return { rpc, result, failure, loading, refresh };
 }
 
+/**
+ * Whether the tab treats an open issue as blocked. Three ways, all worked
+ * out in server.ts: it waits on an unfinished issue; an issue it sits
+ * inside does (beads' own rule, already folded into `blockedBy`); or it has
+ * open sub-issues and every one of them is blocked (the user's rule: an
+ * issue with even one workable sub-issue is actionable and is not blocked).
+ * A closed issue is never blocked.
+ */
+function isBlocked(issue: Issue): boolean {
+  return (
+    issue.status !== "closed" &&
+    (issue.blockedBy.length > 0 || issue.subIssuesBlocked)
+  );
+}
+
 /** Most urgent first; within one priority, most recently changed first. */
 function byUrgency(left: Issue, right: Issue): number {
   const priority = (left.priority ?? 99) - (right.priority ?? 99);
@@ -236,7 +252,7 @@ function toSections(issues: Issue[]): Section[] {
     sections.find((section) => section.id === id)!;
   for (const issue of issues) {
     if (issue.status === "closed") find("closed").issues.push(issue);
-    else if (issue.blockedBy.length > 0) find("blocked").issues.push(issue);
+    else if (isBlocked(issue)) find("blocked").issues.push(issue);
     else if (issue.status === "in_progress")
       find("in_progress").issues.push(issue);
     else if (issue.status === "open") find("ready").issues.push(issue);
@@ -278,29 +294,38 @@ function Tag({
   );
 }
 
-/** "Blocked by" / "Blocks" list inside an expanded issue. */
-function RelatedIssues({
-  label,
-  issues,
-}: {
-  label: string;
-  issues: Issue["blockedBy"];
-}) {
-  if (issues.length === 0) return null;
+/**
+ * An issue's status as a tag, shown where no group heading says it
+ * (sub-issues, and the current-issue card).
+ *
+ * A blocked issue (see isBlocked) reads "blocked" instead of its own
+ * status, and the tag's tooltip names what it waits for, or says that all
+ * its sub-issues are blocked, so the
+ * reason is one hover away without opening the issue. The user asked for
+ * the tooltip only: blocked issues are not marked any more loudly than
+ * before, and rows that had no status tag still have none.
+ */
+function StatusTag({ issue }: { issue: Issue }) {
+  if (!isBlocked(issue)) {
+    return (
+      <Tag strong={issue.status === "in_progress"}>
+        {issue.status.replace("_", " ")}
+      </Tag>
+    );
+  }
   return (
-    <div>
-      <div className="text-xs font-medium text-muted-foreground">{label}</div>
-      <ul className="mt-1 space-y-0.5">
-        {issues.map((issue) => (
-          <li key={issue.id} className="flex gap-2 text-xs">
-            <span className="shrink-0 font-mono text-muted-foreground">
-              {issue.id}
-            </span>
-            <span className="min-w-0">{issue.title}</span>
-          </li>
-        ))}
-      </ul>
-    </div>
+    <Tip
+      label={
+        issue.blockedBy.length > 0
+          ? `Waits for: ${issue.blockedBy.map((blocker) => blocker.title).join("; ")}`
+          : "All its sub-issues are blocked"
+      }
+    >
+      {/* A span of its own for the tooltip to attach to: Tag takes no ref. */}
+      <span className="flex shrink-0 cursor-default">
+        <Tag>blocked</Tag>
+      </span>
+    </Tip>
   );
 }
 
@@ -387,6 +412,16 @@ interface IssueActions {
    * its own sub-issues at any depth, and the parent it is already in.
    */
   moveTargets: (beadId: string) => Issue[];
+  /**
+   * Adds a link of one of beads' kinds, stored on `fromId` and pointing at
+   * `toId` ("fromId is blocked by toId"). Straight away, no confirmation:
+   * it is undone with the chip's remove button.
+   */
+  link: (fromId: string, toId: string, kind: LinkKind) => void;
+  /** Removes `link`, one of the links listed on issue `beadId`. */
+  unlink: (beadId: string, link: IssueLink) => void;
+  /** The issues `beadId` may be linked with: every issue except itself. */
+  linkTargets: (beadId: string) => Issue[];
   /**
    * Gets the new-issue field at the bottom ready to create an issue inside
    * `parentId`: selects it as the parent there and puts the cursor in the
@@ -597,13 +632,7 @@ function IssueFacts({
           {issue.id}
         </button>
       </Tip>
-      {showStatus ? (
-        <Tag strong={issue.status === "in_progress"}>
-          {issue.blockedBy.length > 0 && issue.status !== "closed"
-            ? "blocked"
-            : issue.status.replace("_", " ")}
-        </Tag>
-      ) : null}
+      {showStatus ? <StatusTag issue={issue} /> : null}
       {onEdit === undefined ? (
         <>
           {issue.priority === null ? null : (
@@ -928,6 +957,327 @@ function fuzzyScore(query: string, text: string): number {
   return Math.max(1, 500 - gaps);
 }
 
+/**
+ * The link kinds the Link box offers: beads' own dependency types, in the
+ * order of server.ts's LINK_KINDS (repeated here because this file can only
+ * import types from there). Nothing is added to beads' set: the user asked
+ * for "standard bead to bead rels semantics, nothing additional".
+ */
+const LINK_KINDS = [
+  "blocks",
+  "discovered-from",
+  "related",
+  "tracks",
+  "until",
+  "caused-by",
+  "validates",
+  "supersedes",
+] as const;
+type LinkKind = (typeof LINK_KINDS)[number];
+
+/**
+ * How a link reads from the issue it is stored on, as in "this issue is
+ * blocked by X". Beads' own names, with the dashes taken out; only "blocks"
+ * is reworded, because beads stores "A blocks-type-depends on B" on the
+ * issue that waits, and "this issue blocks X" would say the opposite.
+ * "relates-to" is what a "related" link made here is stored as.
+ */
+const LINK_WORDS: Record<string, string> = {
+  blocks: "blocked by",
+  "discovered-from": "discovered from",
+  related: "related",
+  "relates-to": "related",
+  tracks: "tracks",
+  until: "until",
+  "caused-by": "caused by",
+  validates: "validates",
+  supersedes: "supersedes",
+};
+
+/** Kinds that read the same from both ends, so they have no direction. */
+const TWO_WAY_KINDS: readonly string[] = ["related", "relates-to"];
+
+/** A link's wording; a kind this file does not know is shown as beads names it. */
+function linkWords(kind: string): string {
+  return LINK_WORDS[kind] ?? kind;
+}
+
+/**
+ * A chain-link icon for the Link button. Drawn here because BB's icon set
+ * has none (checked in its bundle: only ExternalLink), and an unknown name
+ * would show BB's fallback icon. Takes its colour from the text around it.
+ */
+function LinkIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      className={className}
+    >
+      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+    </svg>
+  );
+}
+
+/**
+ * The links of an opened issue, as one line of chips (bead-bb-zty.4). It
+ * replaced two separate lists, "Blocked by" and "Holds up", which showed
+ * only blocking links to unfinished issues.
+ *
+ * Every link of every kind is here, from both ends. A link stored on this
+ * issue reads "blocked by · <title>"; one stored on the other issue and
+ * pointing here reads "blocks · <title>" for a blocking link and
+ * "<title> · discovered from this" (and so on) for the other kinds, so the
+ * direction is always in the words. A closed issue's title is struck out.
+ *
+ * Clicking a chip opens that issue in the details window. The x, which
+ * shows on hover, removes the link without asking: it is put back with the
+ * Link button. Draws nothing for an issue without links.
+ */
+function LinksLine({
+  issue,
+  actions,
+}: {
+  issue: Issue;
+  actions: IssueActions;
+}) {
+  if (issue.links.length === 0) return null;
+  return (
+    <div>
+      <div className="text-xs font-medium text-muted-foreground">Links</div>
+      <ul className="mt-1 flex flex-wrap gap-1.5">
+        {issue.links.map((link) => {
+          const words = linkWords(link.kind);
+          const title = (
+            <span className={cn(link.closed && "line-through")}>
+              {link.title}
+            </span>
+          );
+          return (
+            <li
+              key={`${link.direction}:${link.kind}:${link.id}`}
+              className="group/link flex max-w-full items-center rounded-full border border-border text-xs"
+            >
+              <Tip label={`Open ${link.id}`}>
+                <button
+                  type="button"
+                  className="min-w-0 cursor-pointer truncate rounded-full py-0.5 pl-2 pr-1 hover:bg-state-hover"
+                  onClick={() => actions.openDetails(link.id)}
+                >
+                  {link.direction === "out" ||
+                  TWO_WAY_KINDS.includes(link.kind) ? (
+                    <>
+                      <span className="text-muted-foreground">{words} · </span>
+                      {title}
+                    </>
+                  ) : link.kind === "blocks" ? (
+                    <>
+                      <span className="text-muted-foreground">blocks · </span>
+                      {title}
+                    </>
+                  ) : (
+                    <>
+                      {title}
+                      <span className="text-muted-foreground">
+                        {" "}
+                        · {words} this
+                      </span>
+                    </>
+                  )}
+                </button>
+              </Tip>
+              <Tip label="Remove this link">
+                <button
+                  type="button"
+                  aria-label={`Remove the link with ${link.id}`}
+                  className="mr-1 shrink-0 cursor-pointer rounded-full px-1 text-muted-foreground opacity-0 hover:bg-state-hover hover:text-foreground focus-visible:opacity-100 group-hover/link:opacity-100"
+                  onClick={() => actions.unlink(issue.id, link)}
+                >
+                  ×
+                </button>
+              </Tip>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+/**
+ * The box behind the "Link" button: links this issue with another, using
+ * beads' own link kinds.
+ *
+ * It reads as a sentence, so what will be saved is in front of the user
+ * before Enter: "This issue [blocked by] <the issue searched for>". The swap
+ * button turns it round, "<the issue searched for> [blocked by] this issue",
+ * which is the same kind of link stored on the other issue. The user chose
+ * the swap button over always linking from the open issue (awkward when you
+ * are looking at the blocker) and over listing each direction as its own
+ * kind (twice the list, with reverse names beads does not have). A two-way
+ * kind ("related") has nothing to swap.
+ *
+ * Drawn inside the opened issue, like the Move to picker and for the same
+ * reason: the list the rows sit in clips anything that hangs outside it.
+ *
+ * Keys: typing narrows the list, Enter takes the first result, Escape
+ * cancels.
+ *
+ * @param targets Issues this one may be linked with (already excludes itself).
+ * @param onPick Called with the link to add: the issue it is stored on, the
+ *   issue it points at, and its kind.
+ */
+function LinkPicker({
+  issue,
+  targets,
+  onPick,
+  onCancel,
+}: {
+  issue: Issue;
+  targets: Issue[];
+  onPick: (fromId: string, toId: string, kind: LinkKind) => void;
+  onCancel: () => void;
+}) {
+  const [query, setQuery] = useState("");
+  // Starts on "blocks", as beads does when no kind is given.
+  const [kind, setKind] = useState<LinkKind>("blocks");
+  const [swapped, setSwapped] = useState(false);
+  const twoWay = TWO_WAY_KINDS.includes(kind);
+  const reversed = swapped && !twoWay;
+  const shown = useMemo(
+    () =>
+      targets
+        .map((target) => ({
+          target,
+          score: fuzzyScore(query, `${target.id} ${target.title}`),
+        }))
+        .filter((entry) => entry.score > 0)
+        .sort(
+          (left, right) =>
+            right.score - left.score ||
+            // Open issues first: they are the likelier other end.
+            Number(left.target.status === "closed") -
+              Number(right.target.status === "closed") ||
+            byUrgency(left.target, right.target),
+        )
+        .map((entry) => entry.target),
+    [targets, query],
+  );
+  const listed = shown.slice(0, MOVE_TO_RESULTS);
+  const pick = (otherId: string) =>
+    reversed ? onPick(otherId, issue.id, kind) : onPick(issue.id, otherId, kind);
+  // The fixed half of the sentence: "This issue [kind]" or "[kind] this issue".
+  const sentence = (
+    <div className="flex items-center gap-1.5 px-1 text-sm">
+      {reversed ? null : <span>This issue</span>}
+      <select
+        aria-label="Kind of link"
+        value={kind}
+        onChange={(event) => setKind(event.target.value as LinkKind)}
+        className={cn(TAG_SELECT_CLASS, "text-foreground")}
+      >
+        {LINK_KINDS.map((choice) => (
+          <option key={choice} value={choice}>
+            {linkWords(choice)}
+          </option>
+        ))}
+      </select>
+      {reversed ? <span>this issue</span> : null}
+      <span className="flex-1" />
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="size-7"
+        disabled={twoWay}
+        tip={
+          twoWay
+            ? "This kind of link has no direction"
+            : "Swap which issue is which"
+        }
+        aria-label="Swap which issue is which"
+        onClick={() => setSwapped((current) => !current)}
+      >
+        <Icon name="ArrowUpDown" className="size-4" />
+      </Button>
+    </div>
+  );
+  const search = (
+    <>
+      <Input
+        autoFocus
+        value={query}
+        onChange={(event) => setQuery(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            onCancel();
+          } else if (event.key === "Enter") {
+            event.preventDefault();
+            if (listed[0] !== undefined) pick(listed[0].id);
+          }
+        }}
+        placeholder="Type to find the other issue…"
+        aria-label={`Search for an issue to link with ${issue.id}`}
+      />
+      <ul>
+        {listed.map((target) => (
+          <li key={target.id}>
+            <button
+              type="button"
+              className={cn(
+                "block w-full cursor-pointer truncate rounded px-2 py-1 text-left text-sm hover:bg-state-hover",
+                target.status === "closed" &&
+                  "text-muted-foreground line-through",
+              )}
+              onClick={() => pick(target.id)}
+            >
+              <span className="font-mono text-xs text-muted-foreground">
+                {target.id}
+              </span>{" "}
+              {target.title}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </>
+  );
+  return (
+    <div className="space-y-1 rounded-lg border border-border p-2">
+      {/* The order on screen is the order of the sentence. */}
+      {reversed ? (
+        <>
+          {search}
+          {sentence}
+        </>
+      ) : (
+        <>
+          {sentence}
+          {search}
+        </>
+      )}
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <span className="min-w-0 flex-1">
+          {listed.length === 0
+            ? "No issue matches."
+            : shown.length > listed.length
+              ? `${shown.length - listed.length} more — keep typing to narrow.`
+              : ""}
+        </span>
+        <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
+          Cancel
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 /** Most results the "Move to" picker lists at once. */
 const MOVE_TO_RESULTS = 8;
 
@@ -1074,6 +1424,9 @@ function IssueDetails({
   const [editing, setEditing] = useState(false);
   // Whether the "Move to" picker is showing under the buttons.
   const [moving, setMoving] = useState(false);
+  // Whether the "Link" box is showing under the buttons. Only one of the
+  // two boxes shows at a time.
+  const [linking, setLinking] = useState(false);
   return (
     <div className="space-y-3">
       {showFacts ? (
@@ -1118,8 +1471,7 @@ function IssueDetails({
       <TextSection label="Design" text={issue.design} />
       <TextSection label="Notes" text={issue.notes} />
       <TextSection label="Close reason" text={issue.closeReason} />
-      <RelatedIssues label="Blocked by" issues={issue.blockedBy} />
-      <RelatedIssues label="Holds up" issues={issue.blocks} />
+      <LinksLine issue={issue} actions={actions} />
       {issue.labels.length === 0 ? null : (
         <div className="flex flex-wrap gap-1.5">
           {issue.labels.map((label) => (
@@ -1178,10 +1530,27 @@ function IssueDetails({
             variant="outline"
             size="sm"
             tip="Move this issue inside another issue, or out to the top level"
-            onClick={() => setMoving(true)}
+            onClick={() => {
+              setLinking(false);
+              setMoving(true);
+            }}
           >
             <Icon name="MoveTo" className="size-4" />
             Move to
+          </Button>
+        )}
+        {closed ? null : (
+          <Button
+            variant="outline"
+            size="sm"
+            tip="Link this issue with another: blocked by, discovered from, related and beads' other kinds"
+            onClick={() => {
+              setMoving(false);
+              setLinking(true);
+            }}
+          >
+            <LinkIcon className="size-4" />
+            Link
           </Button>
         )}
         {/* A compact sub-issue row has no buttons of its own (see
@@ -1262,6 +1631,17 @@ function IssueDetails({
             actions.setParent(issue.id, parentId);
           }}
           onCancel={() => setMoving(false)}
+        />
+      ) : null}
+      {linking ? (
+        <LinkPicker
+          issue={issue}
+          targets={actions.linkTargets(issue.id)}
+          onPick={(fromId, toId, kind) => {
+            setLinking(false);
+            actions.link(fromId, toId, kind);
+          }}
+          onCancel={() => setLinking(false)}
         />
       ) : null}
     </div>
@@ -1455,11 +1835,7 @@ function IssueRow({
               {issue.title}
             </button>
             {hasSubIssues ? <Tag>{subIssues.length} sub</Tag> : null}
-            <Tag strong={issue.status === "in_progress"}>
-              {issue.blockedBy.length > 0 && !closed
-                ? "blocked"
-                : issue.status.replace("_", " ")}
-            </Tag>
+            <StatusTag issue={issue} />
             {issue.priority === null ? null : (
               <Tag strong={issue.priority <= 1}>P{issue.priority}</Tag>
             )}
@@ -3009,6 +3385,33 @@ function BeadsPanel({ scope }: { scope: Scope }) {
           refresh();
         }, reportProblem);
     },
+    link: (fromId, toId, kind) => {
+      rpc
+        .call("issue_link", { threadId, projectId, fromId, toId, kind })
+        .then((outcome) => {
+          setActionProblem(outcome.message);
+          refresh();
+        }, reportProblem);
+    },
+    unlink: (beadId, link) => {
+      // The link is stored on whichever issue is its "from" end.
+      const [fromId, toId] =
+        link.direction === "out" ? [beadId, link.id] : [link.id, beadId];
+      rpc
+        .call("issue_unlink", {
+          threadId,
+          projectId,
+          fromId,
+          toId,
+          kind: link.kind,
+        })
+        .then((outcome) => {
+          setActionProblem(outcome.message);
+          refresh();
+        }, reportProblem);
+    },
+    linkTargets: (beadId) =>
+      [...tree.byId.values()].filter((issue) => issue.id !== beadId),
     moveTargets: (beadId) => {
       const inside = descendantIds(beadId);
       const presentParent = tree.byId.get(beadId)?.parentId ?? null;

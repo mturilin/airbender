@@ -5,7 +5,8 @@ panel, beside a thread or on the New thread screen.
 
 - `server.ts` — the backend. Finds the folder a thread or project works in,
   runs `bd` there to list and create issues, works out "blocked by" and
-  "holds up" from their dependencies, and stores each thread's current bead.
+  "holds up" from their dependencies, lists and changes the links between
+  issues (beads' own kinds), and stores each thread's current bead.
 - `app.tsx` — the frontend. The **Airbender** tab: issues grouped into in
   progress, ready, blocked, other, and closed.
 - `PLUGIN_OVERVIEW.md` — the text BB shows on the plugin's detail page.
