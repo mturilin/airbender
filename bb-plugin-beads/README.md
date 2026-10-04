@@ -16,17 +16,20 @@ Open a thread, open the right-hand panel, choose new tab, then **Beads
 issues** under Actions. From top to bottom the tab shows:
 
 1. **Current** (pinned): the bead this thread is working on, as one row that
-   opens on its chevron, with Flesh out and Clear.
+   opens on its chevron, with Define and Clear.
 2. **Toolbar** (pinned): the folder, the Filter menu (types, priorities;
    remembered per folder), and a refresh button.
 3. **Every other issue**, grouped by status; this part scrolls. While the
    thread has no bead, each open issue has a play button: it makes that issue
-   the thread's bead and sends the agent a message to start on it. An opened
-   issue also offers Flesh out, which starts a background agent that fills
+   the thread's bead and sends the agent a message to start on it. The agent
+   is told to clarify the requirements with you first, then agree an
+   implementation plan, then build; it may skip either of the first two when
+   it is obvious, and has to say so. An opened
+   issue also offers Define, which starts a background agent that fills
    in the issue's description, acceptance criteria and design. It does not
    appear in the sidebar and the thread you are in is not touched; the row
-   is marked "fleshing out…" until it stops, and the button opens it.
-   An issue with no description shows the Flesh out button on its row.
+   is marked "defining…" until it stops, and the button opens it.
+   An issue with no description shows the Define button on its row.
    An opened issue shows its description, then a folded heading for each
    of acceptance criteria, design, notes, close reason and comments that the
    issue has; each opens on its own chevron.
@@ -65,7 +68,7 @@ this plugin, or one made by an agent or in a terminal with `bd`.
 
 - `bd command` — name or full path of the `bd` tool. Change it only if BB
   cannot find `bd`.
-- `Flesh-out model` — model id the background agent uses for Flesh out
+- `Define model` — model id the background agent uses for Define
   (default `claude-fable-5-1`). Empty uses the project's default model.
 
 Reload the plugin after changing a setting.

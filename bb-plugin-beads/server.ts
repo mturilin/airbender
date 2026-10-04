@@ -13,9 +13,12 @@
 //   creating (`bd create`), closing (`bd close`), reopening (`bd reopen`)
 //   and changing an issue's type or priority (`bd update`); nothing here
 //   edits an issue's text or deletes one.
-// - "Flesh out" runs as a background agent: a hidden worker thread that is
+// - "Define" runs as a background agent: a hidden worker thread that is
 //   not shown in the sidebar and is archived and stopped when it finishes,
 //   so the thread the user is working in is not interrupted (bead-bb-4la).
+// - The play button asks the thread's agent to clarify requirements, then
+//   agree an implementation plan, then build; the agent may skip either of
+//   the first two when it is obvious, and must say so (bead-bb-avf).
 // - The plugin speaks to the current thread's agent in two places, both by
 //   sending the thread a message: the play button ("work on this issue") and, when the user
 //   picks it, closing an issue ("commit this issue's work"). The plugin never
@@ -123,11 +126,11 @@ const issueSchema = z.object({
    */
   commentCount: z.number(),
   /**
-   * Id of the hidden worker thread that is fleshing this issue out right now,
+   * Id of the hidden worker thread that is defining this issue right now,
    * or null. Known only to the running plugin: it is forgotten when the
    * plugin reloads, which costs the "in progress" mark, not the work.
    */
-  fleshOutThreadId: z.string().nullable(),
+  defineThreadId: z.string().nullable(),
   status: z.string(),
   /** 0 (most urgent) to 4; null when bd reported none. */
   priority: z.number().nullable(),
@@ -229,9 +232,11 @@ export const rpcContract = defineRpcContract({
     // `message` is null on success, else the reason in plain words.
     output: z.object({ message: z.string().nullable() }),
   },
-  issue_flesh_out: {
-    // Starts a background agent (a hidden worker thread) that fleshes the
-    // issue out, so the thread the user is working in is not interrupted.
+  issue_define: {
+    // Starts a background agent (a hidden worker thread) that defines the
+    // issue (writes up what is wanted, acceptance criteria and a design), so
+    // the thread the user is working in is not interrupted. The button was
+    // called "Flesh out" until the user renamed it to "Define".
     input: z.object({
       threadId: z.string().nullable(),
       projectId: z.string().nullable(),
@@ -264,8 +269,8 @@ export const rpcContract = defineRpcContract({
     output: z.object({ message: z.string().nullable() }),
   },
   current_start: {
-    // Marks the bead as the thread's current one AND sends the thread's agent
-    // a message telling it to start on it.
+    // The play button: makes the bead the thread's current one and sends the
+    // thread's agent the message that starts work on it (see workRequest).
     input: z.object({ threadId: z.string(), beadId: z.string() }),
     output: z.object({ currentBeadId: z.string() }),
   },
@@ -375,7 +380,7 @@ function toIssues(rows: BdIssue[]): Issue[] {
     notes: row.notes ?? "",
     closeReason: row.close_reason ?? "",
     commentCount: row.comment_count ?? 0,
-    fleshOutThreadId: null,
+    defineThreadId: null,
     status: row.status,
     priority: row.priority ?? null,
     type: row.issue_type ?? null,
@@ -388,7 +393,41 @@ function toIssues(rows: BdIssue[]): Issue[] {
 }
 
 /**
- * The instruction given to the background agent that fleshes an issue out.
+ * The message the play button sends to the thread's agent to start work on
+ * an issue.
+ *
+ * The order was set by the user (bead-bb-avf): first make sure the
+ * requirements are clear, then agree an implementation plan, then build.
+ * The first two are the agent's call: either may be skipped when it is
+ * obvious, but the agent has to say that it skipped it and why, so the user
+ * can object. Both happen in the user's own thread, with its own model; the
+ * background define run is a separate, optional way to prepare an issue and
+ * is never started from here.
+ *
+ * It is sent as an ordinary message, not as BB's forced plan-mode request,
+ * precisely because planning may be skipped: a forced plan request would
+ * demand a plan and an approval even for a one-line fix.
+ */
+function workRequest(beadId: string, title: string): string {
+  return [
+    `Work on beads issue ${beadId}: ${JSON.stringify(title)}. Start with \`bd show ${beadId}\` and \`bd comments ${beadId}\`.`,
+    "",
+    "Go through these steps in order.",
+    "",
+    "1. Requirements. Make sure it is clear what is wanted, why, and what \"done\" means. If the issue records open questions for the user, or you have your own, ask them and wait for the answers: being started on an issue is not permission to assume them. Then write the agreed requirements onto the issue (description and acceptance criteria). Skip this step only if the requirements are already obvious and complete.",
+    "",
+    "2. Implementation plan. Say what you will change and how, and wait for the user's approval before changing anything. Use plan mode for this if you have it. Then write the agreed plan into the issue's design field. Skip this step only if the change is small and the way to do it is obvious.",
+    "",
+    "3. Build. Mark the issue in progress and do the work.",
+    "",
+    "When you skip step 1 or step 2, say so in one line and give the reason, so the user can stop you. If in doubt, do not skip.",
+    "",
+    "When you are finished, do not close the issue: add a comment to it saying what you did and how you checked it, leave it in progress, and tell the user it is ready for them to validate. The user closes it.",
+  ].join("\n");
+}
+
+/**
+ * The instruction given to the background agent that defines an issue.
  *
  * Wording notes, from reviewing the first real run (bead-bb-5nz): the result
  * was accurate but about 1,500 words for a one-line request, used capital
@@ -397,9 +436,9 @@ function toIssues(rows: BdIssue[]): Issue[] {
  * the user's own name because bd signs with the git user by default. Each
  * rule below answers one of those.
  */
-function fleshOutPrompt(beadId: string, title: string): string {
+function definePrompt(beadId: string, title: string): string {
   return [
-    `Flesh out beads issue ${beadId} (${JSON.stringify(title)}). Start with \`bd show ${beadId}\`, then read the code it touches.`,
+    `Define beads issue ${beadId} (${JSON.stringify(title)}): turn it from a bare request into a clear, buildable issue. Start with \`bd show ${beadId}\`, then read the code it touches.`,
     "",
     "Write these onto the issue with `bd update`:",
     "- Description: what is wanted and why, how things work today (name the files and functions), and what is out of scope. Keep the user's original wording as a quote. At most about 200 words.",
@@ -414,7 +453,7 @@ function fleshOutPrompt(beadId: string, title: string): string {
     "- Check every claim about the code against the code before you write it.",
     "- Open questions: at most 3, only ones whose answer changes what gets built. Put them in one comment titled \"Open questions\", each with the answer you would assume, so work can start without waiting.",
     "- Add one more comment saying which decisions were yours and what you could not verify.",
-    `- Add \`--actor "flesh-out agent"\` to every bd command that writes, so your changes and comments are not recorded under the user's name.`,
+    `- Add \`--actor "define agent"\` to every bd command that writes, so your changes and comments are not recorded under the user's name.`,
     "- Do not start the work, do not change any file, do not close the issue, do not commit, and do not make it this thread's current bead.",
     "",
     "Finish with three lines at most: what you set, and the open questions.",
@@ -430,15 +469,15 @@ export default async function plugin(bb: BbPluginApi) {
         "Name or full path of the beads command-line tool. Leave as bd unless BB cannot find it.",
       default: "bd",
     },
-    fleshOutModel: {
+    defineModel: {
       type: "string",
-      label: "Flesh-out model",
+      label: "Define model",
       description:
-        "Model the background agent uses when you press Flesh out, as a model id such as claude-fable-5-1. Leave empty to use the project's default model.",
+        "Model the background agent uses when you press Define, as a model id such as claude-fable-5-1. Leave empty to use the project's default model.",
       default: "claude-fable-5-1",
     },
   });
-  const { bdCommand, fleshOutModel } = await settings.get();
+  const { bdCommand, defineModel } = await settings.get();
 
   // Tried in order until one exists. The extra locations cover installs that
   // are on a login shell's PATH but not on the BB server's.
@@ -500,12 +539,12 @@ export default async function plugin(bb: BbPluginApi) {
     return { path: source.path };
   }
 
-  /** Longest a flesh-out is shown as running before the mark is dropped. */
-  const FLESH_OUT_TIMEOUT_MS = 20 * 60_000;
+  /** Longest a define run is shown as running before the mark is dropped. */
+  const DEFINE_TIMEOUT_MS = 20 * 60_000;
 
-  /** Running flesh-outs: folder + issue id -> the thread doing the work. */
-  const fleshingOut = new Map<string, string>();
-  const fleshOutKey = (path: string, beadId: string) => `${path}\n${beadId}`;
+  /** Running define runs: folder + issue id -> the thread doing the work. */
+  const defining = new Map<string, string>();
+  const defineKey = (path: string, beadId: string) => `${path}\n${beadId}`;
 
   const BD_NOT_FOUND_MESSAGE =
     "BB could not find the bd command. Install beads, or set its full path under this plugin's settings (bd command) and reload the plugin.";
@@ -727,7 +766,7 @@ export default async function plugin(bb: BbPluginApi) {
     watchFolder(path);
     const issues = toIssues(rows).map((issue) => ({
       ...issue,
-      fleshOutThreadId: fleshingOut.get(fleshOutKey(path, issue.id)) ?? null,
+      defineThreadId: defining.get(defineKey(path, issue.id)) ?? null,
     }));
     // A closed issue is finished, so it is no longer what the thread works
     // on. The tab's own close button clears it directly, but an issue can
@@ -911,6 +950,108 @@ export default async function plugin(bb: BbPluginApi) {
     }
   }
 
+  /**
+   * Starts a background agent that defines one issue (see
+   * issue_define in the contract).
+   *
+   * @returns The worker thread's id, or the reason nothing was started. If
+   *   one is already running for the issue, its id is returned and no second
+   *   one is started.
+   */
+  async function startDefine({
+    threadId,
+    projectId,
+    beadId,
+  }: {
+    threadId: string | null;
+    projectId: string | null;
+    beadId: string;
+  }): Promise<{ threadId: string | null; message: string | null }> {
+    const fail = (message: string) => ({ threadId: null, message });
+    if (!BEAD_ID_PATTERN.test(beadId)) {
+      return fail(`"${beadId}" is not a beads issue id.`);
+    }
+    const listed = await listIssues({ threadId, projectId });
+    const issue = listed.issues.find((candidate) => candidate.id === beadId);
+    if (listed.state !== "ok" || listed.path === null) {
+      return fail(listed.message ?? "The issues could not be read.");
+    }
+    if (issue === undefined) {
+      return fail(`Issue ${beadId} is no longer in the list.`);
+    }
+    const key = defineKey(listed.path, beadId);
+    const running = defining.get(key);
+    if (running !== undefined) return { threadId: running, message: null };
+    // Run in the same folder as the thread the user is in (it may be a
+    // worktree); from the New thread screen, in the project's default one.
+    let spawnProjectId = projectId;
+    let environment:
+      | { type: "reuse"; environmentId: string }
+      | { type: "project-default" } = { type: "project-default" };
+    if (threadId !== null) {
+      const thread = await bb.sdk.threads.get({ threadId });
+      spawnProjectId = thread.projectId;
+      if (thread.environmentId !== null) {
+        environment = { type: "reuse", environmentId: thread.environmentId };
+      }
+    }
+    if (spawnProjectId === null) return fail("Pick a project first.");
+    // A hidden worker: a background agent that does not show up in the
+    // sidebar. The user asked for exactly this ("no separate thread, a
+    // background agent is fine"). It is deliberately not made a child of
+    // the user's thread, so nothing about it is reported into that thread.
+    // Cost of hiding it: if its agent stops to ask for permission, nobody
+    // sees that in the sidebar; the row's "open" link is the way in, and
+    // the time limit below cleans up a worker that never finishes.
+    let worker;
+    try {
+      worker = await bb.sdk.threads.spawn({
+        projectId: spawnProjectId,
+        environment,
+        title: `Define ${issue.id}: ${issue.title}`.slice(0, 120),
+        visibility: "hidden",
+        // Defining is reading code and making design judgments, and it
+        // runs in the background, so a stronger, slower model is worth it.
+        // The model is a setting; empty means "whatever the project uses".
+        ...(defineModel.trim() === ""
+          ? {}
+          : { model: defineModel.trim() }),
+        prompt: definePrompt(issue.id, issue.title),
+      });
+    } catch (cause) {
+      return fail(
+        `Could not start a background agent to define the issue: ${cause instanceof Error ? cause.message : String(cause)}`,
+      );
+    }
+    defining.set(key, worker.id);
+    bb.realtime.publish(CHANGED_CHANNEL, { threadId });
+    // Not awaited: the answer goes back now, and the mark is cleared when
+    // the new thread's agent goes idle (finished, or waiting for the user),
+    // fails, or runs past the time limit.
+    void bb.sdk.threads
+      .wait({
+        threadId: worker.id,
+        status: "idle",
+        timeoutMs: DEFINE_TIMEOUT_MS,
+      })
+      .catch((cause) => bb.log.warn("define wait ended: " + cause))
+      .finally(async () => {
+        if (defining.get(key) === worker.id) defining.delete(key);
+        bb.realtime.publish(CHANGED_CHANNEL, { threadId });
+        // A hidden worker is not cleaned up by anyone else: archive it so
+        // it leaves the active lists, then stop it so its agent process is
+        // released. Each step is attempted even if the other fails.
+        await bb.sdk.threads
+          .archive({ threadId: worker.id })
+          .catch((cause) => bb.log.warn("define archive failed: " + cause));
+        await bb.sdk.threads
+          .stop({ threadId: worker.id })
+          .catch((cause) => bb.log.warn("define stop failed: " + cause));
+      });
+    return { threadId: worker.id, message: null };
+
+  }
+
   bb.rpc.register(rpcContract, {
     issues_list: (input) => listIssues(input),
     issue_comments: (input) => listComments(input),
@@ -953,90 +1094,7 @@ export default async function plugin(bb: BbPluginApi) {
       return outcome;
     },
     issue_reopen: (input) => setIssueOpen("reopen", input),
-    issue_flesh_out: async ({ threadId, projectId, beadId }) => {
-      const fail = (message: string) => ({ threadId: null, message });
-      if (!BEAD_ID_PATTERN.test(beadId)) {
-        return fail(`"${beadId}" is not a beads issue id.`);
-      }
-      const listed = await listIssues({ threadId, projectId });
-      const issue = listed.issues.find((candidate) => candidate.id === beadId);
-      if (listed.state !== "ok" || listed.path === null) {
-        return fail(listed.message ?? "The issues could not be read.");
-      }
-      if (issue === undefined) {
-        return fail(`Issue ${beadId} is no longer in the list.`);
-      }
-      const key = fleshOutKey(listed.path, beadId);
-      const running = fleshingOut.get(key);
-      if (running !== undefined) return { threadId: running, message: null };
-      // Run in the same folder as the thread the user is in (it may be a
-      // worktree); from the New thread screen, in the project's default one.
-      let spawnProjectId = projectId;
-      let environment:
-        | { type: "reuse"; environmentId: string }
-        | { type: "project-default" } = { type: "project-default" };
-      if (threadId !== null) {
-        const thread = await bb.sdk.threads.get({ threadId });
-        spawnProjectId = thread.projectId;
-        if (thread.environmentId !== null) {
-          environment = { type: "reuse", environmentId: thread.environmentId };
-        }
-      }
-      if (spawnProjectId === null) return fail("Pick a project first.");
-      // A hidden worker: a background agent that does not show up in the
-      // sidebar. The user asked for exactly this ("no separate thread, a
-      // background agent is fine"). It is deliberately not made a child of
-      // the user's thread, so nothing about it is reported into that thread.
-      // Cost of hiding it: if its agent stops to ask for permission, nobody
-      // sees that in the sidebar; the row's "open" link is the way in, and
-      // the time limit below cleans up a worker that never finishes.
-      let worker;
-      try {
-        worker = await bb.sdk.threads.spawn({
-          projectId: spawnProjectId,
-          environment,
-          title: `Flesh out ${issue.id}: ${issue.title}`.slice(0, 120),
-          visibility: "hidden",
-          // Fleshing out is reading code and making design judgments, and it
-          // runs in the background, so a stronger, slower model is worth it.
-          // The model is a setting; empty means "whatever the project uses".
-          ...(fleshOutModel.trim() === ""
-            ? {}
-            : { model: fleshOutModel.trim() }),
-          prompt: fleshOutPrompt(issue.id, issue.title),
-        });
-      } catch (cause) {
-        return fail(
-          `Could not start a background agent to flesh the issue out: ${cause instanceof Error ? cause.message : String(cause)}`,
-        );
-      }
-      fleshingOut.set(key, worker.id);
-      bb.realtime.publish(CHANGED_CHANNEL, { threadId });
-      // Not awaited: the answer goes back now, and the mark is cleared when
-      // the new thread's agent goes idle (finished, or waiting for the user),
-      // fails, or runs past the time limit.
-      void bb.sdk.threads
-        .wait({
-          threadId: worker.id,
-          status: "idle",
-          timeoutMs: FLESH_OUT_TIMEOUT_MS,
-        })
-        .catch((cause) => bb.log.warn("flesh-out wait ended: " + cause))
-        .finally(async () => {
-          if (fleshingOut.get(key) === worker.id) fleshingOut.delete(key);
-          bb.realtime.publish(CHANGED_CHANNEL, { threadId });
-          // A hidden worker is not cleaned up by anyone else: archive it so
-          // it leaves the active lists, then stop it so its agent process is
-          // released. Each step is attempted even if the other fails.
-          await bb.sdk.threads
-            .archive({ threadId: worker.id })
-            .catch((cause) => bb.log.warn("flesh-out archive failed: " + cause));
-          await bb.sdk.threads
-            .stop({ threadId: worker.id })
-            .catch((cause) => bb.log.warn("flesh-out stop failed: " + cause));
-        });
-      return { threadId: worker.id, message: null };
-    },
+    issue_define: (input) => startDefine(input),
     issue_update: async ({ threadId, projectId, beadId, type, priority }) => {
       if (!BEAD_ID_PATTERN.test(beadId)) {
         return { message: `"${beadId}" is not a beads issue id.` };
@@ -1087,9 +1145,7 @@ export default async function plugin(bb: BbPluginApi) {
           {
             type: "text",
             mentions: [],
-            // The agent is told NOT to close: the user validates the work
-            // and closes the issue themselves (bead-bb-e1d).
-            text: `Work on beads issue ${issue.id}: ${JSON.stringify(issue.title)}. Run \`bd show ${issue.id}\` for the details, mark it in progress, and do the work. When you are finished, do not close the issue: add a comment to it saying what you did and how you checked it, leave it in progress, and tell the user it is ready for them to validate. The user closes it.`,
+            text: workRequest(issue.id, issue.title),
           },
         ],
       });

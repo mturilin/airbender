@@ -27,6 +27,26 @@ not at the end.
   own words where possible. Set type and priority.
 - Write what "done" means: `bd update <id> --acceptance "..."`.
 
+- **Ask the bead's open questions first.** If the bead records open
+  questions for the user, put them to the user and wait for the answers
+  before you plan or build. Being told to work on a bead (for example by the
+  play button) is not permission to assume the answers, even where the bead
+  lists an answer you "would assume". Record each answer on the bead as a
+  comment.
+
+- **Requirements, then plan, then build.** When you are started on a bead:
+  1. *Requirements.* Make sure it is clear what is wanted, why, and what
+     "done" means; ask the user what is unclear; write the agreed
+     requirements onto the bead.
+  2. *Implementation plan.* Say what you will change and how, and wait for
+     the user's approval before changing anything; write the agreed plan
+     into the bead's design field.
+  3. *Build.*
+  You may skip step 1 or step 2 when it is obvious (clear, complete
+  requirements; a small change with one evident way to do it). When you
+  skip one, say so in one line with the reason, so the user can stop you.
+  If in doubt, do not skip.
+
 **While working**
 
 - **Design and intent** go in the design field, kept current as the design

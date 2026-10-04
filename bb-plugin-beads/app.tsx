@@ -28,7 +28,7 @@
 //   and priority in place, and mark which bead a thread is working on (a
 //   note kept in BB, not in beads). It cannot edit an issue's text or
 //   delete one.
-// - "Flesh out" starts a background agent for the job and marks the row
+// - "Define" starts a background agent for the job and marks the row
 //   while it is busy; the thread the user is in is not touched.
 // - One component, two entry points: a thread tab passes its thread id, the
 //   New thread screen passes the selected project id. server.ts turns either
@@ -293,8 +293,9 @@ interface IssueActions {
    */
   setCurrent: ((beadId: string | null) => void) | null;
   /**
-   * Marks an issue as this thread's bead and tells the agent to start on it;
-   * null when there is no thread.
+   * The play button: marks an issue as this thread's bead and tells the
+   * agent to start on it (requirements, then a plan, then the work). Null
+   * when there is no thread.
    */
   start: ((beadId: string) => void) | null;
   /**
@@ -319,21 +320,21 @@ interface IssueActions {
     change: { type?: IssueType; priority?: number },
   ) => void;
   /**
-   * Starts a background agent that fleshes the issue out. Does nothing
+   * Starts a background agent that defines the issue. Does nothing
    * visible here beyond the row showing that it is under way.
    */
-  fleshOut: (beadId: string) => void;
+  define: (beadId: string) => void;
   /** Reopens a closed issue; no confirmation. */
   reopen: (beadId: string) => void;
 }
 
 /**
- * Starts fleshing an issue out with a background agent, so the thread the
+ * Starts defining an issue with a background agent, so the thread the
  * user is in is left alone. The agent runs in a hidden worker thread that is
  * not in the sidebar; while it is busy the button turns into the one way to
  * open it, in case the user wants to look in or it is waiting on a question.
  */
-function FleshOutButton({
+function DefineButton({
   issue,
   actions,
   iconOnly = false,
@@ -347,7 +348,7 @@ function FleshOutButton({
   iconOnly?: boolean;
 }) {
   const navigate = useBbNavigate();
-  const running = issue.fleshOutThreadId;
+  const running = issue.defineThreadId;
   const look = iconOnly
     ? ({
         variant: "ghost",
@@ -359,22 +360,22 @@ function FleshOutButton({
     return (
       <Button
         {...look}
-        aria-label={`Open the background agent that is fleshing out ${issue.id}`}
+        aria-label={`Open the background agent that is defining ${issue.id}`}
         onClick={() => navigate.toThread(running)}
       >
         <Icon name="Loading" className="size-4 animate-spin" />
-        {iconOnly ? null : "Fleshing out… open"}
+        {iconOnly ? null : "Defining… open"}
       </Button>
     );
   }
   return (
     <Button
       {...look}
-      aria-label={`Flesh out ${issue.id} with a background agent`}
-      onClick={() => actions.fleshOut(issue.id)}
+      aria-label={`Define ${issue.id} with a background agent`}
+      onClick={() => actions.define(issue.id)}
     >
       <Icon name="MessageSquare" className="size-4" />
-      {iconOnly ? null : "Flesh out"}
+      {iconOnly ? null : "Define"}
     </Button>
   );
 }
@@ -449,7 +450,7 @@ function IssueFacts({
       {issue.blocks.length === 0 ? null : (
         <Tag>holds up {issue.blocks.length}</Tag>
       )}
-      {issue.fleshOutThreadId === null ? null : <Tag strong>fleshing out…</Tag>}
+      {issue.defineThreadId === null ? null : <Tag strong>defining…</Tag>}
       {issue.commentCount === 0 ? null : (
         <Tag>
           {issue.commentCount}{" "}
@@ -632,7 +633,7 @@ function IssueDetails({
       )}
       <div className="flex flex-wrap gap-2">
         {closed ? null : (
-          <FleshOutButton issue={issue} actions={actions} />
+          <DefineButton issue={issue} actions={actions} />
         )}
         {/* The current bead's "drop it" action lives here, out of the way,
             instead of on the row beside "Close & commit". */}
@@ -702,11 +703,11 @@ function IssueRow({
           <IssueFacts issue={issue} onEdit={closed ? undefined : actions.edit} />
         </div>
         {/* An issue that is only a title is the one that most needs
-            fleshing out, so the button is on the row for it instead of
+            defining, so the button is on the row for it instead of
             hidden inside the opened issue. Once the issue has a description
             the button is found inside, as before. */}
         {closed || issue.description.trim() !== "" ? null : (
-          <FleshOutButton issue={issue} actions={actions} iconOnly />
+          <DefineButton issue={issue} actions={actions} iconOnly />
         )}
         {/* Offered only while the thread has no bead: with one already
             chosen, a stray click here would redirect an agent mid-task. */}
@@ -785,7 +786,7 @@ function IssueRow({
 
 /**
  * One titled group of issues. `headerActions` puts buttons at the right end
- * of the title line; the Current group uses it for Clear and "flesh out".
+ * of the title line; the Current group uses it for Clear and "define".
  */
 function SectionBlock({
   section,
@@ -870,7 +871,7 @@ function CurrentSection({
         detailsClassName="max-h-[33vh] overflow-y-auto"
         headerActions={
           <>
-            <FleshOutButton issue={issue} actions={actions} />
+            <DefineButton issue={issue} actions={actions} />
             {clear}
           </>
         }
@@ -1327,8 +1328,8 @@ function BeadsPanel({ scope }: { scope: Scope }) {
       if (issue !== undefined) setClosing({ issue, commit });
     },
     reopen: (beadId) => applyOpen(beadId, true),
-    fleshOut: (beadId) => {
-      rpc.call("issue_flesh_out", { threadId, projectId, beadId }).then(
+    define: (beadId) => {
+      rpc.call("issue_define", { threadId, projectId, beadId }).then(
         (outcome) => {
           setActionProblem(outcome.message);
           refresh();
