@@ -1494,6 +1494,23 @@ function IssueDetails({
           background, so a row of them does not pull the eye away from the
           issue's text. Styled here once, for every button in the row. */}
       <div className="flex flex-wrap gap-1.5 [&>button]:h-6 [&>button]:gap-1 [&>button]:rounded [&>button]:border-0 [&>button]:bg-foreground/[0.06] [&>button]:px-2 [&>button]:text-xs [&>button]:font-normal [&>button]:text-muted-foreground [&>button]:shadow-none [&>button:hover]:bg-foreground/[0.12] [&>button:hover]:text-foreground [&>button_[data-icon-root]]:size-3.5">
+        {/* Play for a compact sub-issue row, which has no buttons of its
+            own (see IssueRow). First in the row at the user's request:
+            starting work is the main thing to do with an open sub-issue. */}
+        {showFacts &&
+        !closed &&
+        actions.start !== null &&
+        actions.currentBeadId === null ? (
+          <Button
+            variant="outline"
+            size="sm"
+            tip="Make this the issue the conversation is working on and start the agent on it"
+            onClick={() => actions.start?.(issue.id)}
+          >
+            <Icon name="Play" className="size-4" />
+            Start work
+          </Button>
+        ) : null}
         {closed ? null : (
           <DefineButton issue={issue} actions={actions} />
         )}
@@ -1554,22 +1571,8 @@ function IssueDetails({
           </Button>
         )}
         {/* A compact sub-issue row has no buttons of its own (see
-            IssueRow), so the ones a full row carries are repeated here:
-            play, and the way into the details window. */}
-        {showFacts &&
-        !closed &&
-        actions.start !== null &&
-        actions.currentBeadId === null ? (
-          <Button
-            variant="outline"
-            size="sm"
-            tip="Make this the issue the conversation is working on and start the agent on it"
-            onClick={() => actions.start?.(issue.id)}
-          >
-            <Icon name="Play" className="size-4" />
-            Start work
-          </Button>
-        ) : null}
+            IssueRow), so the way into the details window is repeated
+            here. Its play button is at the start of this row. */}
         {showFacts && actions.childrenOf(issue.id).length > 0 ? (
           <Button
             variant="outline"

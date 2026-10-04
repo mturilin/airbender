@@ -245,6 +245,7 @@ An issue can contain other issues, and those can contain more, to any depth.
   - a sub-issue row has no buttons, not even on hover. Play, Define,
     close and the way into the details window are inside the opened
     sub-issue. Only the drag anchor appears while the pointer is on the row.
+  - in an opened open sub-issue, **Start work is the first button**. `[uca]`
 
 ## Creating an issue
 
