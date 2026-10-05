@@ -32,7 +32,7 @@ import type {
   rpcContract,
 } from "../server/contract.ts";
 import { CHANGED_CHANNEL, SETUP_AGENTS } from "../shared/constants.ts";
-import { useMenu } from "./menus.tsx";
+import { MenuPanel, useMenu } from "./menus.tsx";
 import type { Scope } from "./use-issues.ts";
 
 /**
@@ -330,10 +330,7 @@ export function SetupMenu({
         </svg>
       </Button>
       {open ? (
-        <div
-          role="menu"
-          className="absolute right-0 top-full z-20 mt-1 w-80 max-w-[85vw] rounded-lg border border-border bg-popover p-2 text-popover-foreground shadow-md"
-        >
+        <MenuPanel className="w-80 max-w-[85vw]">
           <div className="px-2 pb-1 text-xs font-medium text-muted-foreground">
             Setup
           </div>
@@ -363,7 +360,7 @@ export function SetupMenu({
               </button>
             ))
           )}
-        </div>
+        </MenuPanel>
       ) : null}
     </div>
   );

@@ -1,18 +1,22 @@
 // app/actions.ts — what a row or an opened issue can do, and how it is done.
 //
-// What: the IssueActions interface, every action and lookup the rows, the
-// opened issue and the sections are handed by the panel, and useIssueActions,
-// the hook that builds that object out of requests to the backend.
+// What: the actions a row or an opened issue has: IssueLookups (questions
+// about the list) and IssueCommands (things that change something), the
+// hook that builds them out of requests to the backend (useIssueActions),
+// and the context that hands them to the rows (IssueActionsProvider,
+// useActions).
 //
 // Why: rows are drawn several levels below the panel that owns the data and
-// the requests. One documented object passed down keeps each component's props
-// short and makes plain what a row is allowed to do.
+// the requests. One documented set of actions, provided once and picked up
+// where it is used, keeps the components in between out of it.
 //
 // Design notes:
-// - It is deliberately one object and not many small props or a React context:
-//   nearly every member is used by a row and its opened issue between them.
+// - Lookups and commands are separate interfaces so it is plain which
+//   members can change something, and so a new one has an obvious home.
+// - Delivered by React context, so adding an action touches this file and
+//   the component that uses it, and nothing in between.
 
-import { useCallback, useState } from "react";
+import { createContext, useCallback, useContext, useState } from "react";
 import type {
   Issue,
   IssueComment,
@@ -24,10 +28,44 @@ import type { IssueType, LinkKind } from "../shared/constants.ts";
 import type { IssueTree } from "./issue-model.ts";
 import type { Scope, useIssues } from "./use-issues.ts";
 
-/** What an issue row can do besides showing itself. */
-export interface IssueActions {
+/**
+ * What a row or an opened issue may ask about the list: plain lookups that
+ * change nothing.
+ */
+export interface IssueLookups {
   /** Id of the bead this thread works on; null when none. */
   currentBeadId: string | null;
+  /**
+   * Fetches one issue's comments, oldest first. Resolves to the comments, or
+   * rejects with a plain-language reason.
+   */
+  loadComments: (beadId: string) => Promise<IssueComment[]>;
+  /**
+   * The sub-issues drawn under an issue: its direct children, open ones
+   * first. Leaves out the thread's current bead, which is drawn in Current.
+   */
+  childrenOf: (beadId: string) => Issue[];
+  /**
+   * Whether `beadId` may be dropped into `parentId`: not into itself, not
+   * into one of its own sub-issues, and not where it already is.
+   */
+  canNest: (beadId: string, parentId: string) => boolean;
+  /** The categories in use in this repository, in alphabetical order. */
+  categories: string[];
+  /**
+   * The issues `beadId` may be moved into: every open issue except itself,
+   * its own sub-issues at any depth, and the parent it is already in.
+   */
+  moveTargets: (beadId: string) => Issue[];
+  /** The issues `beadId` may be linked with: every issue except itself. */
+  linkTargets: (beadId: string) => Issue[];
+}
+
+/**
+ * What a row or an opened issue may do. Each is a request to the backend
+ * followed by a refresh, or a change to what the panel shows.
+ */
+export interface IssueCommands {
   /**
    * Changes which bead this thread works on without messaging the agent; the
    * tab uses it to clear the choice. Null when there is no thread.
@@ -39,11 +77,6 @@ export interface IssueActions {
    * when there is no thread.
    */
   start: ((beadId: string) => void) | null;
-  /**
-   * Fetches one issue's comments, oldest first. Resolves to the comments, or
-   * rejects with a plain-language reason.
-   */
-  loadComments: (beadId: string) => Promise<IssueComment[]>;
   /**
    * Asks to close an open issue (the user confirms in a dialog first).
    * `commit` true is the happy path: the work is accepted, so the thread's
@@ -75,11 +108,6 @@ export interface IssueActions {
    */
   define: (beadId: string) => void;
   /**
-   * The sub-issues drawn under an issue: its direct children, open ones
-   * first. Leaves out the thread's current bead, which is drawn in Current.
-   */
-  childrenOf: (beadId: string) => Issue[];
-  /**
    * Opens the details window on an issue that has sub-issues, or moves the
    * already open window to it.
    */
@@ -90,23 +118,11 @@ export interface IssueActions {
    */
   setParent: (beadId: string, parentId: string | null) => void;
   /**
-   * Whether `beadId` may be dropped into `parentId`: not into itself, not
-   * into one of its own sub-issues, and not where it already is.
-   */
-  canNest: (beadId: string, parentId: string) => boolean;
-  /** The categories in use in this repository, in alphabetical order. */
-  categories: string[];
-  /**
    * Sets an issue's category (replacing the one it has) or, with null,
    * clears it. Straight away and without confirmation, like type and
    * priority.
    */
   setCategory: (beadId: string, category: string | null) => void;
-  /**
-   * The issues `beadId` may be moved into: every open issue except itself,
-   * its own sub-issues at any depth, and the parent it is already in.
-   */
-  moveTargets: (beadId: string) => Issue[];
   /**
    * Adds a link of one of beads' kinds, stored on `fromId` and pointing at
    * `toId` ("fromId is blocked by toId"). Straight away, no confirmation:
@@ -115,8 +131,6 @@ export interface IssueActions {
   link: (fromId: string, toId: string, kind: LinkKind) => void;
   /** Removes `link`, one of the links listed on issue `beadId`. */
   unlink: (beadId: string, link: IssueLink) => void;
-  /** The issues `beadId` may be linked with: every issue except itself. */
-  linkTargets: (beadId: string) => Issue[];
   /**
    * Gets the new-issue field at the bottom ready to create an issue inside
    * `parentId`: selects it as the parent there and puts the cursor in the
@@ -126,6 +140,36 @@ export interface IssueActions {
   addSubIssue: (parentId: string) => void;
   /** Reopens a closed issue; no confirmation. */
   reopen: (beadId: string) => void;
+}
+
+/** Everything a row can ask and do: the lookups and the commands together. */
+export type IssueActions = IssueLookups & IssueCommands;
+
+const ActionsContext = createContext<IssueActions | null>(null);
+
+/**
+ * Makes the actions available to every row drawn inside it. The panel
+ * provides its own; the details window provides a copy in which "Add
+ * sub-issue" readies the window's own field.
+ */
+export const IssueActionsProvider = ActionsContext.Provider;
+
+/**
+ * The actions for the list this component is drawn in.
+ *
+ * Read from context and not passed as a prop: a row sits four components
+ * below the panel, and handing the object through each of them made every
+ * one of them know about all of it.
+ *
+ * @throws When used outside an IssueActionsProvider, which is a mistake in
+ *   the code and not something a user can cause.
+ */
+export function useActions(): IssueActions {
+  const actions = useContext(ActionsContext);
+  if (actions === null) {
+    throw new Error("useActions must be used inside an IssueActionsProvider.");
+  }
+  return actions;
 }
 
 /** What useIssueActions hands back to the panel. */

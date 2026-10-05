@@ -1,12 +1,14 @@
 // app/menus.tsx — the Group and Filter menus.
 //
-// What: useMenu, the open/close behaviour shared by the small menus, and the
-// Group and Filter buttons with their menus on the Ready heading.
+// What: useMenu and MenuPanel, the open/close behaviour and the box shared
+// by the small menus, and the Group and Filter buttons with their menus on
+// the Ready heading.
 //
 // Why: the menus are drawn in the app's own style instead of the browser's
 // dropdown, which the user found ugly, and must all close the same way.
 
 import { useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
@@ -69,6 +71,35 @@ export function useMenu() {
   return { open, setOpen, root, panel };
 }
 
+/**
+ * The box a menu's entries sit in: it hangs under the right end of its
+ * button, in the app's own popover style. Shared by the Group, Filter and
+ * setup menus so they look alike.
+ *
+ * Pre-condition: the parent element is positioned (`relative`) and is the
+ * one carrying useMenu's `root` ref.
+ * @param className The menu's width and any spacing of its own.
+ */
+export function MenuPanel({
+  className,
+  children,
+}: {
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      role="menu"
+      className={cn(
+        "absolute right-0 top-full z-20 mt-1 rounded-lg border border-border bg-popover p-2 text-popover-foreground shadow-md",
+        className,
+      )}
+    >
+      {children}
+    </div>
+  );
+}
+
 /** What each grouping is called in the Group menu and on its button. */
 const GROUPING_LABELS: Record<GroupBy, string> = {
   none: "None",
@@ -111,10 +142,7 @@ export function GroupMenu({
         <Icon name="ChevronDown" className="size-4" />
       </Button>
       {open ? (
-        <div
-          role="menu"
-          className="absolute right-0 top-full z-20 mt-1 w-40 rounded-lg border border-border bg-popover p-2 text-popover-foreground shadow-md"
-        >
+        <MenuPanel className="w-40">
           <div className="px-2 pb-1 text-xs font-medium text-muted-foreground">
             Group Ready by
           </div>
@@ -139,7 +167,7 @@ export function GroupMenu({
               ) : null}
             </button>
           ))}
-        </div>
+        </MenuPanel>
       ) : null}
     </div>
   );
@@ -184,7 +212,7 @@ export function FilterMenu({
         <Icon name="ChevronDown" className="size-4" />
       </Button>
       {open ? (
-        <div className="absolute right-0 top-full z-20 mt-1 w-56 space-y-2 rounded-lg border border-border bg-popover p-2 text-popover-foreground shadow-md">
+        <MenuPanel className="w-56 space-y-2">
           {types.length === 0 ? null : (
             <div>
               <div className="px-2 text-xs font-medium text-muted-foreground">
@@ -257,7 +285,7 @@ export function FilterMenu({
               Clear filters
             </Button>
           )}
-        </div>
+        </MenuPanel>
       ) : null}
     </div>
   );

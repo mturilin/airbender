@@ -31,6 +31,7 @@ import {
 import { Icon } from "@/components/ui/icon";
 import type { Issue } from "../server/contract.ts";
 import { CLOSED_STATUS } from "../shared/constants.ts";
+import { IssueActionsProvider, useActions } from "./actions.ts";
 import type { IssueActions, IssueActionsView } from "./actions.ts";
 import { CreateIssue } from "./create-issue.tsx";
 import { pathTo } from "./issue-model.ts";
@@ -43,8 +44,6 @@ import { IssueRow } from "./issue-row.tsx";
  * @param issueId The issue the window shows; null keeps it closed. An id
  *   that is no longer in the list closes it too.
  * @param onNavigate Moves the window to another issue, or closes it (null).
- * @param actions The panel's actions; "Add sub-issue" is replaced inside
- *   the window so that it readies the window's own field.
  * @param createIn Creates an issue inside a parent (see useIssueActions).
  */
 export function IssueDetailsWindow({
@@ -52,7 +51,6 @@ export function IssueDetailsWindow({
   onNavigate,
   tree,
   descendantIds,
-  actions,
   createIn,
   categories,
 }: {
@@ -60,10 +58,12 @@ export function IssueDetailsWindow({
   onNavigate: (beadId: string | null) => void;
   tree: IssueTree;
   descendantIds: (beadId: string) => Set<string>;
-  actions: IssueActions;
   createIn: IssueActionsView["createIn"];
   categories: string[];
 }) {
+  // The panel's actions; "Add sub-issue" is replaced below for the rows
+  // inside the window.
+  const actions = useActions();
   const detailsIssue =
     issueId === null ? null : (tree.byId.get(issueId) ?? null);
   // The path shown at the top is worked out from the stored parents, so
@@ -144,17 +144,18 @@ export function IssueDetailsWindow({
           </DialogDescription>
         </DialogHeader>
         {detailsIssue === null ? null : (
-          <ul className="min-h-0 flex-1 divide-y divide-border overflow-y-auto rounded-lg border border-border bg-card">
-            <IssueRow
-              // A fresh row per issue, so moving deeper does not carry the
-              // previous issue's opened or folded state along.
-              key={detailsIssue.id}
-              issue={detailsIssue}
-              actions={windowActions}
-              nested
-              isDetailsRoot
-            />
-          </ul>
+          <IssueActionsProvider value={windowActions}>
+            <ul className="min-h-0 flex-1 divide-y divide-border overflow-y-auto rounded-lg border border-border bg-card">
+              <IssueRow
+                // A fresh row per issue, so moving deeper does not carry the
+                // previous issue's opened or folded state along.
+                key={detailsIssue.id}
+                issue={detailsIssue}
+                nested
+                isDetailsRoot
+              />
+            </ul>
+          </IssueActionsProvider>
         )}
         {/* The window's own new-issue field, fixed at its bottom like the
             panel's. Closed issues take no new sub-issues. */}

@@ -22,7 +22,7 @@ import { Tip } from "@/components/ui/tip";
 import { cn } from "@/lib/utils";
 import type { Issue } from "../server/contract.ts";
 import { CLOSED_STATUS } from "../shared/constants.ts";
-import type { IssueActions } from "./actions.ts";
+import { useActions } from "./actions.ts";
 import { StatusTag, Tag } from "./bits.tsx";
 import { getDragged, setDragged } from "./drag.ts";
 import { DefineButton, IssueDetails } from "./issue-details.tsx";
@@ -45,7 +45,6 @@ import { IssueFacts } from "./issue-facts.tsx";
  */
 export function IssueRow({
   issue,
-  actions,
   detailsClassName,
   nested = false,
   showSubIssues = true,
@@ -55,7 +54,6 @@ export function IssueRow({
   hoverClassName = "hover:bg-state-hover",
 }: {
   issue: Issue;
-  actions: IssueActions;
   /** Extra classes for the opened area, e.g. a height cap for pinned rows. */
   detailsClassName?: string;
   /** This row is a sub-issue drawn under its parent. */
@@ -82,6 +80,7 @@ export function IssueRow({
    */
   hoverClassName?: string;
 }) {
+  const actions = useActions();
   const subIssues = actions.childrenOf(issue.id);
   const hasSubIssues = showSubIssues && subIssues.length > 0;
   // One chevron opens everything about the issue: its description and its
@@ -280,7 +279,7 @@ export function IssueRow({
             hidden inside the opened issue. Once the issue has a description
             the button is found inside, as before. */}
         {closed || issue.description.trim() !== "" ? null : (
-          <DefineButton issue={issue} actions={actions} iconOnly />
+          <DefineButton issue={issue} iconOnly />
         )}
         {/* Offered only while the thread has no bead: with one already
             chosen, a stray click here would redirect an agent mid-task. */}
@@ -360,7 +359,6 @@ export function IssueRow({
         >
           <IssueDetails
             issue={issue}
-            actions={actions}
             fullDescription={isDetailsRoot}
             showFacts={compact}
           />
@@ -383,7 +381,6 @@ export function IssueRow({
             <IssueRow
               key={subIssue.id}
               issue={subIssue}
-              actions={actions}
               nested
               showSubIssues={false}
               lean={!isDetailsRoot}

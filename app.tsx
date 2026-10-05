@@ -67,6 +67,15 @@
 //   beads rewrites on every write. There is deliberately no
 //   timer: beads keeps its database in a single local store, and polling it
 //   would compete with an agent that is writing issues at the same moment.
+// - Where a problem is shown follows one rule: beside what the user was
+//   doing. A failed action on an issue (close, move, link, play, setup)
+//   shows in the red line pinned at the top of the tab, because the row it
+//   came from may have scrolled away. A failure inside a form the user is
+//   typing in (new issue, editing text, comments that will not load) shows
+//   inside that form or section, and what was typed is kept. A list that
+//   cannot be loaded says so where the list would be. Only things with no
+//   place of their own in the tab (copying an id, the quick replies in the
+//   message box) use a toast.
 //
 // Gotchas:
 // - Only TYPES may be imported from the backend (server.ts, server/*).

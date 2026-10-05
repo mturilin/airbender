@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
 import { CLOSED_STATUS } from "../shared/constants.ts";
-import { useIssueActions } from "./actions.ts";
+import { IssueActionsProvider, useIssueActions } from "./actions.ts";
 import { Notice } from "./bits.tsx";
 import { CloseDialog } from "./close-dialog.tsx";
 import type { PendingClose } from "./close-dialog.tsx";
@@ -145,245 +145,248 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
   // 12px is the bands' own padding (p-3), kept and added to.
   const pinnedStyle = { paddingRight: 12 + scrollbarWidth };
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      {/* Top band, pinned: Current, then the toolbar. */}
-      <div
-        className="shrink-0 space-y-3 border-b border-border p-3"
-        style={pinnedStyle}
-      >
-        {ok ? <CurrentSection issue={currentIssue} actions={actions} /> : null}
-        {actionProblem === null ? null : (
-          <p role="alert" className="text-sm text-destructive">
-            That did not work: {actionProblem}
-          </p>
-        )}
-        <div className="flex items-center gap-1">
-          <p
-            className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground"
-            title={result?.path ?? undefined}
-          >
-            {result?.path ?? ""}
-          </p>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-8 shrink-0"
-            tip="Refresh the list"
-            aria-label="Refresh"
-            disabled={loading}
-            // Also re-checks what is set up for the folder. The user expects
-            // Refresh to refresh everything on the tab; the setup check is
-            // otherwise only repeated when it is likely to have changed.
-            onClick={() => {
-              refresh();
-              setup.reload();
-            }}
-          >
-            <Icon
-              name="ArrowReloadHorizontal"
-              className={cn("size-4", loading && "animate-spin")}
+    // The rows, at any depth, pick their actions up from here.
+    <IssueActionsProvider value={actions}>
+      <div className="flex h-full min-h-0 flex-col">
+        {/* Top band, pinned: Current, then the toolbar. */}
+        <div
+          className="shrink-0 space-y-3 border-b border-border p-3"
+          style={pinnedStyle}
+        >
+          {ok ? <CurrentSection issue={currentIssue} /> : null}
+          {actionProblem === null ? null : (
+            <p role="alert" className="text-sm text-destructive">
+              That did not work: {actionProblem}
+            </p>
+          )}
+          <div className="flex items-center gap-1">
+            <p
+              className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground"
+              title={result?.path ?? undefined}
+            >
+              {result?.path ?? ""}
+            </p>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-8 shrink-0"
+              tip="Refresh the list"
+              aria-label="Refresh"
+              disabled={loading}
+              // Also re-checks what is set up for the folder. The user expects
+              // Refresh to refresh everything on the tab; the setup check is
+              // otherwise only repeated when it is likely to have changed.
+              onClick={() => {
+                refresh();
+                setup.reload();
+              }}
+            >
+              <Icon
+                name="ArrowReloadHorizontal"
+                className={cn("size-4", loading && "animate-spin")}
+              />
+            </Button>
+            <SetupMenu
+              status={setup.status}
+              onOpen={setup.reload}
+              onStart={setConfirmingStep}
             />
-          </Button>
-          <SetupMenu
-            status={setup.status}
-            onOpen={setup.reload}
-            onStart={setConfirmingStep}
-          />
+          </div>
         </div>
-      </div>
-      {/* Middle band, the only part that scrolls: the grouped issues. */}
-      {/* Dropping a dragged sub-issue anywhere in this band that is not a
-          row (a group heading, the gaps, the empty space below) moves it
-          out to the top level. Rows stop the event themselves, so this only
-          sees drops that missed every row. */}
-      <div
-        ref={scroller}
-        onDragOver={(event) => {
-          const dragged = getDragged();
-          if (dragged === null || tree.byId.get(dragged)?.parentId == null) {
-            return;
-          }
-          event.preventDefault();
-          event.dataTransfer.dropEffect = "move";
-        }}
-        onDrop={(event) => {
-          const dragged = getDragged();
-          setDragged(null);
-          if (dragged === null || tree.byId.get(dragged)?.parentId == null) {
-            return;
-          }
-          event.preventDefault();
-          actions.setParent(dragged, null);
-        }}
-        className="min-h-0 flex-1 space-y-4 overflow-y-auto p-3 [scrollbar-gutter:stable]"
-      >
-        {failure === null ? null : (
-          <p role="alert" className="text-sm text-destructive">
-            Could not load issues: {failure}
-          </p>
-        )}
-        {/* What is missing for this folder, offered here in the middle of
-            the tab (the user's rule), above whatever else is shown. */}
-        {setup.status === null || setup.status.unavailable !== null ? null : (
-          <SetupCard
-            status={setup.status}
-            skipped={setup.skipped}
-            onSkip={setup.skip}
-            onStart={setConfirmingStep}
-          />
-        )}
-        {result === null ? (
-          failure === null ? (
-            <Notice>Loading issues…</Notice>
-          ) : null
-        ) : result.state !== "ok" ? (
-          <Notice>{result.message}</Notice>
-        ) : result.issues.length === 0 ? (
-          <Notice>No issues yet. Create the first one below.</Notice>
-        ) : (
-          <>
-            {openSections.map((section) => (
+        {/* Middle band, the only part that scrolls: the grouped issues. */}
+        {/* Dropping a dragged sub-issue anywhere in this band that is not a
+            row (a group heading, the gaps, the empty space below) moves it
+            out to the top level. Rows stop the event themselves, so this only
+            sees drops that missed every row. */}
+        <div
+          ref={scroller}
+          onDragOver={(event) => {
+            const dragged = getDragged();
+            if (dragged === null || tree.byId.get(dragged)?.parentId == null) {
+              return;
+            }
+            event.preventDefault();
+            event.dataTransfer.dropEffect = "move";
+          }}
+          onDrop={(event) => {
+            const dragged = getDragged();
+            setDragged(null);
+            if (dragged === null || tree.byId.get(dragged)?.parentId == null) {
+              return;
+            }
+            event.preventDefault();
+            actions.setParent(dragged, null);
+          }}
+          className="min-h-0 flex-1 space-y-4 overflow-y-auto p-3 [scrollbar-gutter:stable]"
+        >
+          {failure === null ? null : (
+            <p role="alert" className="text-sm text-destructive">
+              Could not load issues: {failure}
+            </p>
+          )}
+          {/* What is missing for this folder, offered here in the middle of
+              the tab (the user's rule), above whatever else is shown. */}
+          {setup.status === null || setup.status.unavailable !== null ? null : (
+            <SetupCard
+              status={setup.status}
+              skipped={setup.skipped}
+              onSkip={setup.skip}
+              onStart={setConfirmingStep}
+            />
+          )}
+          {result === null ? (
+            failure === null ? (
+              <Notice>Loading issues…</Notice>
+            ) : null
+          ) : result.state !== "ok" ? (
+            <Notice>{result.message}</Notice>
+          ) : result.issues.length === 0 ? (
+            <Notice>No issues yet. Create the first one below.</Notice>
+          ) : (
+            <>
+              {openSections.map((section) => (
+                <SectionBlock
+                  key={section.id}
+                  section={section}
+               
+                  // Only Ready is divided (the user's choice): it is the long
+                  // group, the backlog to choose from.
+                  subGroups={
+                    section.id === "ready"
+                      ? toSubGroups(section.issues, filters.groupBy)
+                      : []
+                  }
+                  collapsedSubGroups={filters.collapsed}
+                  onToggleSubGroup={(key) =>
+                    setFilters({
+                      ...filters,
+                      collapsed: toggled(filters.collapsed, key),
+                    })
+                  }
+                  emptyNote={
+                    section.id !== "ready"
+                      ? undefined
+                      : narrowed
+                        ? "No ready issues match the filter."
+                        : "No ready issues."
+                  }
+                  // Group and Filter sit on the Ready heading (the owner's
+                  // choice). Group only affects Ready; Filter still narrows
+                  // every group below Current.
+                  headerActions={
+                    section.id !== "ready" ? null : (
+                      <div className="flex shrink-0 items-center gap-1">
+                        <GroupMenu
+                          groupBy={filters.groupBy}
+                          onChange={(groupBy) =>
+                            setFilters({ ...filters, groupBy })
+                          }
+                        />
+                        <FilterMenu
+                          filters={filters}
+                          onChange={setFilters}
+                          types={types}
+                          categories={categories}
+                        />
+                      </div>
+                    )
+                  }
+                />
+              ))}
+              {/* The Closed heading is always here; its issues are folded
+                  away until Show is pressed. */}
               <SectionBlock
-                key={section.id}
-                section={section}
-                actions={actions}
-                // Only Ready is divided (the user's choice): it is the long
-                // group, the backlog to choose from.
-                subGroups={
-                  section.id === "ready"
-                    ? toSubGroups(section.issues, filters.groupBy)
-                    : []
-                }
-                collapsedSubGroups={filters.collapsed}
-                onToggleSubGroup={(key) =>
-                  setFilters({
-                    ...filters,
-                    collapsed: toggled(filters.collapsed, key),
-                  })
-                }
-                emptyNote={
-                  section.id !== "ready"
-                    ? undefined
-                    : narrowed
-                      ? "No ready issues match the filter."
-                      : "No ready issues."
-                }
-                // Group and Filter sit on the Ready heading (the owner's
-                // choice). Group only affects Ready; Filter still narrows
-                // every group below Current.
+                section={closedSection}
+             
+                collapsed={!showClosed}
                 headerActions={
-                  section.id !== "ready" ? null : (
-                    <div className="flex shrink-0 items-center gap-1">
-                      <GroupMenu
-                        groupBy={filters.groupBy}
-                        onChange={(groupBy) =>
-                          setFilters({ ...filters, groupBy })
-                        }
-                      />
-                      <FilterMenu
-                        filters={filters}
-                        onChange={setFilters}
-                        types={types}
-                        categories={categories}
-                      />
-                    </div>
+                  closedSection.issues.length === 0 ? null : (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      aria-expanded={showClosed}
+                      onClick={() => setShowClosed((current) => !current)}
+                    >
+                      {showClosed ? "Hide" : "Show"}
+                    </Button>
                   )
                 }
               />
-            ))}
-            {/* The Closed heading is always here; its issues are folded
-                away until Show is pressed. */}
-            <SectionBlock
-              section={closedSection}
-              actions={actions}
-              collapsed={!showClosed}
-              headerActions={
-                closedSection.issues.length === 0 ? null : (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    aria-expanded={showClosed}
-                    onClick={() => setShowClosed((current) => !current)}
-                  >
-                    {showClosed ? "Hide" : "Show"}
-                  </Button>
-                )
-              }
-            />
-          </>
-        )}
-      </div>
-      <SetupDialog
-        step={confirmingStep}
-        status={setup.status}
-        onClose={() => setConfirmingStep(null)}
-        onRun={(step, option) => {
-          setConfirmingStep(null);
-          rpc
-            .call("setup_run", {
-              threadId,
-              projectId,
-              action: step.action,
-              option,
-            })
-            .then((outcome) => {
-              setActionProblem(outcome.message);
-              setup.reload();
-              refresh();
-            }, reportProblem);
-        }}
-      />
-      <CloseDialog
-        closing={closing}
-        // Committing is only a meaningful part of the question for the
-        // thread's current issue.
-        isCurrent={
-          closing !== null &&
-          closing.issue.id === (result?.currentBeadId ?? null)
-        }
-        // "Close & commit" on an issue with sub-issues closes the open ones
-        // too; the dialog says how many.
-        openSubIssues={
-          closing === null || !closing.commit
-            ? 0
-            : [...descendantIds(closing.issue.id)].filter(
-                (id) => tree.byId.get(id)?.status !== CLOSED_STATUS,
-              ).length
-        }
-        onConfirm={(pending) =>
-          applyOpen(pending.issue.id, false, pending.commit)
-        }
-        onCancel={() => setClosing(null)}
-      />
-      <IssueDetailsWindow
-        issueId={detailsId}
-        onNavigate={setDetailsId}
-        tree={tree}
-        descendantIds={descendantIds}
-        actions={actions}
-        createIn={createIn}
-        categories={categories}
-      />
-      {/* Bottom band, pinned: the field for a new issue. */}
-      {ok ? (
-        <div
-          className="shrink-0 border-t border-border p-3"
-          style={pinnedStyle}
-        >
-          <CreateIssue
-            onCreate={(draft) =>
-              createIn(newIssueParentOpen?.id ?? null, draft)
-            }
-            parent={newIssueParentOpen}
-            onParentChange={setNewIssueParentId}
-            parentChoices={(result?.issues ?? []).filter(
-              (issue) => issue.status !== CLOSED_STATUS,
-            )}
-            focusRequest={focusNewIssue}
-            categories={categories}
-          />
+            </>
+          )}
         </div>
-      ) : null}
-    </div>
+        <SetupDialog
+          step={confirmingStep}
+          status={setup.status}
+          onClose={() => setConfirmingStep(null)}
+          onRun={(step, option) => {
+            setConfirmingStep(null);
+            rpc
+              .call("setup_run", {
+                threadId,
+                projectId,
+                action: step.action,
+                option,
+              })
+              .then((outcome) => {
+                setActionProblem(outcome.message);
+                setup.reload();
+                refresh();
+              }, reportProblem);
+          }}
+        />
+        <CloseDialog
+          closing={closing}
+          // Committing is only a meaningful part of the question for the
+          // thread's current issue.
+          isCurrent={
+            closing !== null &&
+            closing.issue.id === (result?.currentBeadId ?? null)
+          }
+          // "Close & commit" on an issue with sub-issues closes the open ones
+          // too; the dialog says how many.
+          openSubIssues={
+            closing === null || !closing.commit
+              ? 0
+              : [...descendantIds(closing.issue.id)].filter(
+                  (id) => tree.byId.get(id)?.status !== CLOSED_STATUS,
+                ).length
+          }
+          onConfirm={(pending) =>
+            applyOpen(pending.issue.id, false, pending.commit)
+          }
+          onCancel={() => setClosing(null)}
+        />
+        <IssueDetailsWindow
+          issueId={detailsId}
+          onNavigate={setDetailsId}
+          tree={tree}
+          descendantIds={descendantIds}
+       
+          createIn={createIn}
+          categories={categories}
+        />
+        {/* Bottom band, pinned: the field for a new issue. */}
+        {ok ? (
+          <div
+            className="shrink-0 border-t border-border p-3"
+            style={pinnedStyle}
+          >
+            <CreateIssue
+              onCreate={(draft) =>
+                createIn(newIssueParentOpen?.id ?? null, draft)
+              }
+              parent={newIssueParentOpen}
+              onParentChange={setNewIssueParentId}
+              parentChoices={(result?.issues ?? []).filter(
+                (issue) => issue.status !== CLOSED_STATUS,
+              )}
+              focusRequest={focusNewIssue}
+              categories={categories}
+            />
+          </div>
+        ) : null}
+      </div>
+    </IssueActionsProvider>
   );
 }

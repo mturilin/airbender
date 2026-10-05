@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
 import type { Issue } from "../server/contract.ts";
-import type { IssueActions } from "./actions.ts";
+import { useActions } from "./actions.ts";
 import type { Section, SubGroup } from "./issue-model.ts";
 import { IssueRow } from "./issue-row.tsx";
 
@@ -22,7 +22,6 @@ import { IssueRow } from "./issue-row.tsx";
  */
 export function SectionBlock({
   section,
-  actions,
   headerActions = null,
   detailsClassName,
   collapsed = false,
@@ -35,7 +34,6 @@ export function SectionBlock({
   emptyNote,
 }: {
   section: Section;
-  actions: IssueActions;
   headerActions?: ReactNode;
   detailsClassName?: string;
   /** Show only the heading line (with its count), not the issues. */
@@ -59,6 +57,7 @@ export function SectionBlock({
   /** Shown in place of the list when the group has no issues. */
   emptyNote?: string;
 }) {
+  const actions = useActions();
   /** One boxed list of rows; a group has one, or one per sub-group. */
   const rows = (issues: Issue[]) => (
     <ul
@@ -71,7 +70,6 @@ export function SectionBlock({
         <IssueRow
           key={issue.id}
           issue={issue}
-          actions={actions}
           detailsClassName={detailsClassName}
           subIssuesClassName={subIssuesClassName}
           hoverClassName={rowHoverClassName}
@@ -138,11 +136,10 @@ export function SectionBlock({
  */
 export function CurrentSection({
   issue,
-  actions,
 }: {
   issue: Issue | null;
-  actions: IssueActions;
 }) {
+  const actions = useActions();
   const { currentBeadId, setCurrent } = actions;
   if (setCurrent === null) return null;
   const clear = (
@@ -164,7 +161,6 @@ export function CurrentSection({
           hint: "The bead this thread is working on.",
           issues: [issue],
         }}
-        actions={actions}
         // Pinned, so an opened long description scrolls inside itself
         // instead of covering the list below. For the same reason the
         // current bead's sub-issues scroll inside a cap. The two caps

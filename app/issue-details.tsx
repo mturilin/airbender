@@ -20,7 +20,7 @@ import { Tip } from "@/components/ui/tip";
 import { cn } from "@/lib/utils";
 import type { Issue } from "../server/contract.ts";
 import { CLOSED_STATUS } from "../shared/constants.ts";
-import type { IssueActions } from "./actions.ts";
+import { useActions } from "./actions.ts";
 import { LinkIcon, Tag } from "./bits.tsx";
 import { IssueFacts } from "./issue-facts.tsx";
 import { TWO_WAY_KINDS, isLongDescription, linkWords } from "./issue-model.ts";
@@ -40,17 +40,16 @@ import { LinkPicker, MoveToPicker } from "./pickers.tsx";
  */
 export function DefineButton({
   issue,
-  actions,
   iconOnly = false,
 }: {
   issue: Issue;
-  actions: IssueActions;
   /**
    * Draw it as a bare icon, in the same style as the row's close button.
    * Used on a collapsed row, where a labelled button would crowd the title.
    */
   iconOnly?: boolean;
 }) {
+  const actions = useActions();
   const navigate = useBbNavigate();
   const running = issue.defineThreadId;
   const look = iconOnly
@@ -103,11 +102,10 @@ export function DefineButton({
  */
 function LinksLine({
   issue,
-  actions,
 }: {
   issue: Issue;
-  actions: IssueActions;
 }) {
+  const actions = useActions();
   if (issue.links.length === 0) return null;
   return (
     <div>
@@ -174,12 +172,10 @@ function LinksLine({
 /** Everything shown when an issue is opened: text, relations, actions. */
 export function IssueDetails({
   issue,
-  actions,
   fullDescription = false,
   showFacts = false,
 }: {
   issue: Issue;
-  actions: IssueActions;
   /**
    * Show the id, priority and type line at the top. Used for compact
    * sub-issue rows, whose one-line row has no room for them.
@@ -192,6 +188,7 @@ export function IssueDetails({
    */
   fullDescription?: boolean;
 }) {
+  const actions = useActions();
   const closed = issue.status === CLOSED_STATUS;
   // Whether the title and description are being edited. Kept here, in the
   // opened issue, so it ends when the issue is closed up; it also ends if
@@ -246,7 +243,7 @@ export function IssueDetails({
       <TextSection label="Design" text={issue.design} />
       <TextSection label="Notes" text={issue.notes} />
       <TextSection label="Close reason" text={issue.closeReason} />
-      <LinksLine issue={issue} actions={actions} />
+      <LinksLine issue={issue} />
       {issue.labels.length === 0 ? null : (
         <div className="flex flex-wrap gap-1.5">
           {issue.labels.map((label) => (
@@ -287,7 +284,7 @@ export function IssueDetails({
           </Button>
         ) : null}
         {closed ? null : (
-          <DefineButton issue={issue} actions={actions} />
+          <DefineButton issue={issue} />
         )}
         {closed || editing ? null : (
           <Button
