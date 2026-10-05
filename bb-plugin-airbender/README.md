@@ -93,6 +93,22 @@ for example `Fix login #bug #p1 $ux`. The tags are removed from the title. Typin
 matching suggestions above the field: Up and Down to move, Tab or Enter to
 complete, Escape to close.
 
+## Getting a folder ready
+
+When something is missing, the tab offers it in a card in the middle, each
+step with its button and a Skip; the "⋯" menu at the right of the toolbar
+lists every step, greyed out when done or not yet possible:
+
+1. **Install beads** — pick a method (install script, mise, Homebrew, npm).
+2. **Set up beads in this folder** — runs `bd init`.
+3. **Configure beads for Claude Code / Codex** — runs `bd setup <agent>`.
+4. **Add Airbender's rules to AGENTS.md** — the working rules the buttons
+   rely on, added between `<!-- airbender:rules:start -->` and
+   `<!-- airbender:rules:end -->`.
+
+Steps 1 to 3 run in a BB terminal you can watch and type into; the tab
+reloads when it ends and shows the last output if it failed.
+
 ## Limits of this version
 
 - Issues can be created, closed and reopened, and their type, priority,

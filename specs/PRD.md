@@ -51,8 +51,8 @@ Four bands, top to bottom. `[pp7]`
 
 1. **Current** — the issue this conversation is working on. Stays in place
    when the list scrolls.
-2. **Toolbar** — the repository folder and a refresh button. Stays in
-   place.
+2. **Toolbar** — the repository folder, a refresh button and, at the right
+   end, a "⋯" menu for setup (see "Getting a folder ready"). Stays in place.
 3. **Groups** — all other issues. The only part that scrolls.
 4. **New issue** — an entry field that is always there, fixed at the bottom.
 
@@ -71,6 +71,34 @@ Rules for the layout:
 - The Current row is the same width as the rows in the groups. `[d37]`
 - The refresh button is small and shows only an icon: two circular arrows.
   It does not say "Refresh". `[pp7]`
+
+## Getting a folder ready
+
+When something the panel needs is missing, the panel offers to set it up.
+`[80e]`
+
+- **Four things can be set up**, in this order:
+  1. **Install beads**, when the tracker's program is not on the computer.
+     The owner **chooses the way of installing each time**, from the ways
+     available on that computer.
+  2. **Set up beads in this folder**, when the folder has no issue database.
+     This is the most important one.
+  3. **Configure beads for the coding agent**, when the folder has beads but
+     the tracker's own setup for the agent is missing.
+  4. **Add Airbender's rules to the agents' instructions file**, as a
+     separate command: the working rules the panel's buttons rely on. The
+     owner either enables it or skips it.
+- **What is missing is offered in the middle of the panel**, not hidden in a
+  menu, each with its button and a **Skip**.
+- **After Skip, a step is only in the menu.**
+- **A "⋯" menu in the top right corner lists all of them**, so any can be
+  started by hand. **A step that is already done, or is not possible yet, is
+  greyed out.**
+- **Installing, setting up the folder and configuring the agent run in a
+  visible terminal**, so the owner can watch and answer what it asks.
+- **What is still missing is re-checked on every refresh. What was found in
+  place is not checked again**: the panel does not try to notice that
+  something was removed afterwards.
 
 ## The groups
 
@@ -417,6 +445,27 @@ Behaviour the owner did not ask for or decide. It is what the product does
 today, recorded so a rebuild matches. Any of it may be changed without
 breaking a requirement above.
 
+- Setup: every step asks for confirmation first, showing what it will do
+  and the exact command. The folder step lists what it adds to the
+  repository.
+- Setup: the ways of installing offered are the tracker's install script,
+  mise, Homebrew and npm, each only when its tool is on the computer.
+- Setup: the agents offered are Claude Code and Codex, each as its own step.
+- Setup: a greyed-out menu entry says why beside it: "installed", "done",
+  "install beads first", "set up the folder first", "running…".
+- Setup: while a terminal is running, the card says which step and the
+  steps cannot be started. When it ends the panel reloads by itself. If it
+  failed, the card says so, shows the last lines it printed, and the step
+  can be started again.
+- Setup: skipped steps are remembered per folder, on this computer.
+- Setup: Airbender's rules are added at the end of the instructions file,
+  between two marker lines, leaving the rest untouched. They are: every
+  piece of work has an issue; make the issue being worked on the current
+  one; ask the issue's open questions first; requirements, then plan, then
+  build; record decisions on the issue; do not close the issue; commit when
+  the owner has closed it, one commit per issue with its id and title.
+- Setup: nothing is offered for a folder on another machine or when no
+  project is chosen.
 - For "all sub-issues are blocked", only open sub-issues count, and it
   works through every level: a sub-issue with sub-issues of its own counts
   as blocked by the same rule. An issue whose sub-issues are all closed is

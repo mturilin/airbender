@@ -37,6 +37,7 @@ behaviour from the owner's point of view, no implementation details.
 - When a requirement changes, replace the old text. The spec says what is
   true now; the history stays on the beads.
 
+<!-- airbender:rules:start -->
 ## Record everything in beads
 
 Beads is this project's memory. Chat history is lost when a session ends;
@@ -146,6 +147,7 @@ not at the end.
   and install, the user's lasting preferences) go in `bd remember "..."`.
 
 When unsure whether something is worth recording, record it.
+<!-- airbender:rules:end -->
 
 ## Quick Reference
 

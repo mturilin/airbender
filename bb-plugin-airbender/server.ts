@@ -61,9 +61,17 @@
 //   setting overrides all of that.
 // - Settings are read once per load: reload the plugin after changing one.
 import { execFile } from "node:child_process";
-import { existsSync, watch, type FSWatcher } from "node:fs";
+import {
+  accessSync,
+  constants as fsConstants,
+  existsSync,
+  readFileSync,
+  watch,
+  writeFileSync,
+  type FSWatcher,
+} from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { defineRpcContract, type BbPluginApi } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 
@@ -244,9 +252,11 @@ const issuesResultSchema = z.object({
    * ok — `issues` is the full list for `path`.
    * no-beads — the folder exists but has no beads database.
    * unavailable — there is no folder on this machine to look in.
-   * error — bd is missing or failed; `message` says why.
+   * no-bd — the beads program is not on this machine. Its own state, apart
+   *   from "error", so the tab can offer to install it (bead-bb-80e).
+   * error — bd failed; `message` says why.
    */
-  state: z.enum(["ok", "no-beads", "unavailable", "error"]),
+  state: z.enum(["ok", "no-beads", "no-bd", "unavailable", "error"]),
   /** Folder bd ran in; null when none could be resolved. */
   path: z.string().nullable(),
   /** Plain-language explanation for every state except "ok". */
@@ -260,6 +270,67 @@ const issuesResultSchema = z.object({
   currentBeadId: z.string().nullable(),
 });
 export type IssuesResult = z.infer<typeof issuesResultSchema>;
+
+/**
+ * The four things that get a folder ready for Airbender (bead-bb-80e), in
+ * the order they make sense: the beads program on the machine, beads set up
+ * in the folder, beads configured for a coding agent, and Airbender's own
+ * working rules in the folder's AGENTS.md.
+ */
+export const SETUP_ACTIONS = ["install", "init", "agent", "rules"] as const;
+export type SetupAction = (typeof SETUP_ACTIONS)[number];
+
+/**
+ * What is and is not in place for a folder, and what can be done about it.
+ * The tab draws its setup panel, its suggestions and its "more" menu from
+ * this one answer.
+ */
+const setupStatusSchema = z.object({
+  /** The folder, or null when there is none on this machine. */
+  path: z.string().nullable(),
+  /** Why nothing can be set up (no folder here); null when setup applies. */
+  unavailable: z.string().nullable(),
+  /** Whether the beads program was found. */
+  bdInstalled: z.boolean(),
+  /**
+   * The ways to install beads that this machine has the tools for. `command`
+   * is shown to the user before it is run, so nothing runs unseen.
+   */
+  installMethods: z.array(
+    z.object({ id: z.string(), label: z.string(), command: z.string() }),
+  ),
+  /** Whether the folder has a beads issue database. */
+  folderReady: z.boolean(),
+  /**
+   * The coding agents beads can be configured for here, and whether it is.
+   * Empty until beads is installed and the folder is set up, because the
+   * check is beads' own (`bd setup <agent> --check`).
+   */
+  agents: z.array(
+    z.object({ id: z.string(), label: z.string(), configured: z.boolean() }),
+  ),
+  /** Whether the folder's AGENTS.md already carries Airbender's rules. */
+  rulesPresent: z.boolean(),
+  /** The setup action running in a terminal for this folder right now. */
+  running: z
+    .object({ action: z.enum(SETUP_ACTIONS), title: z.string() })
+    .nullable(),
+  /**
+   * How the last terminal run for this folder ended, until the next one
+   * starts: its exit code (0 is success; null when it could not be read)
+   * and the last lines it printed, so a failure can be read in the tab even
+   * if the terminal was never looked at.
+   */
+  lastRun: z
+    .object({
+      action: z.enum(SETUP_ACTIONS),
+      title: z.string(),
+      exitCode: z.number().nullable(),
+      tail: z.string(),
+    })
+    .nullable(),
+});
+export type SetupStatus = z.infer<typeof setupStatusSchema>;
 
 // Both schemas run at the wire boundary; app.tsx imports only the types.
 export const rpcContract = defineRpcContract({
@@ -424,6 +495,29 @@ export const rpcContract = defineRpcContract({
     input: z.object({ threadId: z.string(), beadId: z.string().nullable() }),
     output: z.object({ currentBeadId: z.string().nullable() }),
   },
+  setup_status: {
+    // What is in place for the folder and what could be set up.
+    input: z.object({
+      threadId: z.string().nullable(),
+      projectId: z.string().nullable(),
+    }),
+    output: setupStatusSchema,
+  },
+  setup_run: {
+    // Starts one setup action. `option` picks the install method (for
+    // "install") or the agent (for "agent"); null otherwise. Install, folder
+    // setup and agent setup run in a visible BB terminal; the rules are
+    // written straight into AGENTS.md.
+    input: z.object({
+      threadId: z.string().nullable(),
+      projectId: z.string().nullable(),
+      action: z.enum(SETUP_ACTIONS),
+      option: z.string().nullable(),
+    }),
+    // `message` is null when the action was started (or, for the rules,
+    // done), else the reason in plain words.
+    output: z.object({ message: z.string().nullable() }),
+  },
   thread_reply: {
     // The quick-reply buttons in the message box: sends the thread's agent
     // one of the fixed replies in QUICK_REPLIES.
@@ -440,6 +534,130 @@ export const rpcContract = defineRpcContract({
  * message, so all wording sent to agents on the user's behalf is in one file;
  * app.tsx repeats it only to show it in the buttons' tooltips.
  */
+/** Marks the start and end of Airbender's block inside an AGENTS.md. */
+const RULES_START = "<!-- airbender:rules:start -->";
+const RULES_END = "<!-- airbender:rules:end -->";
+
+/**
+ * Airbender's working rules, added to a folder's AGENTS.md on request
+ * (bead-bb-80e). They are the rules the tab's buttons rely on: play expects
+ * an agent that asks before it builds, and "Close & commit" expects one that
+ * leaves closing to the user and commits when told an issue was closed.
+ * Without them the buttons still send their messages, but an agent has no
+ * standing reason to behave that way between messages.
+ *
+ * Kept general on purpose: nothing here is about one repository (no spec
+ * file, no push hook). Wrapped in marker comments so the tab can tell the
+ * block is there, and so a later version can replace it without touching
+ * the rest of the file.
+ */
+const AIRBENDER_RULES = `${RULES_START}
+## Working with beads through Airbender
+
+This repository's issues are tracked in beads (\`bd\`) and worked from the
+Airbender tab in BB. Follow these rules whenever you work on an issue.
+
+- **Every piece of work has an issue.** If the user asks for something that
+  has no issue yet, create one first (\`bd create\`), with what is wanted and
+  why, and what "done" means (\`bd update <id> --acceptance "..."\`).
+- **Make the issue you work on the thread's current issue**, by calling the
+  \`beads_set_current\` tool with its id as soon as you start, also when you
+  created the issue yourself. The Airbender tab offers the user "Close &
+  commit" only on the current issue.
+- **Ask the issue's open questions first.** Being started on an issue is not
+  permission to assume the answers. Record each answer on the issue.
+- **Requirements, then plan, then build.** Make sure it is clear what is
+  wanted and what "done" means; say what you will change and wait for the
+  user's approval; then do the work. You may skip a step that is obvious,
+  and say so in one line when you do.
+- **Record as you go.** Decisions and their reasons, things that did not
+  work, and progress go on the issue (\`bd comment\`, \`bd note\`, the design
+  field). Follow-up work becomes its own issue, linked to the one it came
+  from.
+- **Do not close the issue.** When you are finished, add a comment saying
+  what you did, how you checked it and what you did not check, leave the
+  issue in progress, and tell the user it is ready to validate. The user
+  closes it.
+- **Commit when the user has closed the issue**, not before: one commit per
+  issue, only that issue's files, with the issue's id and title as the
+  subject line.
+${RULES_END}
+`;
+
+/** The coding agents beads' own setup is offered for: the ones BB runs. */
+const SETUP_AGENTS = [
+  { id: "claude", label: "Claude Code" },
+  { id: "codex", label: "Codex" },
+] as const;
+
+/**
+ * The ways of installing beads the tab can offer, each with the program it
+ * needs on the machine. The script, Homebrew and npm commands are the ones
+ * in beads' own README; the mise one is how beads is installed on the
+ * owner's machine. Only those whose program is present are offered.
+ */
+const INSTALL_METHODS = [
+  {
+    id: "script",
+    label: "Beads' install script",
+    needs: "curl",
+    command:
+      "curl -fsSL https://raw.githubusercontent.com/gastownhall/beads/main/scripts/install.sh | bash",
+  },
+  {
+    id: "mise",
+    label: "mise",
+    needs: "mise",
+    command: "mise use -g github:gastownhall/beads",
+  },
+  {
+    id: "brew",
+    label: "Homebrew",
+    needs: "brew",
+    command: "brew install beads",
+  },
+  {
+    id: "npm",
+    label: "npm",
+    needs: "npm",
+    command: "npm install -g @beads/bd",
+  },
+] as const;
+
+/** How often a running setup terminal is checked, and for how long at most. */
+const SETUP_POLL_MS = 1500;
+const SETUP_TIMEOUT_MS = 15 * 60_000;
+
+/** Wraps text in single quotes for a shell, safe for any content. */
+function shellQuote(text: string): string {
+  return `'${text.replaceAll("'", `'\\''`)}'`;
+}
+
+/**
+ * Whether a program can be found on this machine: in the folders of the
+ * server's own PATH, or in a few places tools are commonly installed that a
+ * desktop app's PATH tends to miss.
+ */
+function programExists(name: string): boolean {
+  const folders = [
+    ...(process.env.PATH ?? "").split(delimiter),
+    join(homedir(), ".local", "bin"),
+    join(homedir(), ".local", "share", "mise", "shims"),
+    "/usr/local/bin",
+    "/opt/homebrew/bin",
+    "/home/linuxbrew/.linuxbrew/bin",
+  ];
+  return folders.some((folder) => {
+    if (folder === "") return false;
+    try {
+      accessSync(join(folder, name), fsConstants.X_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+}
+
 export const QUICK_REPLIES = {
   go: "Go ahead.",
   agree: "I agree with your recommendations. Go ahead.",
@@ -929,6 +1147,208 @@ export default async function plugin(bb: BbPluginApi) {
     return run;
   }
 
+  /** The setup action running in a terminal, per folder. */
+  const setupRunning = new Map<
+    string,
+    { action: SetupAction; title: string }
+  >();
+  /**
+   * The setup conditions already found met, per folder: the working beads
+   * program, the folder set up, the agents configured, the rules present.
+   * Kept only while the plugin runs; a reload checks everything once more.
+   */
+  const setupMet = new Map<
+    string,
+    { bd: string | null; folder: boolean; agents: string[]; rules: boolean }
+  >();
+  /** How the last setup terminal ended, per folder. */
+  const setupLastRun = new Map<string, NonNullable<SetupStatus["lastRun"]>>();
+
+  /**
+   * The beads program that works on this machine: the first of the known
+   * locations that runs, or null. Used where the program's own path is
+   * needed (to put it in a terminal command), not just its output.
+   */
+  async function findBd(cwd: string): Promise<string | null> {
+    for (const candidate of bdCandidates) {
+      const run = await runBd(candidate, ["--version"], cwd);
+      if (run.kind !== "not-found") return candidate;
+    }
+    return null;
+  }
+
+  /**
+   * Works out what is in place for a folder (see SetupStatus).
+   *
+   * Side effects: for each condition not yet known to be met, one check (bd
+   * version, bd list, one bd check per agent, a read of AGENTS.md); none for
+   * conditions already met. Changes nothing on disk.
+   */
+  async function setupStatus(input: {
+    threadId: string | null;
+    projectId: string | null;
+  }): Promise<SetupStatus> {
+    const nothing = {
+      bdInstalled: false,
+      installMethods: [],
+      folderReady: false,
+      agents: [],
+      rulesPresent: false,
+      running: null,
+      lastRun: null,
+    };
+    const folder = await resolveFolder(input);
+    if ("reason" in folder) {
+      return { path: null, unavailable: folder.reason, ...nothing };
+    }
+    const { path } = folder;
+    if (!existsSync(path)) {
+      return {
+        path,
+        unavailable: `The folder ${path} does not exist on the machine BB runs on.`,
+        ...nothing,
+      };
+    }
+    // A condition that was found met is not checked again (the user's
+    // rule): setup only ever moves forward in practice, and detecting that
+    // something was taken away again is not worth a check on every refresh.
+    // What is still unmet is checked every time. So a folder that is fully
+    // set up costs no bd runs here at all.
+    const met = setupMet.get(path) ?? { bd: null, folder: false, agents: [], rules: false };
+    setupMet.set(path, met);
+    met.bd ??= await findBd(path);
+    const bd = met.bd;
+    if (bd !== null && !met.folder) {
+      // "Set up" means what listing issues means by it, so the panel and
+      // the list agree: bd finds a database from this folder upward.
+      met.folder = (await listIssues(input)).state === "ok";
+    }
+    const folderReady = met.folder;
+    const agents = [];
+    if (bd !== null && folderReady) {
+      for (const agent of SETUP_AGENTS) {
+        if (!met.agents.includes(agent.id)) {
+          // bd's own check: it exits 0 when its files for that agent are
+          // in place, and non-zero otherwise.
+          const check = await runBd(bd, ["setup", agent.id, "--check"], path);
+          if (check.kind === "ok") met.agents.push(agent.id);
+        }
+        agents.push({ ...agent, configured: met.agents.includes(agent.id) });
+      }
+    }
+    if (!met.rules) {
+      try {
+        met.rules = readFileSync(join(path, "AGENTS.md"), "utf8").includes(
+          RULES_START,
+        );
+      } catch {
+        // No AGENTS.md (or unreadable): the rules are not there.
+      }
+    }
+    const rulesPresent = met.rules;
+    return {
+      path,
+      unavailable: null,
+      bdInstalled: bd !== null,
+      installMethods: INSTALL_METHODS.filter((method) =>
+        programExists(method.needs),
+      ).map(({ id, label, command }) => ({ id, label, command })),
+      folderReady,
+      agents,
+      rulesPresent,
+      running: setupRunning.get(path) ?? null,
+      lastRun: setupLastRun.get(path) ?? null,
+    };
+  }
+
+  /**
+   * Runs one setup command in a BB terminal the user can watch and type
+   * into, and tells the tab when it ends.
+   *
+   * A terminal and not a hidden child process: an install may ask for a
+   * password, folder setup asks questions, and the user should see what is
+   * done to their machine. A terminal that belongs to the thread is used
+   * when there is one, so it shows up beside that thread; otherwise one on
+   * this machine in the folder.
+   *
+   * @returns Once the terminal is started. The wait for its end goes on in
+   *   the background: when it exits (or after SETUP_TIMEOUT_MS) the exit
+   *   code and the last lines of output are kept in setupLastRun and every
+   *   open tab is told to reload.
+   * @throws When BB cannot open the terminal.
+   */
+  async function runInTerminal(input: {
+    threadId: string | null;
+    path: string;
+    action: SetupAction;
+    title: string;
+    command: string;
+  }): Promise<void> {
+    const { threadId, path, action, title } = input;
+    const { primaryHostId } = await bb.sdk.system.config();
+    if (threadId === null && primaryHostId === null) {
+      throw new Error("BB did not say which machine it runs on.");
+    }
+    const session = await bb.sdk.terminals.create({
+      cols: 100,
+      rows: 30,
+      title,
+      scope:
+        threadId !== null
+          ? { kind: "thread", threadId }
+          : { kind: "host_path", hostId: primaryHostId!, cwd: path },
+      // The command goes through a shell (checked with a test terminal),
+      // so the cd and the pipe in the install script work as written.
+      start: {
+        mode: "command",
+        command: `cd ${shellQuote(path)} && ${input.command}`,
+      },
+    });
+    setupRunning.set(path, { action, title });
+    setupLastRun.delete(path);
+    bb.realtime.publish(CHANGED_CHANNEL, { path });
+    const startedAt = Date.now();
+    const watchTerminal = async () => {
+      let exitCode: number | null = null;
+      try {
+        for (;;) {
+          await new Promise((resolve) => setTimeout(resolve, SETUP_POLL_MS));
+          const now = await bb.sdk.terminals.get({ terminalId: session.id });
+          if (now.status === "exited" || now.status === "disconnected") {
+            exitCode = now.exitCode;
+            break;
+          }
+          if (Date.now() - startedAt > SETUP_TIMEOUT_MS) break;
+        }
+      } catch (cause) {
+        bb.log.warn("watching setup terminal failed: " + cause);
+      }
+      let tail = "";
+      try {
+        const output = await bb.sdk.terminals.output({
+          terminalId: session.id,
+          tailBytes: 4000,
+        });
+        tail = output.chunks
+          .map((chunk) => Buffer.from(chunk.dataBase64, "base64").toString("utf8"))
+          .join("")
+          // Colour and cursor codes mean nothing outside a terminal.
+          .replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/gu, "")
+          .replace(/\r/gu, "")
+          .trim()
+          .split("\n")
+          .slice(-12)
+          .join("\n");
+      } catch {
+        // The output is a convenience; the exit code is what matters.
+      }
+      setupRunning.delete(path);
+      setupLastRun.set(path, { action, title, exitCode, tail });
+      bb.realtime.publish(CHANGED_CHANNEL, { path });
+    };
+    void watchTerminal();
+  }
+
   /**
    * Shared checks for adding and removing a link: both ids look like beads
    * ids, are different, and are in the folder's list.
@@ -1149,7 +1569,7 @@ export default async function plugin(bb: BbPluginApi) {
       "0",
     ]);
     if (run.kind === "not-found") {
-      return { state: "error", path, message: BD_NOT_FOUND_MESSAGE, ...empty };
+      return { state: "no-bd", path, message: BD_NOT_FOUND_MESSAGE, ...empty };
     }
     if (run.kind === "failed") {
       if (/no beads database found/iu.test(run.message)) {
@@ -1157,7 +1577,7 @@ export default async function plugin(bb: BbPluginApi) {
           state: "no-beads",
           path,
           message:
-            "This folder does not use beads yet. Run bd init there to start tracking issues.",
+            "This folder does not use beads yet. Set it up to start tracking issues here.",
           ...empty,
         };
       }
@@ -1824,6 +2244,84 @@ export default async function plugin(bb: BbPluginApi) {
     },
     // Sent from the server, like the play message, rather than through the
     // message box: that way whatever the user has typed there is left alone.
+    setup_status: (input) => setupStatus(input),
+    setup_run: async ({ threadId, projectId, action, option }) => {
+      const status = await setupStatus({ threadId, projectId });
+      if (status.path === null || status.unavailable !== null) {
+        return { message: status.unavailable ?? "There is no folder to set up." };
+      }
+      const { path } = status;
+      if (status.running !== null) {
+        return { message: `"${status.running.title}" is still running.` };
+      }
+      // Each action is refused when it is already done or cannot be done
+      // yet. The tab greys those out; this is the same rule on the side
+      // that actually runs things.
+      if (action === "rules") {
+        if (status.rulesPresent) {
+          return { message: "Airbender's rules are already in AGENTS.md." };
+        }
+        const file = join(path, "AGENTS.md");
+        try {
+          const existing = existsSync(file) ? readFileSync(file, "utf8") : "";
+          // Added at the end, after whatever is there; nothing is replaced.
+          writeFileSync(
+            file,
+            existing === ""
+              ? AIRBENDER_RULES
+              : `${existing.replace(/\n*$/u, "")}\n\n${AIRBENDER_RULES}`,
+          );
+        } catch (cause) {
+          return { message: `AGENTS.md could not be written: ${cause}` };
+        }
+        bb.realtime.publish(CHANGED_CHANNEL, { path });
+        return { message: null };
+      }
+      let title: string;
+      let command: string;
+      if (action === "install") {
+        if (status.bdInstalled) return { message: "Beads is already installed." };
+        const method = status.installMethods.find(
+          (candidate) => candidate.id === option,
+        );
+        if (method === undefined) {
+          return { message: "That way of installing is not available here." };
+        }
+        title = `Install beads (${method.label})`;
+        command = method.command;
+      } else {
+        const bd = await findBd(path);
+        if (bd === null) return { message: "Install beads first." };
+        if (action === "init") {
+          if (status.folderReady) {
+            return { message: "Beads is already set up in this folder." };
+          }
+          title = "Set up beads in this folder";
+          command = `${shellQuote(bd)} init`;
+        } else {
+          if (!status.folderReady) {
+            return { message: "Set up beads in this folder first." };
+          }
+          const agent = status.agents.find(
+            (candidate) => candidate.id === option,
+          );
+          if (agent === undefined) return { message: "Unknown agent." };
+          if (agent.configured) {
+            return { message: `Beads is already configured for ${agent.label}.` };
+          }
+          title = `Configure beads for ${agent.label}`;
+          command = `${shellQuote(bd)} setup ${agent.id}`;
+        }
+      }
+      try {
+        await runInTerminal({ threadId, path, action, title, command });
+      } catch (cause) {
+        return {
+          message: `The terminal could not be opened: ${cause instanceof Error ? cause.message : String(cause)}`,
+        };
+      }
+      return { message: null };
+    },
     thread_reply: async ({ threadId, kind }) => {
       await bb.sdk.threads.send({
         threadId,
