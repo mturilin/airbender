@@ -36,6 +36,11 @@ import type { Scope, useIssues } from "./use-issues.ts";
  * change nothing.
  */
 export interface IssueLookups {
+  /**
+   * Whether the folder's work is on a branch other than the repository's
+   * main one; the workflow words some buttons by it.
+   */
+  ownBranch: boolean;
   /** Id of the bead this thread works on; null when none. */
   currentBeadId: string | null;
   /**
@@ -291,6 +296,7 @@ export function useIssueActions({
       : applyMove(pending.issue.id, pending.moveId, "");
   const actions: IssueActions = {
     currentBeadId: result?.currentBeadId ?? null,
+    ownBranch: result?.ownBranch ?? false,
     loadComments,
     close: (beadId) => {
       // Confirmed in a dialog first: the panel remembers which issue and

@@ -18,6 +18,7 @@ import {
   movesFor,
   nextWorkOf,
   problemsIn,
+  runLabelOf,
   stateOf,
 } from "./workflow.ts";
 import type { Actor } from "./workflow.ts";
@@ -62,12 +63,11 @@ test("the whole path, each move made by the one whose move it is", () => {
   });
 });
 
-test("the agent cannot make the user's moves", () => {
+test("the agent cannot press the user's approval buttons", () => {
   for (const [step, moveId] of [
     ["review-definition", "approve"],
     ["review-plan", "approve"],
     ["user-review", "accept"],
-    ["user-review", "send-back"],
   ] as const) {
     assert.match(go(step, moveId, "agent"), /^refused: .*not the agent's move/u);
   }
@@ -77,11 +77,13 @@ test("an issue closes only from the last step, which needs the user's acceptance
   const closing = flow.moves.filter((move) => move.to === CLOSED);
   assert.equal(closing.length, 1);
   assert.equal(closing[0]!.from, "apply");
-  // The only way into that step is the user's own move.
+  // Every way into that step starts at the user's review: their own
+  // button, or their acceptance in the conversation recorded by the agent.
   const into = flow.moves.filter((move) => move.to === "apply");
-  assert.equal(into.length, 1);
-  assert.equal(into[0]!.from, "user-review");
-  assert.deepEqual(into[0]!.by, ["user"]);
+  assert.deepEqual(into.map((move) => [move.from, move.id]).sort(), [
+    ["user-review", "accept"],
+    ["user-review", "approved"],
+  ]);
   // Accepting does not close the issue: the work has to be applied first.
   assert.equal(go("user-review", "accept", "user"), "apply");
   assert.match(go("user-review", "done", "agent"), /^refused/u);
@@ -134,7 +136,9 @@ test("the user can report a step the agent finished without saying so", () => {
 
 test("a refusal says what is allowed instead", () => {
   assert.match(go("plan", "approve", "agent"), /The agent may: "done".*"skip"/u);
-  assert.match(go("review-plan", "done", "agent"), /nothing for the agent to do; it waits for the user/u);
+  // At a review the agent has no "done": only the two moves that follow
+  // from what the user says.
+  assert.match(go("review-plan", "done", "agent"), /The agent may: "send-back".*"approved"/u);
 });
 
 test("the user's main button comes first, and agent states have none", () => {
@@ -154,7 +158,9 @@ test("the agent is told its step, how to report it, and about sub-issues", () =>
     assert.ok(text.includes(`"${state.label}" step`));
     assert.ok(text.includes(MOVE_TOOL), state.id);
     // Every move the agent may make in this state is named in its text.
-    for (const move of movesFor(flow, state.id, "agent")) {
+    for (const move of movesFor(flow, state.id, "agent").filter(
+      (candidate) => candidate.unlisted !== true,
+    )) {
       assert.ok(text.includes(`move \`${move.id}\``), `${state.id}: ${move.id}`);
     }
   }
@@ -170,4 +176,78 @@ test("the standing instructions name every step and the tool", () => {
   const text = flow.describeForAgents();
   for (const state of flow.states) assert.ok(text.includes(state.label));
   assert.ok(text.includes(MOVE_TOOL));
+});
+
+test("the agent can move an issue to any step when its own work is next", () => {
+  // Leaving out steps that are not needed is the agent's judgment.
+  assert.equal(go("define", "to:implement", "agent", "one-line fix"), "implement");
+  assert.equal(go(null, "to:plan", "agent", "already defined"), "plan");
+  assert.equal(go("implement", "to:define", "agent", "the request changed"), "define");
+  assert.equal(go("agent-review", "to:user-review", "agent", "nothing to review"), "user-review");
+  // Always with a reason.
+  assert.match(go("define", "to:implement", "agent", ""), /^refused: .*needs a reason/u);
+  // And these are the agent's moves, not buttons for the user.
+  assert.match(go("define", "to:implement", "user"), /^refused/u);
+});
+
+test("while an issue waits for the user's review the agent may only move it back", () => {
+  for (const step of ["review-definition", "review-plan", "user-review"]) {
+    assert.match(go(step, "to:apply", "agent"), /^refused/u, step);
+  }
+  assert.match(go("review-definition", "to:plan", "agent"), /^refused/u);
+  assert.match(go("review-plan", "to:implement", "agent"), /^refused/u);
+  assert.match(go("review-plan", "to:user-review", "agent"), /^refused/u);
+  assert.equal(go("review-plan", "to:plan", "agent", "user wants it smaller"), "plan");
+  assert.equal(go("review-plan", "to:define", "agent", "the request changed"), "define");
+  assert.equal(go("user-review", "to:implement", "agent", "user found a bug"), "implement");
+});
+
+test("the agent can never move an issue to Apply by its own judgment", () => {
+  for (const state of flow.states) {
+    assert.match(go(state.id, "to:apply", "agent"), /^refused/u, state.id);
+  }
+});
+
+test("the agent moves an issue back when the user's reply asks for changes", () => {
+  assert.equal(go("review-definition", "send-back", "agent", "user: add the edge case"), "define");
+  assert.equal(go("review-plan", "send-back", "agent", "user: split it in two"), "plan");
+  assert.equal(go("user-review", "send-back", "agent", "user: the button is off"), "implement");
+});
+
+test("the agent records an approval the user gave in the conversation, quoting them", () => {
+  assert.equal(go("review-definition", "approved", "agent", "user: looks right"), "plan");
+  assert.equal(go("review-plan", "approved", "agent", "user: go ahead with the plan"), "implement");
+  assert.equal(go("user-review", "approved", "agent", "user: ship it"), "apply");
+  // Not without their words, and not where there is nothing to approve.
+  assert.match(go("review-plan", "approved", "agent", " "), /^refused: .*needs a reason/u);
+  assert.match(go("plan", "approved", "agent", "x"), /^refused/u);
+});
+
+test("a refusal lists the moves particular to the step, not every jump", () => {
+  const refusal = go("plan", "approve", "agent");
+  assert.match(refusal, /"done"/u);
+  assert.doesNotMatch(refusal, /"to:/u);
+});
+
+test("the Apply step's button says what applying will be", () => {
+  const apply = stateOf(flow, "apply");
+  assert.equal(apply.label, "Apply");
+  assert.equal(runLabelOf(apply, { ownBranch: false }), "Commit");
+  assert.equal(runLabelOf(apply, { ownBranch: true }), "Commit & merge");
+  assert.equal(runLabelOf(stateOf(flow, "plan"), { ownBranch: true }), "Plan");
+  assert.equal(runLabelOf(stateOf(flow, "review-plan"), { ownBranch: true }), "");
+});
+
+test("every step has a friendly sentence for the user, and the reviews ask for feedback", () => {
+  for (const state of flow.states) {
+    assert.ok(state.ask.length > 10, state.id);
+    assert.match(state.ask, /\.$/u, state.id);
+  }
+  for (const step of ["review-definition", "review-plan", "user-review"]) {
+    assert.match(stateOf(flow, step).ask, /^Please review .* give feedback\.$/u);
+  }
+  assert.equal(
+    stateOf(flow, "user-review").ask,
+    "Please review the results and give feedback.",
+  );
 });

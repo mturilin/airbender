@@ -25,7 +25,7 @@
 
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { existsSync } from "node:fs";
-import { runBd } from "./bd.ts";
+import { readGit, runBd } from "./bd.ts";
 import type { BdRun } from "./bd.ts";
 
 /**
@@ -167,7 +167,43 @@ export function createFolders({
     return null;
   }
 
+  /**
+   * Whether a folder is on a branch other than the repository's main one.
+   *
+   * The main branch is the remote's default where git knows it, else a
+   * local branch called main or master. A work tree of the same repository
+   * on its own branch counts as "own branch", which is the point: its work
+   * has to be merged, not only committed.
+   *
+   * @returns False when on the main branch and when it cannot be told.
+   * Side effects: up to three read-only git commands.
+   */
+  async function onOwnBranch(path: string): Promise<boolean> {
+    const current = await readGit(path, ["rev-parse", "--abbrev-ref", "HEAD"]);
+    // "HEAD" is what git answers when no branch is checked out.
+    if (current === null || current === "" || current === "HEAD") return false;
+    const remoteDefault = await readGit(path, [
+      "symbolic-ref",
+      "--quiet",
+      "--short",
+      "refs/remotes/origin/HEAD",
+    ]);
+    let main = remoteDefault?.replace(/^origin\//u, "") ?? null;
+    if (main === null || main === "") {
+      const local = await readGit(path, [
+        "branch",
+        "--list",
+        "--format=%(refname:short)",
+        "main",
+        "master",
+      ]);
+      main = local?.split("\n")[0]?.trim() ?? null;
+    }
+    return main !== null && main !== "" && main !== current;
+  }
+
   return {
+    onOwnBranch,
     BD_NOT_FOUND_MESSAGE,
     resolveFolder,
     folderFor,

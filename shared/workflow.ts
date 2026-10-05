@@ -33,6 +33,15 @@ export type Actor = "agent" | "user";
 /** Where a closing move leads: out of the workflow, the issue is closed. */
 export const CLOSED = "closed";
 
+/**
+ * What a workflow may know about where an issue's work lives, when it words
+ * a button. Deliberately small: facts the tab can be given, not git itself.
+ */
+export interface WorkflowContext {
+  /** The folder is on a branch other than the repository's main one. */
+  ownBranch: boolean;
+}
+
 /** One state an open issue can be in. */
 export interface WorkflowState {
   /** Stored on the issue; letters, digits and dashes only. */
@@ -51,11 +60,19 @@ export interface WorkflowState {
   /** One line saying what happens in this state, for tooltips. */
   hint: string;
   /**
+   * What to say to the user about this state, as a friendly sentence shown
+   * beside the buttons: what they are asked to do when it is their turn
+   * ("Please review the plan and give feedback."), or what is going on when
+   * it is the agent's.
+   */
+  ask: string;
+  /**
    * For an agent's state: the label of the button that gets the agent going
    * on it, e.g. "Plan". Left out for the user's states, where the buttons
-   * are the user's own moves.
+   * are the user's own moves. A function where the wording depends on where
+   * the work lives (see WorkflowContext).
    */
-  runLabel?: string;
+  runLabel?: string | ((context: WorkflowContext) => string);
 }
 
 /** One allowed change of state. */
@@ -75,6 +92,12 @@ export interface WorkflowMove {
   primary?: boolean;
   /** A note is required: why it is sent back, or why it is skipped. */
   needsNote?: boolean;
+  /**
+   * Left out when the moves open at a step are listed for someone (in a
+   * refusal, in the agent's instructions). For moves that exist at nearly
+   * every step and would drown the ones particular to it.
+   */
+  unlisted?: boolean;
 }
 
 /** What a workflow's instruction may say about the issue. */
@@ -118,6 +141,15 @@ export function stateOf(workflow: Workflow, step: string | null): WorkflowState 
   );
 }
 
+/** The label of the button that starts the agent on a state; "" if none. */
+export function runLabelOf(
+  state: WorkflowState,
+  context: WorkflowContext,
+): string {
+  const { runLabel } = state;
+  return typeof runLabel === "function" ? runLabel(context) : (runLabel ?? "");
+}
+
 /** Whose work comes next for an issue in this state (see `nextWork`). */
 export function nextWorkOf(state: WorkflowState): Actor {
   return state.nextWork ?? state.actor;
@@ -158,7 +190,10 @@ export function checkMove(
     const allowed =
       open.length === 0
         ? `In that state there is nothing for the ${by} to do; it waits for the ${state.actor}.`
-        : `The ${by} may: ${open.map((candidate) => `"${candidate.id}" (${candidate.hint})`).join("; ")}.`;
+        : `The ${by} may: ${open
+            .filter((candidate) => candidate.unlisted !== true)
+            .map((candidate) => `"${candidate.id}" (${candidate.hint})`)
+            .join("; ")}.`;
     return {
       message: others
         ? `The issue is at "${state.label}", and "${moveId}" there is not the ${by}'s move to make. ${allowed}`

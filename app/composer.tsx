@@ -1,14 +1,22 @@
 // app/composer.tsx — controls in a thread's message box.
 //
-// What: the current-issue pill with its card, and the two quick-reply buttons,
-// for the row of controls inside BB's message box.
+// What: the controls around a thread's message box. Above it, one line: the
+// step the current issue is at, its id, and what is asked now; hovering it
+// opens the issue's card. Inside it: the current step's buttons as text,
+// and the "Agree & continue" icon.
 //
-// Why: the user wanted to see the thread's current issue and to answer the
-// agent with one click without opening the tab (bead-bb-3l4).
+// Why: the user reads the agent's work in the chat, so the state of that
+// work and the decision about it belong there, not only in the side panel
+// (bead-bb-3l4, bead-bb-eg0).
 //
 // Design notes:
-// - Quick replies are sent by the backend, not through the message box, so
-//   whatever the user has typed there is left alone.
+// - The step button makes the real workflow move. Its wording comes from
+//   the workflow in shared/; nothing here names a step.
+// - "Agree & continue" is sent by the backend, not through the message box,
+//   so whatever the user has typed there is left alone.
+// - The line above the box and the step buttons each load the issue list for the
+//   thread (useIssues), as the tab does. Three loads per change is more than
+//   needed; sharing one would mean a store outside React, not worth it yet.
 //
 // Gotchas:
 // - Anything that must show outside the message box (the card) has to be drawn
@@ -35,9 +43,17 @@ import { IssueFacts } from "./issue-facts.tsx";
 import { formatWhen } from "./issue-model.ts";
 import { useMenu } from "./menus.tsx";
 import { useIssues } from "./use-issues.ts";
+import { workflow } from "../shared/current-workflow.ts";
+import {
+  CLOSED,
+  movesFor,
+  nextWorkOf,
+  stateOf,
+} from "../shared/workflow.ts";
+import { StateChip } from "./workflow-controls.tsx";
 
-/** How long the pointer must rest on the pill before its card opens. */
-const HOVER_OPEN_MS = 2000;
+/** How long the pointer must rest on the status line before its card opens. */
+const HOVER_OPEN_MS = 100;
 
 /** How long a hover-opened card stays after the pointer leaves it. */
 const HOVER_CLOSE_MS = 300;
@@ -92,9 +108,11 @@ export function QuickReplyButton({
   if (threadId === null) return null;
   return (
     <Button
-      variant="ghost"
+      // A gray filled square button (the user's request: gray like BB's own
+      // send button, and square, not round).
+      variant="secondary"
       size="icon"
-      className="size-8 shrink-0"
+      className="size-8 shrink-0 rounded-md bg-foreground/10 text-foreground hover:bg-foreground/20"
       aria-label={label}
       tip={`${label}: sends "${QUICK_REPLIES[kind]}"`}
       disabled={sending || typing || run.isRunning || run.isSubmitting}
@@ -116,54 +134,60 @@ export function QuickReplyButton({
 }
 
 /**
- * The current-issue pill in the message box (bead-bb-prr): shows the title
- * of the issue this thread is working on; a click, or resting the pointer
- * on it for two seconds, opens a card with the issue's details
- * (CurrentIssueCard).
+ * The one line above the message box, for the thread's current issue: the
+ * step it is at, on the same blue chip as in the side panel; its id; and the
+ * workflow's friendly sentence saying what is asked now ("Please review the
+ * results and give feedback."), stronger when it is the user's turn.
  *
- * Two ways of opening, two ways of closing. Opened by a click, the card
- * stays until a press outside it or Escape. Opened by hovering (the user
- * asked for this, with the two-second wait so that merely passing over the
- * pill does nothing), it goes away shortly after the pointer leaves both
- * the pill and the card; the short wait lets the pointer cross the gap
- * between them. Clicking while a hover-opened card is showing keeps it.
+ * Hovering anywhere on the line opens a card with the issue's details
+ * almost at once (CurrentIssueCard); so does a click.
+ *
+ * How it got here, so the same ground is not covered again: a pill with the
+ * title inside the box; a line above the box with the title; two lines
+ * above the box (the user found them ugly); the id as a pill inside the box
+ * with this line above it; and finally, at the user's suggestion, the id on
+ * this line, which they called the cleanest. The sentence could not go
+ * where the user first wanted it, as the grey hint text of the empty
+ * message box: BB gives a plugin no way to set that.
  *
  * Draws nothing when the thread has no current issue or the folder has no
- * beads: the play button in the Airbender tab stays the way to choose one
- * (the user's decision). It follows changes through useIssues, the same
- * loading and change notifications the tab uses.
+ * beads. It follows changes through useIssues, the same loading and change
+ * notifications the tab uses.
  *
- * The card opens upwards, because the message box is at the bottom of the
- * window.
+ * Two ways of opening the card, two ways of closing it. Opened by a click,
+ * it stays until a press outside it or Escape. Opened by hovering, it goes
+ * away shortly after the pointer leaves both the line and the card.
+ * Clicking while a hover-opened card is showing keeps it. The card opens
+ * upwards, because the message box is at the bottom of the window.
  */
-function CurrentIssuePill({ threadId }: { threadId: string }) {
+function StatusLine({ threadId }: { threadId: string }) {
   const { result } = useIssues({ threadId, projectId: null });
   const { open, setOpen, root, panel } = useMenu();
-  // Where the card goes, in window coordinates, worked out from the pill
+  // Where the card goes, in window coordinates, worked out from the line
   // when it is clicked. See CurrentIssueCard for why it is not simply
-  // positioned against the pill.
+  // positioned against the line.
   const [place, setPlace] = useState<CSSProperties>({});
-  const pill = useRef<HTMLButtonElement>(null);
+  const line = useRef<HTMLButtonElement>(null);
   // True while the card is open only because of hovering; a click clears it.
   const hoverOpened = useRef(false);
   // The pending "open after 2 s" and "close shortly after leaving" timers.
   const openTimer = useRef<number | undefined>(undefined);
   const closeTimer = useRef<number | undefined>(undefined);
-  /** Works out where the card goes from where the pill is right now. */
+  /** Works out where the card goes from where the line is right now. */
   const placeCard = () => {
-    const box = pill.current?.getBoundingClientRect();
+    const box = line.current?.getBoundingClientRect();
     if (box === undefined) return;
-    // Above the pill, left edges in line, but never off the right edge of
+    // Above the line, left edges together, but never off the right edge of
     // the window (the card is at most 24rem wide).
     const width = Math.min(384, window.innerWidth * 0.85);
     setPlace({
       left: Math.max(8, Math.min(box.left, window.innerWidth - width - 8)),
       bottom: window.innerHeight - box.top + 8,
-      // Never taller than the room above the pill; it scrolls inside.
+      // Never taller than the room above the line; it scrolls inside.
       maxHeight: Math.max(160, box.top - 16),
     });
   };
-  /** The pointer came onto the pill or the card. */
+  /** The pointer came onto the line or the card. */
   const onEnter = () => {
     window.clearTimeout(closeTimer.current);
     if (open) return;
@@ -174,7 +198,7 @@ function CurrentIssuePill({ threadId }: { threadId: string }) {
       setOpen(true);
     }, HOVER_OPEN_MS);
   };
-  /** The pointer left the pill or the card. */
+  /** The pointer left the line or the card. */
   const onLeave = () => {
     window.clearTimeout(openTimer.current);
     if (!hoverOpened.current) return;
@@ -184,7 +208,7 @@ function CurrentIssuePill({ threadId }: { threadId: string }) {
       setOpen(false);
     }, HOVER_CLOSE_MS);
   };
-  // No timer may fire after the pill is gone.
+  // No timer may fire after the line is gone.
   useEffect(
     () => () => {
       window.clearTimeout(openTimer.current);
@@ -200,22 +224,27 @@ function CurrentIssuePill({ threadId }: { threadId: string }) {
       : null;
   if (issue === null || result === null) return null;
   const issues = result.issues;
+  const state = stateOf(workflow, issue.step);
   return (
     <div
       ref={root}
-      className="relative min-w-0 shrink"
+      className="relative min-w-0"
       onMouseEnter={onEnter}
       onMouseLeave={onLeave}
     >
       <Button
-        ref={pill}
+        ref={line}
         variant="ghost"
         size="sm"
         aria-expanded={open}
-        tip={open ? undefined : `Current issue: ${issue.title}`}
-        // Subtle on purpose (the user's request): no border, muted text, a
-        // faint dot. It is a reminder, not a call to action.
-        className="max-w-48 gap-1.5 px-2 text-xs font-normal text-muted-foreground hover:text-foreground"
+        // No tooltip: the card opens almost at once on hover and says more.
+        aria-label={`Current issue ${issue.id}: ${issue.title}`}
+        // The whole line is the trigger: hovering anywhere on it opens the
+        // card (the user's layout). Its three parts are lined up on the
+        // baseline of their text, not on the middle of their boxes: the id
+        // is in the monospace font, whose letters sit at a different height
+        // in their line, and centred it rode visibly above the sentence.
+        className="h-auto w-full items-baseline justify-start gap-1.5 px-2 py-1 text-left text-xs font-normal"
         onClick={() => {
           window.clearTimeout(openTimer.current);
           window.clearTimeout(closeTimer.current);
@@ -229,8 +258,21 @@ function CurrentIssuePill({ threadId }: { threadId: string }) {
           setOpen((current) => !current);
         }}
       >
-        <span className="size-1.5 shrink-0 rounded-full bg-success/60" />
-        <span className="truncate">{issue.title}</span>
+        <StateChip state={state} />
+        <span className="shrink-0 font-mono text-muted-foreground">
+          {issue.id}
+        </span>
+        <span
+          className={cn(
+            // A little more room after the id than between the other parts.
+            "ml-1.5 min-w-0 truncate",
+            nextWorkOf(state) === "user"
+              ? "text-foreground"
+              : "text-muted-foreground",
+          )}
+        >
+          {state.ask}
+        </span>
       </Button>
       {open ? (
         <CurrentIssueCard
@@ -252,7 +294,7 @@ function CurrentIssuePill({ threadId }: { threadId: string }) {
 }
 
 /**
- * The card the current-issue pill opens: what this thread is working on, at
+ * The card the status line opens: what this thread is working on, at
  * a glance, without opening the Airbender tab.
  *
  * Top to bottom: a "Current issue" line with when it last changed; the
@@ -267,14 +309,14 @@ function CurrentIssuePill({ threadId }: { threadId: string }) {
  * It opens upwards because the message box sits at the bottom of the window.
  *
  * Drawn at the top level of the page (a portal), at a fixed place in the
- * window. The first version was positioned against the pill, inside the
+ * window. The first version was positioned against its trigger, inside the
  * message box, and the user saw nothing happen on a click: BB's message box
  * cuts off whatever sticks out of it. Content moved out like this loses the
  * plugin's styles unless it carries usePortalScopeProps().
  *
  * @param panel Ref for the card's element, so useMenu knows a press inside
  *   the card is not a press "outside".
- * @param place Fixed position and height limit, from the pill's position.
+ * @param place Fixed position and height limit, from the line's position.
  * @param parent The issue this one is a sub-issue of, if any.
  * @param subIssues Direct sub-issues only, in the order the list gave them.
  */
@@ -289,7 +331,7 @@ function CurrentIssueCard({
 }: {
   panel: React.RefObject<HTMLDivElement | null>;
   place: CSSProperties;
-  /** Tell the pill the pointer is on / off the card (hover-opened cards). */
+  /** Tell the line the pointer is on / off the card (hover-opened cards). */
   onMouseEnter: () => void;
   onMouseLeave: () => void;
   issue: Issue;
@@ -379,8 +421,136 @@ function CurrentIssueCard({
   );
 }
 
-/** The pill for whichever thread the message box belongs to, if any. */
-export function ComposerCurrentIssue() {
+/** The status line for whichever thread the message box belongs to, if any. */
+export function ComposerStatusLine() {
   const threadId = useComposerThreadId();
-  return threadId === null ? null : <CurrentIssuePill threadId={threadId} />;
+  return threadId === null ? null : <StatusLine threadId={threadId} />;
+}
+
+/**
+ * The buttons for the current issue's step, inside the message box
+ * (bead-bb-eg0). What is expected is said in the line above the box;
+ * a sentence was tried here, beside the buttons, and the user moved it up.
+ *
+ * At one of the user's steps, their two answers: the main move ("Approve
+ * plan", "Accept") and "Send back". Text buttons, because what they do
+ * changes with the step. At one of the agent's steps, none.
+ *
+ * They make the real workflow moves, which is the point: before, the reply
+ * that felt natural beside the agent's message ("go") moved nothing, and the
+ * buttons that did were in the side panel, away from what they approved.
+ *
+ * "Send back" was first left out, as the same thing as sending a message,
+ * and put back at the user's request: seeing both answers shows what is
+ * expected of them. It takes its reason from what is typed in the message
+ * box and clears it; with nothing typed it asks for the reason.
+ *
+ * The "Agree & continue" button is drawn here too, whenever the user's
+ * answer buttons are not: when there is no current issue, and at an
+ * agent's step.
+ * Side effects: one RPC per click; a toast if a move is refused.
+ */
+function StepButton({ threadId }: { threadId: string }) {
+  const { rpc, result, refresh } = useIssues({ threadId, projectId: null });
+  const composer = useComposer();
+  const [busy, setBusy] = useState(false);
+  const issue =
+    result?.state === "ok" && result.currentBeadId !== null
+      ? (result.issues.find(
+          (candidate) => candidate.id === result.currentBeadId,
+        ) ?? null)
+      : null;
+  // "Agree & continue" is shown whenever the user's answer buttons are not
+  // (the user's rule): with "Accept" and "Send back" on show it would be a
+  // third, vaguer way of saying yes.
+  const agree = (
+    <QuickReplyButton kind="agree" label="Agree & continue" icon="Check" />
+  );
+  if (issue === null || result === null) return agree;
+  const state = stateOf(workflow, issue.step);
+  /** Shows a refusal, or reloads after a move that worked. */
+  const settle = (asked: Promise<{ message: string | null }>) => {
+    setBusy(true);
+    asked
+      .then(
+        (outcome) => {
+          if (outcome.message !== null) toast.error(outcome.message);
+          refresh();
+        },
+        (cause: unknown) =>
+          toast.error(cause instanceof Error ? cause.message : String(cause)),
+      )
+      .finally(() => setBusy(false));
+  };
+  // Nothing for an agent's step (the user's decision): a start button there
+  // was disabled whenever the agent was working, which is nearly always, so
+  // it was never of use. A stalled step can be started from the side panel.
+  if (state.actor === "agent") return agree;
+  // The user's main move, and any move that takes the issue back to an
+  // earlier step ("Send back"): the two answers a review has. Moves that
+  // close the issue or are rare (skip, mark as done) are in the side panel.
+  const stepIndex = workflow.states.indexOf(state);
+  const offered = movesFor(workflow, state.id, "user").filter(
+    (move) =>
+      move.to !== CLOSED &&
+      (move.primary === true ||
+        workflow.states.findIndex((other) => other.id === move.to) < stepIndex),
+  );
+  if (offered.length === 0) return agree;
+  /** Asks the backend for a move; `note` is the reason where one is needed. */
+  const make = (moveId: string, note: string) =>
+    settle(
+      rpc.call("workflow_move", {
+        threadId,
+        projectId: null,
+        beadId: issue.id,
+        moveId,
+        note,
+      }),
+    );
+  return (
+    <div className="flex min-w-0 items-center gap-1.5">
+      {offered.map((move) => (
+        <Button
+          key={move.id}
+          variant="outline"
+          size="sm"
+          className={cn("shrink-0", move.primary === true && "font-medium")}
+          tip={
+            move.needsNote === true
+              ? `${move.hint} Type what should change in the message box first: it is sent with this.`
+              : move.hint
+          }
+          disabled={busy}
+          onClick={() => {
+            if (move.needsNote !== true) {
+              make(move.id, "");
+              return;
+            }
+            // The reason is what the user has typed, which is where they
+            // would write it anyway; the move hands it to the agent, so it
+            // is taken out of the box and not sent a second time.
+            const reason = composer.text.trim();
+            if (reason === "") {
+              toast.message(
+                `Type what should change, then press ${move.label}.`,
+              );
+              composer.focus();
+              return;
+            }
+            make(move.id, reason);
+            composer.clear();
+          }}
+        >
+          {move.label}
+        </Button>
+      ))}
+    </div>
+  );
+}
+
+/** The buttons for whichever thread the message box belongs to, if any. */
+export function ComposerStepButton() {
+  const threadId = useComposerThreadId();
+  return threadId === null ? null : <StepButton threadId={threadId} />;
 }

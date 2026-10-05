@@ -67,6 +67,7 @@ const states: WorkflowState[] = [
     // at what was written and defining it, is the agent's (the user's view).
     nextWork: "agent",
     hint: "Nobody has started on this issue yet; the agent defines it next.",
+    ask: "Not started yet. Press Define when you want the agent to begin.",
   },
   {
     id: "define",
@@ -74,12 +75,14 @@ const states: WorkflowState[] = [
     actor: "agent",
     runLabel: "Define",
     hint: "The agent writes up what is wanted, why, and what done means.",
+    ask: "The agent is defining this issue.",
   },
   {
     id: "review-definition",
     label: "Review definition",
     actor: "user",
     hint: "You check that the issue says what you want.",
+    ask: "Please review the definition and give feedback.",
   },
   {
     id: "plan",
@@ -87,12 +90,14 @@ const states: WorkflowState[] = [
     actor: "agent",
     runLabel: "Plan",
     hint: "The agent works out how to do it and writes the plan down.",
+    ask: "The agent is planning the work.",
   },
   {
     id: "review-plan",
     label: "Review plan",
     actor: "user",
     hint: "You check that the plan is good.",
+    ask: "Please review the plan and give feedback.",
   },
   {
     id: "implement",
@@ -100,6 +105,7 @@ const states: WorkflowState[] = [
     actor: "agent",
     runLabel: "Implement",
     hint: "The agent does the work.",
+    ask: "The agent is doing the work.",
   },
   {
     id: "agent-review",
@@ -107,19 +113,23 @@ const states: WorkflowState[] = [
     actor: "agent",
     runLabel: "Review",
     hint: "The agent checks its own work against the issue.",
+    ask: "The agent is reviewing its own work.",
   },
   {
     id: "user-review",
     label: "Human review",
     actor: "user",
     hint: "You validate the work.",
+    ask: "Please review the results and give feedback.",
   },
   {
     id: "apply",
     label: "Apply",
     actor: "agent",
-    runLabel: "Apply",
+    // The step is Apply; its button says what applying will be here.
+    runLabel: ({ ownBranch }) => (ownBranch ? "Commit & merge" : "Commit"),
     hint: "The agent commits the accepted work, and merges it in if it has its own branch.",
+    ask: "The agent is committing the work.",
   },
 ];
 
@@ -161,12 +171,27 @@ const reviewed = (
     primary: true,
   },
   {
+    // The agent may make this move too: in the conversation the user does
+    // not "send back", they just say what should change, and the agent
+    // moves the issue to where the work now is.
     id: "send-back",
     from,
     to: back,
-    by: ["user"],
+    by: ["user", "agent"],
     label: "Send back",
-    hint: "Say what is wrong and have the agent redo it.",
+    hint: "It needs changes: say what, and the agent redoes it.",
+    needsNote: true,
+  },
+  {
+    // The user's verdict, given in the conversation and recorded by the
+    // agent, so the user does not have to press a button for something they
+    // have already said. The note must quote them.
+    id: "approved",
+    from,
+    to: onward,
+    by: ["agent"],
+    label: "Approved by the user",
+    hint: "The user has approved this in the conversation; quote what they said.",
     needsNote: true,
   },
 ];
@@ -229,9 +254,18 @@ const moves: WorkflowMove[] = [
     id: "send-back",
     from: "user-review",
     to: "implement",
-    by: ["user"],
+    by: ["user", "agent"],
     label: "Send back",
-    hint: "Say what is wrong and have the agent fix it.",
+    hint: "It needs changes: say what, and the agent fixes it.",
+    needsNote: true,
+  },
+  {
+    id: "approved",
+    from: "user-review",
+    to: "apply",
+    by: ["agent"],
+    label: "Accepted by the user",
+    hint: "The user has accepted the work in the conversation; quote what they said.",
     needsNote: true,
   },
   {
@@ -252,6 +286,41 @@ const moves: WorkflowMove[] = [
     needsNote: true,
   },
 ];
+
+/**
+ * The agent's freedom to move an issue (the user's rule): "agent can move
+ * issue to any state. It has agency to do it ... if it thinks that plan is
+ * not necessary, it can skip steps. While we're in review and until I review
+ * it, it wouldn't be good for agent to move forward."
+ *
+ * So, as moves named `to:<step>`, each needing a reason:
+ * - from a step where the agent's work is next, to any other step;
+ * - from a step that waits for the user's review, only back to an earlier
+ *   step;
+ * - never to Apply, whichever way: that is reached only by the user's
+ *   acceptance (the agent's own caution, kept from before the rule above).
+ */
+const LAST_STEP = "apply";
+const jumps: WorkflowMove[] = states.flatMap((from, fromIndex) =>
+  states
+    .filter(
+      (to, toIndex) =>
+        to.id !== from.id &&
+        to.id !== LAST_STEP &&
+        ((from.nextWork ?? from.actor) === "agent" || toIndex < fromIndex),
+    )
+    .map((to) => ({
+      id: `to:${to.id}`,
+      from: from.id,
+      to: to.id,
+      by: ["agent"] as const,
+      label: `Move to ${to.label}`,
+      hint: `Go straight to ${to.label}; say why.`,
+      needsNote: true,
+      unlisted: true,
+    })),
+);
+moves.push(...jumps);
 
 /** How the agent is told to report a move. */
 const report = (issueId: string, moveId: string) =>
@@ -355,11 +424,16 @@ function describeForAgents(): string {
   const steps = states
     .map(
       (state) =>
-        `${state.label} (${state.actor === "agent" ? "you" : "the user"})`,
+        `${state.label} [${state.id}] (${state.actor === "agent" ? "you" : "the user"})`,
     )
     .join(", then ");
   const agentMoves = states
-    .map((state) => ({ state, open: movesFor(standardWorkflow, state.id, "agent") }))
+    .map((state) => ({
+      state,
+      open: movesFor(standardWorkflow, state.id, "agent").filter(
+        (move) => move.unlisted !== true,
+      ),
+    }))
     .filter(({ open }) => open.length > 0)
     .map(
       ({ state, open }) =>
@@ -368,10 +442,12 @@ function describeForAgents(): string {
     .join("; ");
   return [
     `Every beads issue in this repository goes through these steps before it is closed: ${steps}.`,
-    "You are told which step an issue is at when you are started on it. Do that step only.",
+    "You are told which step an issue is at when you are started on it. Do that step.",
     `If you begin work on an issue that is still at ${states[0]!.label} (for example from a typed request), move it with \`start\` first.`,
     `When you finish a step, report it with the ${MOVE_TOOL} tool (${agentMoves}), each with a short note. The tool tells you what comes next: either your next step, or that the issue now waits for the user.`,
-    "The steps that are the user's are theirs alone: they approve or send back in the Airbender tab. Do not commit before the user has accepted an issue; an issue is closed by reporting its last step, never with bd close.",
+    "You have the judgment to move an issue to where the work really is: the move `to:<step id>` (the ids are in square brackets above) takes it to any step, with your reason, for example to leave out steps that are not needed. Two limits: while an issue waits for the user's review you may only move it back, not on; and you can never move an issue to Apply.",
+    "While an issue waits for the user's review, read what they reply. If they ask for changes, move it back with `send-back`, giving their words as the reason, and redo the work; a long rework belongs in the work step, a quick question does not need a move at all. If they approve in the conversation, record it with `approved`, quoting what they said, and carry on. Never record an approval the user has not given.",
+    "Do not commit before the user has accepted an issue; an issue is closed by reporting its last step, never with bd close.",
   ].join(" ");
 }
 

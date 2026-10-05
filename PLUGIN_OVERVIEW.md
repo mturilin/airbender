@@ -22,8 +22,9 @@ issues in a tab beside the conversation, without leaving BB.
   You can send a step back with a reason, or skip one.
 - **Accept, then Apply**: accepting at the human review has the agent commit
   the work; the issue closes once it is in git.
-- In the message box: a pill showing the current issue, and two one-click
-  replies, "Go" and "Agree & go".
+- Around the message box: a status line with the current issue, its step
+  and what is needed, and the step's main move as a button right where you
+  read the agent's messages, beside a one-click "Agree & continue".
 - **Setup**: when beads is missing from the computer or the folder, the tab
   offers to install it and set the folder up, in a terminal you can watch.
 

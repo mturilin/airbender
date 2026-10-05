@@ -97,7 +97,8 @@ export function createStore({
   currentBead: CurrentBead;
   watchFolder: (path: string) => void;
 }) {
-  const { folderFor, runBdIn, runIn, BD_NOT_FOUND_MESSAGE } = folders;
+  const { folderFor, runBdIn, runIn, onOwnBranch, BD_NOT_FOUND_MESSAGE } =
+    folders;
 
   /** Tells every open tab to reload. */
   const changed = (threadId: string | null) =>
@@ -161,7 +162,7 @@ export function createStore({
    */
   async function listIssues(input: FolderRef): Promise<IssuesResult> {
     const currentBeadId = await currentBead.read(input.threadId);
-    const empty = { issues: [], currentBeadId };
+    const empty = { issues: [], currentBeadId, ownBranch: false };
     const folder = await folderFor(input);
     if ("message" in folder) {
       return {
@@ -186,6 +187,14 @@ export function createStore({
     // as well as hidden so it does not come back if the issue is reopened.
     // No change signal is published: the caller is already getting the
     // corrected answer, and publishing would make every tab reload again.
+    const ok = {
+      state: "ok" as const,
+      path,
+      message: null,
+      issues,
+      currentBeadId,
+      ownBranch: await onOwnBranch(path),
+    };
     const current = issues.find((issue) => issue.id === currentBeadId);
     if (
       input.threadId !== null &&
@@ -193,9 +202,9 @@ export function createStore({
       current.status === CLOSED_STATUS
     ) {
       await currentBead.store(input.threadId, null);
-      return { state: "ok", path, message: null, issues, currentBeadId: null };
+      return { ...ok, currentBeadId: null };
     }
-    return { state: "ok", path, message: null, issues, currentBeadId };
+    return ok;
   }
 
   /**

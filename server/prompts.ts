@@ -46,9 +46,13 @@ example "\`bd close <id>\` to complete work"), these rules take precedence.
   commit" only on the current issue.
 - **Every issue goes through its workflow.** You are told which step an
   issue is at when you are started on it: do that step only, and report it
-  with the \`beads_workflow_move\` tool when it is finished. The steps that
-  are the user's (reviewing the definition, the plan and the finished work)
-  are theirs alone; they approve or send back in the Airbender tab.
+  with the \`beads_workflow_move\` tool when it is finished. You may move an
+  issue to another step when that is where the work really is, with your
+  reason, but never forward past a review that is the user's (of the
+  definition, of the plan, of the finished work). While an issue waits for
+  the user: if their reply asks for changes, move it back and redo the
+  work; if they approve, record that, quoting them; if it is only a
+  question, answer it.
 - **Ask the issue's open questions first.** Being started on an issue is not
   permission to assume the answers. Record each answer on the issue.
 - **Record as you go.** Decisions and their reasons, things that did not

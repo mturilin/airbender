@@ -22,7 +22,7 @@
 //   the note given: the issue's own history, shown in the tab.
 // - A move to "closed" is the only way the workflow ends. It closes the
 //   issue's open sub-issues first. Committing is not done here: it is a
-//   step of the workflow, done by the agent. The plugin never runs git.
+//   step of the workflow, done by the agent. The plugin never changes git.
 // - Problems are returned as a message in plain words, like every other
 //   operation, so the tab (and the agent's tool) can show them.
 //

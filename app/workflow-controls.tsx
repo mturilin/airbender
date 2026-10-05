@@ -29,8 +29,13 @@ import { Tip } from "@/components/ui/tip";
 import type { Issue } from "../server/contract.ts";
 import { CLOSED_STATUS } from "../shared/constants.ts";
 import { workflow } from "../shared/current-workflow.ts";
-import { movesFor, nextWorkOf, stateOf } from "../shared/workflow.ts";
-import type { WorkflowMove } from "../shared/workflow.ts";
+import {
+  movesFor,
+  nextWorkOf,
+  runLabelOf,
+  stateOf,
+} from "../shared/workflow.ts";
+import type { WorkflowMove, WorkflowState } from "../shared/workflow.ts";
 import { useActions } from "./actions.ts";
 import type { IssueActions } from "./actions.ts";
 import { PersonIcon, RobotIcon } from "./bits.tsx";
@@ -68,23 +73,40 @@ export function StateTag({ issue }: { issue: Issue }) {
     <Tip
       label={`${human ? "Needs you" : "The agent's work"}: ${state.hint}`}
     >
-      {/* A chip with a light blue fill and no outline (the user's choice):
-          the fill sets it apart from the id beside it, and without an
-          outline it is not taken for one of the dropdowns. The blue is a
-          tint over whatever is behind it, so it works in light and dark
-          themes. Same box as the tags beside it (an invisible border
-          makes up the height), and plain inline text, not a flex box: the
-          facts are lined up on their text's baseline, and a flex box would
-          offer the icon's bottom edge as its baseline. */}
-      <span className="shrink-0 cursor-default whitespace-nowrap rounded border border-transparent bg-blue-500/15 px-1.5 py-px text-[11px] font-medium leading-4 text-foreground">
-        {human ? (
-          <PersonIcon className="mr-1 inline-block size-3 align-[-1.5px]" />
-        ) : (
-          <RobotIcon className="mr-1 inline-block size-3 align-[-1.5px]" />
-        )}
-        {state.label}
+      {/* A plain inline span for the tooltip to attach to: the chip takes
+          no ref, and anything but plain inline text would upset the line
+          (see StateChip). */}
+      <span className="shrink-0 cursor-default">
+        <StateChip state={state} />
       </span>
     </Tip>
+  );
+}
+
+/**
+ * The chip itself: the step's name on a light blue fill, with the icon for
+ * whose work is next. Shared by the tag on an issue (StateTag) and the
+ * status line above the message box, so a step looks the same in both.
+ *
+ * A light blue fill and no outline (the user's choice): the fill sets it
+ * apart from the id beside it, and without an outline it is not taken for
+ * one of the dropdowns. The blue is a tint over whatever is behind it, so
+ * it works in light and dark themes. Same box as the tags beside it (an
+ * invisible border makes up the height), and plain inline text, not a flex
+ * box: an issue's facts are lined up on their text's baseline, and a flex
+ * box would offer the icon's bottom edge as its baseline.
+ */
+export function StateChip({ state }: { state: WorkflowState }) {
+  const human = nextWorkOf(state) === "user";
+  return (
+    <span className="shrink-0 whitespace-nowrap rounded border border-transparent bg-blue-500/15 px-1.5 py-px text-[11px] font-medium leading-4 text-foreground">
+      {human ? (
+        <PersonIcon className="mr-1 inline-block size-3 align-[-1.5px]" />
+      ) : (
+        <RobotIcon className="mr-1 inline-block size-3 align-[-1.5px]" />
+      )}
+      {state.label}
+    </span>
   );
 }
 
@@ -112,17 +134,18 @@ export function WorkflowButton({
   if (state.actor === "agent") {
     const { run } = actions;
     if (run === null) return null;
+    const runLabel = runLabelOf(state, { ownBranch: actions.ownBranch });
     return (
       <Button
         variant="outline"
         size="sm"
         className={className}
         tip={`${state.hint} Starts the agent on this step and makes this the current issue.`}
-        aria-label={`${state.runLabel}: ${issue.id} ${issue.title}`}
+        aria-label={`${runLabel}: ${issue.id} ${issue.title}`}
         onClick={() => run(issue.id)}
       >
         <Icon name="Play" className="size-4" />
-        {state.runLabel}
+        {runLabel}
       </Button>
     );
   }

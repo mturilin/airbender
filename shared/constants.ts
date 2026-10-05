@@ -65,14 +65,14 @@ export const LINK_KINDS = [
 export type LinkKind = (typeof LINK_KINDS)[number];
 
 /**
- * The messages the quick-reply buttons send (bead-bb-lit). They exist so the
+ * The message the quick-reply button sends (bead-bb-lit). It exists so the
  * user does not have to type "yes, go ahead" after every plan or question.
- * Two flavours, as the user asked: a plain go-ahead, and one that also says
- * the agent's recommendations are accepted. The backend sends them; the
+ * One is left, "Agree & continue". There was a plain "Go" as well; it went
+ * when the message box got buttons for the real workflow moves, because it
+ * looked like an approval and was not one. The backend sends them; the
  * frontend shows the same text in the buttons' tooltips.
  */
 export const QUICK_REPLIES = {
-  go: "Go ahead.",
   agree: "I agree with your recommendations. Go ahead.",
 } as const;
 

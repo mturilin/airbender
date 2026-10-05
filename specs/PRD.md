@@ -352,9 +352,17 @@ Rules:
   agent. `[e2b]`
 - **At a review, the owner approves or sends it back** to the step before,
   saying why. `[e2b]`
-- **The agent can move an issue forward, but only as the workflow allows.**
-  It cannot make the owner's moves, and no issue reaches its last step
-  without the owner's acceptance. `[e2b]` `[0uh]`
+- **The agent has the judgment to move an issue to any step**, for example
+  to leave out steps it finds unnecessary. `[eg0]`
+- **While an issue waits for the owner's review, the agent does not move it
+  forward.** `[eg0]`
+- **The owner does not have to think about moving issues between steps.**
+  While an issue waits for their review they simply reply. If the reply
+  asks for changes, the agent moves the issue back to the work step; if it
+  is only a question, the issue stays where it is. The agent decides which.
+  `[eg0]`
+- **The Apply step's button says what applying will be**: "Commit", or
+  "Commit & merge" when the work is on its own branch. `[lmy]`
 - **A step may be skipped with a stated reason**, which is recorded. `[e2b]`
 - **Accepting at the owner's review does not close the issue. It moves it
   to Apply**, where the agent commits the work. **The issue closes only
@@ -388,19 +396,34 @@ Rules:
 
 ## In the main window
 
-Two additions outside the tab, in the row of controls inside the message
-box of a conversation, next to the folder and work tree. `[3l4]`
+Outside the tab, around the message box of a conversation, so that the
+state of the work and the decision about it are where the owner reads the
+agent's messages. `[3l4]` `[eg0]`
 
-- **Quick replies.** Two buttons that answer the agent without typing: one
-  sends a plain go-ahead, the other says the owner agrees with the agent's
-  recommendations and it should go ahead. One click sends the message.
-  They are icons with tooltips, not text buttons. They are disabled while
-  there is text in the message box. `[lit]`
-- **Current-issue pill.** A pill showing the title of the issue this
-  conversation is working on. Clicking it, or resting the pointer on it
-  for more than two seconds, opens a card with information on the issue: its ID, full title and description. The pill is subtle and
-  sits in the message box's row of controls. `[prr]`
-- With no current issue, the pill is not shown. `[prr]`
+- **Above the message box, one line of status.** It reads, in order: the
+  stage the conversation's current issue is at, **on the same light blue
+  background as in the panel**; the issue's ID; and the current prompt, what
+  is required of the owner now, **as a human-friendly phrase**, for example
+  "Please review the results and give feedback." Not two lines. `[eg0]`
+- **Hovering anywhere on that line shows the issue's card immediately**; so
+  does clicking it. There is no ordinary tooltip. `[eg0]` `[prr]`
+- With no current issue, the line is not shown. `[prr]`
+- **Inside the message box, after the model selector, are the contextual
+  action buttons**: the moves for the current issue's
+  step, **with text on them**, usually two, for example "Approve plan" and
+  "Send back", or "Accept" and "Send back". Seeing both shows what action
+  is expected. `[eg0]`
+- **During the agent's stages no workflow buttons are shown there.** `[eg0]`
+- **"Agree & continue"** tells the agent the owner agrees with its
+  recommendations and it should go ahead. It is **an icon** with a tooltip,
+  on a **gray, square background** like the app's own send button, not on
+  white and not round. **It is shown only when the accept and send-back
+  buttons are not.** `[eg0]` `[lit]`
+- **There is no "Go" button.** `[eg0]`
+- Pressing a contextual button makes the real move in the issue's workflow.
+  `[eg0]`
+- The buttons are disabled where they would do harm: "Agree & continue"
+  while there is text in the message box. `[lit]`
 
 ## Tooltips
 
@@ -548,13 +571,45 @@ breaking a requirement above.
   still are.
 - When the tracker refuses a link (it exists already, or it would make a
   loop), its message is shown.
-- The quick-reply buttons are an arrow ("Go") and a tick ("Agree & go").
-  They send "Go ahead." and "I agree with your recommendations. Go ahead."
-  Each button's tooltip shows its name and its message.
-- The quick-reply buttons are disabled while the agent is working.
-- The quick replies and the pill appear only in an existing conversation,
-  not on the New thread screen.
-- The pill's card shows, top to bottom: "Current issue" and when it last
+- Workflow: when the owner approves or accepts in the conversation, the
+  agent records that, quoting their words, so the owner need not also press
+  the button. It may not record an approval that was not given.
+- Workflow: the agent cannot move an issue to Apply by its own judgment;
+  that step is reached only through the owner's acceptance.
+- Workflow: every move the agent makes by its own judgment needs a reason,
+  which is recorded on the issue.
+- Workflow: whether work is "on its own branch" is read from the folder: its
+  current branch compared with the repository's main one. When that cannot
+  be told, the button reads "Commit".
+- "Agree & continue" sends "I agree with your recommendations. Go ahead."
+  Its tooltip shows its name and its message. It is disabled while the
+  agent is working.
+- On the line above the message box the step chip carries the person or
+  robot for whose work is next, and the prompt is stronger when it is the
+  owner's turn. The card opens after about a tenth of a second of hovering.
+- The prompt could not be shown as the grey hint text of the empty message
+  box, which is where the owner first wanted it: the app does not let a
+  product change that text.
+- The contextual buttons are, at the owner's steps, their main move and any
+  move that takes the issue back ("Send back"). Moves that close the issue
+  or are rare (skip, mark as done, cancel), and the button that starts an
+  agent's step, are in the panel only.
+- "Send back" in the message box takes its reason from what is typed there,
+  hands it to the agent with the move, and empties the box. With nothing
+  typed it asks the owner to type what should change first.
+- The prompts read: "Please review the definition and give feedback.",
+  "Please review the plan and give feedback.", "Please review the results
+  and give feedback."; for a new issue, "Not started yet. Press Define when
+  you want the agent to begin."; and at an agent's step a quieter sentence
+  saying what the agent is doing, such as "The agent is planning the work."
+- "Agree & continue" comes last among the product's buttons in the message
+  box; at an agent's step and with no current issue it is the only one. The app decides where a product's buttons sit
+  in the box; it is not placed between the app's send and microphone
+  buttons.
+- The line and the buttons appear only in an existing conversation, not on
+  the New thread screen. The app does not draw what is inside the message
+  box in its compact layout; the line above it stays.
+- The current issue's card shows, top to bottom: "Current issue" and when it last
   changed; the parent's title, for a sub-issue; the title; the ID (which
   copies itself when clicked) with status, priority, type and category; the
   description as formatted text; what "done" means, when the issue says;
@@ -562,10 +617,8 @@ breaking a requirement above.
   text scrolls inside the card. The card is read-only and opens upwards.
 - A card opened by a click stays until a click outside it or Escape. A
   card opened by hovering goes away shortly after the pointer leaves both
-  the pill and the card; clicking the pill meanwhile keeps it.
-- The pill has no border, small muted text and a faint green dot; its
-  tooltip shows the full title.
-- The pill follows changes to the current issue by itself.
+  the line and the card; clicking the line meanwhile keeps it.
+- The line follows changes to the current issue by itself.
 - The grouping menu offers none, priority, type and category, with a tick on
   the active one; its button names the active grouping ("By priority").
 - The filter still narrows every group below Current, not only Ready, though

@@ -102,3 +102,23 @@ export function runBd(command: string, args: string[], cwd: string): Promise<BdR
     );
   });
 }
+
+/**
+ * Runs one git command that only reads, and gives its trimmed output.
+ *
+ * @returns The output, or null when git is missing, the folder is not a
+ *   repository, or the command fails for any other reason. Callers treat
+ *   null as "cannot tell".
+ * Side effects: spawns a short-lived child process. Nothing is written:
+ *   callers pass read-only commands only. The plugin never changes git.
+ */
+export function readGit(cwd: string, args: string[]): Promise<string | null> {
+  return new Promise((resolve) => {
+    execFile(
+      "git",
+      args,
+      { cwd, timeout: 5_000, maxBuffer: 64 * 1024 },
+      (error, stdout) => resolve(error === null ? stdout.trim() : null),
+    );
+  });
+}

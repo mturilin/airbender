@@ -14,8 +14,8 @@
 //
 // What: the "Beads" tab in BB's right-hand panel. It lists the beads issues of
 // the folder a thread works in, grouped by what you can do about them. Also
-// three small controls in a thread's message box: a pill for the current
-// issue and two quick-reply buttons (see the registration at the end).
+// a status line above a thread's message box and the workflow's buttons
+// inside it (see the registration at the end).
 //
 // Why: issues are most useful beside the agent doing the work, so the tab
 // lives next to a thread (and on the New thread screen, to pick what to start).
@@ -90,7 +90,10 @@
 //   and so on), never fixed colors, so the tab follows the selected theme.
 
 import { definePluginApp } from "@get-bb/plugin-sdk/app";
-import { ComposerCurrentIssue, QuickReplyButton } from "./app/composer.tsx";
+import {
+  ComposerStatusLine,
+  ComposerStepButton,
+} from "./app/composer.tsx";
 import { BeadsPanel } from "./app/panel.tsx";
 
 // Two registrations of the same tab: BB offers a different slot for an
@@ -116,25 +119,19 @@ export default definePluginApp((app) => {
       <BeadsPanel scope={{ threadId: null, projectId }} />
     ),
   });
-  // The main window's message box (bead-bb-3l4): the current-issue pill and
-  // the two quick-reply buttons, in its row of controls. Threads only: on
-  // the New thread screen there is no agent to answer and no current issue.
-  // BB does not draw plugin controls here in its compact layout.
+  // The main window's message box (bead-bb-3l4, bead-bb-eg0): one line of
+  // status above it, the current issue and the workflow's buttons inside it. Threads only: on the New
+  // thread screen there is no agent to answer and no current issue. BB does
+  // not draw the buttons inside the box in its compact layout; the line
+  // above it stays.
   app.composer.customize({
     id: "main-window",
     scopes: ["thread"],
-    actions: [
-      { id: "current-issue", component: ComposerCurrentIssue },
-      {
-        id: "reply-go",
-        component: () => <QuickReplyButton kind="go" label="Go" icon="ArrowRight" />,
-      },
-      {
-        id: "reply-agree",
-        component: () => (
-          <QuickReplyButton kind="agree" label="Agree & go" icon="Check" />
-        ),
-      },
-    ],
+    // Above the message box, one line: the current issue's step, its id
+    // and what is asked now; hovering it opens the issue's card.
+    banners: [{ id: "status", chrome: "bare", component: ComposerStatusLine }],
+    // Inside it: the user's answer buttons for the step, or "Agree &
+    // continue" when there are none.
+    actions: [{ id: "step", component: ComposerStepButton }],
   });
 });

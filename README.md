@@ -33,10 +33,14 @@ panel, beside a thread or on the New thread screen.
 Open a thread, open the right-hand panel, choose new tab, then **Airbender**
 under Actions.
 
-Outside the tab, in the message box of a thread (its row of controls, which
-BB hides in its compact layout): a pill with the current issue's title that
-opens a small pop-up with its details, and two quick-reply icon buttons, "Go" (arrow) and
-"Agree & go" (tick), that send the agent a go-ahead without typing.
+Outside the tab, around the message box of a thread: one line above it
+(the current issue's step on a blue chip, its id, and a sentence saying what
+is required now, such as "Please review the plan and give feedback.";
+hover or click it for the whole issue), and inside it the current
+step's buttons as text ("Approve plan" and "Send back", "Implement", "Commit &
+merge"…). "Send back" takes its reason from what is typed in the box. The
+gray "Agree & continue" icon shows when those two answer buttons do not. BB hides the buttons inside the box in its
+compact layout; the status line stays.
 
 From top to bottom the tab shows:
 

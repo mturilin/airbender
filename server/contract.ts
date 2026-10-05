@@ -138,6 +138,13 @@ const issuesResultSchema = z.object({
    * issue ends its time as current. May name an issue that no longer exists.
    */
   currentBeadId: z.string().nullable(),
+  /**
+   * Whether the folder is on a branch other than the repository's main one,
+   * so that finished work will need merging as well as committing. False
+   * when it is on the main branch, and when that cannot be told (not a git
+   * folder, no branch checked out, no main branch found).
+   */
+  ownBranch: z.boolean(),
 });
 
 export type IssuesResult = z.infer<typeof issuesResultSchema>;
@@ -380,9 +387,9 @@ export const rpcContract = defineRpcContract({
     output: z.object({ message: z.string().nullable() }),
   },
   thread_reply: {
-    // The quick-reply buttons in the message box: sends the thread's agent
-    // one of the fixed replies in QUICK_REPLIES.
-    input: z.object({ threadId: z.string(), kind: z.enum(["go", "agree"]) }),
+    // The quick-reply button in the message box: sends the thread's agent
+    // the fixed reply in QUICK_REPLIES.
+    input: z.object({ threadId: z.string(), kind: z.enum(["agree"]) }),
     output: z.object({ sent: z.literal(true) }),
   },
 });

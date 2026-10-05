@@ -88,14 +88,20 @@ not at the end.
      committing a bead's work" below), and report the step done, which
      closes the bead.
   The reviews of the definition, of the plan and of the finished work are
-  the user's: they approve or send back in the Airbender tab.
+  the user's. While a bead waits for one of them, read what the user
+  replies: if they ask for changes, move it back (`send-back`, giving their
+  words) and redo the work; if they approve, in the tab or in the
+  conversation, record a spoken approval with `approved`, quoting them, and
+  carry on; if they only ask a question, answer it and leave the bead where
+  it is. Never move a bead forward past a review the user has not given.
   When you finish a step, report it with the `beads_workflow_move` tool,
   with a one-line note. It tells you what comes next: your next step, or
   that the bead now waits for the user, in which case say so and stop.
-  You may skip Define or Plan when it is obvious (clear, complete
-  requirements; a small change with one evident way to do it), by reporting
-  the move `skip` with the reason and saying so in one line, so the user
-  can stop you. If in doubt, do not skip.
+  You have the judgment to move a bead to where the work really is, with
+  your reason: `skip` leaves out Define or Plan when it is obvious (clear,
+  complete requirements; a small change with one evident way to do it), and
+  `to:<step>` goes to any step. Say so in one line, so the user can stop
+  you. If in doubt, do not skip. You cannot move a bead to Apply.
 
 **While working**
 

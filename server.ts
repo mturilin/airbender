@@ -35,9 +35,10 @@
 //   the agent on a step that is the agent's. It names no step itself.
 // - The plugin speaks to the current thread's agent by sending the thread a
 //   message: the instruction for a step, the request to commit after the
-//   user accepts an issue, and the quick-reply buttons' fixed replies. The
+//   user accepts an issue, and the "Agree & continue" button's fixed reply. The
 //   agent answers through two tools: `beads_set_current` and the workflow
-//   move tool. The plugin never runs git itself.
+//   move tool. The plugin never changes git; it only reads which branch a
+//   folder is on.
 // - "Current bead" is BB's knowledge, not beads': which issue a given thread
 //   is working on. It is stored on the thread (BB's per-plugin thread
 //   metadata), set either by the user in the tab or by the thread's agent
@@ -273,7 +274,7 @@ export default async function plugin(bb: BbPluginApi) {
         ? `${id} is closed.`
         : outcome.instruction !== null
           ? `${id} is now at "${outcome.state.label}", which is yours. Carry on:\n\n${outcome.instruction}`
-          : `${id} is now at "${outcome.state.label}", which waits for the user. Tell them it is ready, and stop there.`;
+          : `${id} is now at "${outcome.state.label}", which waits for the user. Tell them it is ready, and stop there. When they reply: if they ask for changes, move it back with \`send-back\` giving their words, and redo it; if they approve, record it with \`approved\`, quoting them, and carry on; if they only ask a question, answer it and leave the issue where it is.`;
     },
   });
 

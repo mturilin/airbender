@@ -3,7 +3,7 @@
 // What: the Scope a surface works from (a thread id or a project id) and the
 // hook that loads the issue list for it and keeps it fresh.
 //
-// Why: the tab and the current-issue pill in the message box both need the
+// Why: the tab and the controls around the message box all need the
 // same list, loaded and refreshed the same way.
 //
 // Design notes:
