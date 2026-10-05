@@ -1,7 +1,8 @@
-// app/actions.ts — what a row or an opened issue can do.
+// app/actions.ts — what a row or an opened issue can do, and how it is done.
 //
-// What: the IssueActions interface: every action and lookup the rows, the
-// opened issue and the sections are handed by the panel.
+// What: the IssueActions interface, every action and lookup the rows, the
+// opened issue and the sections are handed by the panel, and useIssueActions,
+// the hook that builds that object out of requests to the backend.
 //
 // Why: rows are drawn several levels below the panel that owns the data and
 // the requests. One documented object passed down keeps each component's props
@@ -11,8 +12,17 @@
 // - It is deliberately one object and not many small props or a React context:
 //   nearly every member is used by a row and its opened issue between them.
 
-import type { Issue, IssueComment, IssueLink } from "../server/contract.ts";
+import { useCallback, useState } from "react";
+import type {
+  Issue,
+  IssueComment,
+  IssueLink,
+  IssuesResult,
+} from "../server/contract.ts";
+import { CLOSED_STATUS } from "../shared/constants.ts";
 import type { IssueType, LinkKind } from "../shared/constants.ts";
+import type { IssueTree } from "./issue-model.ts";
+import type { Scope, useIssues } from "./use-issues.ts";
 
 /** What an issue row can do besides showing itself. */
 export interface IssueActions {
@@ -116,4 +126,281 @@ export interface IssueActions {
   addSubIssue: (parentId: string) => void;
   /** Reopens a closed issue; no confirmation. */
   reopen: (beadId: string) => void;
+}
+
+/** What useIssueActions hands back to the panel. */
+export interface IssueActionsView {
+  actions: IssueActions;
+  /**
+   * Creates an issue inside `parentId` (null for the top level). Resolves
+   * to null on success, else the reason in plain words.
+   */
+  createIn: (
+    parentId: string | null,
+    draft: {
+      title: string;
+      description: string;
+      type: IssueType | null;
+      priority: number | null;
+      category: string | null;
+    },
+  ) => Promise<string | null>;
+  /** Closes (open=false) or reopens an issue, after any confirmation. */
+  applyOpen: (beadId: string, open: boolean, commit?: boolean) => void;
+  /** The last action's failure in plain words; null when it worked. */
+  actionProblem: string | null;
+  setActionProblem: (problem: string | null) => void;
+  /** Shows a thrown failure the same way as a refused action. */
+  reportProblem: (cause: unknown) => void;
+}
+
+/**
+ * Builds the IssueActions object for a panel: every action is a request to
+ * the backend followed by a refresh, with a failure kept in `actionProblem`
+ * for the panel to show.
+ *
+ * The few actions that change what the panel itself shows (asking to
+ * confirm a close, moving the details window, readying the new-issue field)
+ * are handed in, because that state belongs to the panel.
+ *
+ * @param askClose Called when a row asks to close an issue; the panel
+ *   confirms and then calls `applyOpen`.
+ * @param openDetails Opens the details window on an issue.
+ * @param closeDetails Closes the details window (play starts the agent in
+ *   the conversation, which the window would cover).
+ * @param addSubIssue Readies the new-issue field for a sub-issue of the
+ *   given issue.
+ */
+export function useIssueActions({
+  scope,
+  rpc,
+  result,
+  tree,
+  descendantIds,
+  categories,
+  refresh,
+  askClose,
+  openDetails,
+  closeDetails,
+  addSubIssue,
+}: {
+  scope: Scope;
+  rpc: ReturnType<typeof useIssues>["rpc"];
+  result: IssuesResult | null;
+  tree: IssueTree;
+  descendantIds: (beadId: string) => Set<string>;
+  categories: string[];
+  refresh: () => void;
+  askClose: (issue: Issue, commit: boolean) => void;
+  openDetails: (beadId: string) => void;
+  closeDetails: () => void;
+  addSubIssue: (parentId: string) => void;
+}): IssueActionsView {
+  const { threadId, projectId } = scope;
+  const [actionProblem, setActionProblem] = useState<string | null>(null);
+  const reportProblem = (cause: unknown) =>
+    setActionProblem(cause instanceof Error ? cause.message : String(cause));
+  const loadComments = useCallback(
+    async (beadId: string) => {
+      const answer = await rpc.call("issue_comments", {
+        threadId,
+        projectId,
+        beadId,
+      });
+      if (answer.message !== null) throw new Error(answer.message);
+      return answer.comments;
+    },
+    [rpc, threadId, projectId],
+  );
+  /**
+   * Closes (open=false) or reopens (open=true) an issue in beads.
+   *
+   * @param commit When closing, also ask the thread's agent to commit the
+   *   issue's work. Has no effect when reopening or without a thread.
+   */
+  const applyOpen = (beadId: string, open: boolean, commit = false) => {
+    const target = { threadId, projectId, beadId };
+    (open
+      ? rpc.call("issue_reopen", target)
+      : rpc.call("issue_close", { ...target, commit })
+    ).then((outcome) => {
+      setActionProblem(outcome.message);
+      refresh();
+    }, reportProblem);
+  };
+  const actions: IssueActions = {
+    currentBeadId: result?.currentBeadId ?? null,
+    loadComments,
+    close: (beadId, commit) => {
+      // Confirmed in a dialog first: remember which issue and which kind of
+      // close, and let the dialog below call applyOpen when the user agrees.
+      const issue = result?.issues.find((candidate) => candidate.id === beadId);
+      if (issue !== undefined) askClose(issue, commit);
+    },
+    reopen: (beadId) => applyOpen(beadId, true),
+    categories,
+    setCategory: (beadId, category) => {
+      rpc
+        .call("issue_set_category", { threadId, projectId, beadId, category })
+        .then((outcome) => {
+          setActionProblem(outcome.message);
+          refresh();
+        }, reportProblem);
+    },
+    childrenOf: (beadId) => tree.children.get(beadId) ?? [],
+    openDetails,
+    canNest: (beadId, parentId) =>
+      beadId !== parentId &&
+      tree.byId.get(beadId)?.parentId !== parentId &&
+      !descendantIds(beadId).has(parentId),
+    setParent: (beadId, parentId) => {
+      rpc
+        .call("issue_set_parent", { threadId, projectId, beadId, parentId })
+        .then((outcome) => {
+          setActionProblem(outcome.message);
+          refresh();
+        }, reportProblem);
+    },
+    link: (fromId, toId, kind) => {
+      rpc
+        .call("issue_link", { threadId, projectId, fromId, toId, kind })
+        .then((outcome) => {
+          setActionProblem(outcome.message);
+          refresh();
+        }, reportProblem);
+    },
+    unlink: (beadId, link) => {
+      // The link is stored on whichever issue is its "from" end.
+      const [fromId, toId] =
+        link.direction === "out" ? [beadId, link.id] : [link.id, beadId];
+      rpc
+        .call("issue_unlink", {
+          threadId,
+          projectId,
+          fromId,
+          toId,
+          kind: link.kind,
+        })
+        .then((outcome) => {
+          setActionProblem(outcome.message);
+          refresh();
+        }, reportProblem);
+    },
+    linkTargets: (beadId) =>
+      [...tree.byId.values()].filter((issue) => issue.id !== beadId),
+    moveTargets: (beadId) => {
+      const inside = descendantIds(beadId);
+      const presentParent = tree.byId.get(beadId)?.parentId ?? null;
+      return [...tree.byId.values()].filter(
+        (issue) =>
+          issue.status !== CLOSED_STATUS &&
+          issue.id !== beadId &&
+          issue.id !== presentParent &&
+          !inside.has(issue.id),
+      );
+    },
+    addSubIssue,
+    define: (beadId) => {
+      rpc.call("issue_define", { threadId, projectId, beadId }).then(
+        (outcome) => {
+          setActionProblem(outcome.message);
+          refresh();
+        },
+        reportProblem,
+      );
+    },
+    saveText: async (beadId, text) => {
+      try {
+        const outcome = await rpc.call("issue_update", {
+          threadId,
+          projectId,
+          beadId,
+          type: null,
+          priority: null,
+          title: text.title,
+          description: text.description,
+        });
+        if (outcome.message === null) refresh();
+        return outcome.message;
+      } catch (cause) {
+        return cause instanceof Error ? cause.message : String(cause);
+      }
+    },
+    edit: (beadId, change) => {
+      rpc
+        .call("issue_update", {
+          threadId,
+          projectId,
+          beadId,
+          type: change.type ?? null,
+          priority: change.priority ?? null,
+          title: null,
+          description: null,
+        })
+        .then((outcome) => {
+          setActionProblem(outcome.message);
+          refresh();
+        }, reportProblem);
+    },
+    start:
+      threadId === null
+        ? null
+        : (beadId) => {
+            // Play starts the agent in the conversation, which the details
+            // window covers, so the window gets out of the way.
+            closeDetails();
+            rpc.call("current_start", { threadId, beadId }).then(() => {
+              setActionProblem(null);
+              refresh();
+            }, reportProblem);
+          },
+    setCurrent:
+      threadId === null
+        ? null
+        : (beadId) => {
+            rpc.call("current_set", { threadId, beadId }).then(
+              () => {
+                setActionProblem(null);
+                refresh();
+              },
+              reportProblem,
+            );
+          },
+  };
+  /**
+   * Creates an issue inside `parentId` (null for the top level). Shared by
+   * the panel's new-issue field and the one in the details window, which
+   * differ only in which parent they pass.
+   */
+  const createIn = async (
+    parentId: string | null,
+    draft: {
+      title: string;
+      description: string;
+      type: IssueType | null;
+      priority: number | null;
+      category: string | null;
+    },
+  ) => {
+    try {
+      const created = await rpc.call("issue_create", {
+        threadId,
+        projectId,
+        ...draft,
+        parentId,
+      });
+      refresh();
+      return created.message;
+    } catch (cause) {
+      return cause instanceof Error ? cause.message : String(cause);
+    }
+  };
+  return {
+    actions,
+    createIn,
+    applyOpen,
+    actionProblem,
+    setActionProblem,
+    reportProblem,
+  };
 }

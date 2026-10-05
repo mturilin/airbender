@@ -288,3 +288,122 @@ export function toggled<Value>(list: Value[], value: Value): Value[] {
     ? list.filter((candidate) => candidate !== value)
     : [...list, value];
 }
+
+/**
+ * The issue list arranged for drawing: every issue by id, the sub-issues
+ * drawn under each parent, and the issues the status groups hold.
+ */
+export interface IssueTree {
+  byId: Map<string, Issue>;
+  /** Parent id -> the sub-issues drawn under it, open ones first. */
+  children: Map<string, Issue[]>;
+  /** What the status groups hold: everything not drawn somewhere else. */
+  topLevel: Issue[];
+}
+
+/**
+ * Arranges the issues as a tree. beads gives each issue one parent;
+ * everything else is derived here.
+ *
+ * @param all Every issue of the folder.
+ * @param currentId The thread's current issue, which is drawn in its own
+ *   group and therefore neither under its parent nor in a status group.
+ */
+export function buildTree(all: Issue[], currentId: string | null): IssueTree {
+  const byId = new Map(all.map((issue) => [issue.id, issue]));
+  // An issue is drawn under its parent unless:
+  // - it has none, or its parent is not in the list;
+  // - it is the thread's current bead, which is drawn in Current;
+  // - it is still open while its parent is closed: under its parent it
+  //   would be hidden inside the folded Closed group.
+  const drawnUnderParent = (issue: Issue) => {
+    if (issue.parentId === null || issue.id === currentId) return false;
+    const parent = byId.get(issue.parentId);
+    if (parent === undefined) return false;
+    return !(
+      parent.status === CLOSED_STATUS && issue.status !== CLOSED_STATUS
+    );
+  };
+  const children = new Map<string, Issue[]>();
+  for (const issue of all) {
+    if (!drawnUnderParent(issue)) continue;
+    const list = children.get(issue.parentId!) ?? [];
+    list.push(issue);
+    children.set(issue.parentId!, list);
+  }
+  // Open sub-issues first, each part by urgency; closed ones stay listed,
+  // struck through, at the end (the user's choice).
+  for (const list of children.values()) {
+    list.sort(
+      (left, right) =>
+        Number(left.status === CLOSED_STATUS) -
+          Number(right.status === CLOSED_STATUS) || byUrgency(left, right),
+    );
+  }
+  return {
+    byId,
+    children,
+    topLevel: all.filter(
+      (issue) => issue.id !== currentId && !drawnUnderParent(issue),
+    ),
+  };
+}
+
+/**
+ * The ids of every issue inside `beadId`, at any depth, by the stored
+ * parents. Guarded against a loop in the data: each issue is taken once.
+ *
+ * The backend has the same walk (descendantsOf in server/issues.ts); it is
+ * written again here because that module brings zod with it, which must not
+ * end up in the browser bundle.
+ */
+export function descendantIdsOf(
+  byId: Map<string, Issue>,
+  beadId: string,
+): Set<string> {
+  const found = new Set<string>();
+  const queue = [beadId];
+  while (queue.length > 0) {
+    const parentId = queue.shift()!;
+    for (const issue of byId.values()) {
+      if (issue.parentId !== parentId || found.has(issue.id)) continue;
+      if (issue.id === beadId) continue;
+      found.add(issue.id);
+      queue.push(issue.id);
+    }
+  }
+  return found;
+}
+
+/**
+ * The chain of issues from the top level down to `issue`, itself last; empty
+ * for null. Stops at a parent that is not in the list, and at a loop.
+ */
+export function pathTo(byId: Map<string, Issue>, issue: Issue | null): Issue[] {
+  const path: Issue[] = [];
+  const seen = new Set<string>();
+  let step = issue;
+  while (step !== null && !seen.has(step.id)) {
+    seen.add(step.id);
+    path.unshift(step);
+    step = step.parentId === null ? null : (byId.get(step.parentId) ?? null);
+  }
+  return path;
+}
+
+/**
+ * Whether an issue passes the filter. Nothing ticked under a heading lets
+ * everything through for that heading; "" among the categories stands for
+ * "no category".
+ */
+export function matchesFilters(issue: Issue, filters: Filters): boolean {
+  return (
+    (filters.types.length === 0 ||
+      (issue.type !== null && filters.types.includes(issue.type))) &&
+    (filters.priorities.length === 0 ||
+      (issue.priority !== null &&
+        filters.priorities.includes(issue.priority))) &&
+    (filters.categories.length === 0 ||
+      filters.categories.includes(issue.category ?? ""))
+  );
+}

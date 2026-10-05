@@ -5,7 +5,9 @@
 // app/issue-row.tsx, an opened issue in app/issue-details.tsx, the status
 // groups in app/section-block.tsx, the new-issue field in
 // app/create-issue.tsx, the Group and Filter menus in app/menus.tsx, setup in
-// app/setup.tsx. The message-box controls are app/composer.tsx. Logic with no
+// app/setup.tsx, the details window in app/details-window.tsx, the close
+// confirmation in app/close-dialog.tsx. What a row can do is built in
+// app/actions.ts. The message-box controls are app/composer.tsx. Logic with no
 // React in it (grouping, blocking, search ranking, quick tags) is in
 // app/issue-model.ts and app/quick-tags.ts, where it can be tested. The
 // notes below describe the frontend as a whole.

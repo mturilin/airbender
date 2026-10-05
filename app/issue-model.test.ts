@@ -12,11 +12,16 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Issue } from "../server/contract.ts";
 import {
+  buildTree,
   byUrgency,
+  descendantIdsOf,
   fuzzyScore,
   isBlocked,
   isLongDescription,
   linkWords,
+  matchesFilters,
+  NO_FILTERS,
+  pathTo,
   toSections,
   toSubGroups,
   toggled,
@@ -171,4 +176,80 @@ test("small helpers", () => {
   assert.equal(isLongDescription("short"), false);
   assert.equal(isLongDescription("x".repeat(300)), true);
   assert.equal(isLongDescription("a\nb\nc\nd\ne"), true);
+});
+
+const FAMILY = [
+  issue("epic"),
+  issue("open-child", { parentId: "epic", priority: 3 }),
+  issue("urgent-child", { parentId: "epic", priority: 0 }),
+  issue("done-child", { parentId: "epic", status: "closed", priority: 0 }),
+  issue("grandchild", { parentId: "open-child" }),
+  issue("orphan", { parentId: "not-in-the-list" }),
+  issue("closed-epic", { status: "closed" }),
+  issue("still-open", { parentId: "closed-epic" }),
+];
+const ids = (list: Issue[] | undefined) => (list ?? []).map((i) => i.id);
+
+test("sub-issues are drawn under their parent: open first by urgency, closed last", () => {
+  const tree = buildTree(FAMILY, null);
+  assert.deepEqual(ids(tree.children.get("epic")), [
+    "urgent-child",
+    "open-child",
+    "done-child",
+  ]);
+  assert.deepEqual(ids(tree.children.get("open-child")), ["grandchild"]);
+});
+
+test("the top level holds what is not drawn under a parent", () => {
+  const tree = buildTree(FAMILY, null);
+  // An issue whose parent is missing, and an open issue under a closed
+  // parent (it would be hidden in the folded Closed group), stay on top.
+  assert.deepEqual(ids(tree.topLevel), [
+    "epic",
+    "orphan",
+    "closed-epic",
+    "still-open",
+  ]);
+});
+
+test("the current issue is in neither place: it has its own group", () => {
+  const tree = buildTree(FAMILY, "open-child");
+  assert.deepEqual(ids(tree.children.get("epic")), ["urgent-child", "done-child"]);
+  assert.ok(!ids(tree.topLevel).includes("open-child"));
+  // Its own sub-issues still hang under it.
+  assert.deepEqual(ids(tree.children.get("open-child")), ["grandchild"]);
+});
+
+test("descendantIdsOf finds every level and survives a loop", () => {
+  const tree = buildTree(FAMILY, null);
+  assert.deepEqual(
+    [...descendantIdsOf(tree.byId, "epic")].sort(),
+    ["done-child", "grandchild", "open-child", "urgent-child"],
+  );
+  const loop = buildTree(
+    [issue("a", { parentId: "b" }), issue("b", { parentId: "a" })],
+    null,
+  );
+  assert.deepEqual([...descendantIdsOf(loop.byId, "a")], ["b"]);
+});
+
+test("pathTo runs from the top level down to the issue", () => {
+  const tree = buildTree(FAMILY, null);
+  assert.deepEqual(ids(pathTo(tree.byId, tree.byId.get("grandchild")!)), [
+    "epic",
+    "open-child",
+    "grandchild",
+  ]);
+  assert.deepEqual(pathTo(tree.byId, null), []);
+});
+
+test("the filter lets everything through until something is ticked", () => {
+  const bug = issue("x", { type: "bug", priority: 1, category: null });
+  assert.equal(matchesFilters(bug, NO_FILTERS), true);
+  assert.equal(matchesFilters(bug, { ...NO_FILTERS, types: ["task"] }), false);
+  assert.equal(matchesFilters(bug, { ...NO_FILTERS, types: ["bug"], priorities: [1] }), true);
+  assert.equal(matchesFilters(bug, { ...NO_FILTERS, priorities: [0] }), false);
+  // "" among the categories stands for "no category".
+  assert.equal(matchesFilters(bug, { ...NO_FILTERS, categories: [""] }), true);
+  assert.equal(matchesFilters(bug, { ...NO_FILTERS, categories: ["ux"] }), false);
 });
