@@ -219,25 +219,19 @@ export function IssueRow({
           </div>
         ) : (
           <div className="min-w-0 flex-1 py-2 pr-1 text-sm">
-            {/* The step sits on the title line, at its end, so it is read
-                with the title and not hunted for among the small tags. */}
-            <div className="flex items-start gap-2">
-              <button
-                type="button"
-                onClick={() => setOpen((current) => !current)}
-                className={cn(
-                  "min-w-0 flex-1 cursor-pointer text-left",
-                  closed && "text-muted-foreground line-through",
-                )}
-              >
-                {issue.title}
-              </button>
-              <StateTag issue={issue} />
-            </div>
+            <button
+              type="button"
+              onClick={() => setOpen((current) => !current)}
+              className={cn(
+                "block w-full cursor-pointer text-left",
+                closed && "text-muted-foreground line-through",
+              )}
+            >
+              {issue.title}
+            </button>
             {/* Closed issues are finished business: their facts stay fixed. */}
             <IssueFacts
               issue={issue}
-              showState={false}
               onEdit={closed ? undefined : actions.edit}
               category={
                 closed

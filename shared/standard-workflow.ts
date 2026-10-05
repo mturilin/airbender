@@ -5,7 +5,7 @@
 //
 //   Not started -> Define -> Review definition -> Plan -> Review plan
 //          -> Implement
-//          -> Agent review -> Your review -> closed (with a commit)
+//          -> Agent review -> Human review -> closed (with a commit)
 //
 // Why: this is how the user works an issue (bead-bb-e2b, in their words):
 // "First, we need to define what the issue is, and there is some review ...
@@ -33,7 +33,7 @@
 // - The user may also make the agent's "done" moves. An agent can be asked
 //   to report but not forced to, and an issue must not get stuck behind a
 //   report that never came.
-// - Accepting at "Your review" closes the issue and asks the agent to commit
+// - Accepting at "Human review" closes the issue and asks the agent to commit
 //   it: the user's acceptance is the moment the work becomes worth keeping.
 // - Dropping an issue (Cancel) is not a move here. It is always possible and
 //   is the tab's own action, outside the workflow.
@@ -103,7 +103,7 @@ const states: WorkflowState[] = [
   },
   {
     id: "user-review",
-    label: "Your review",
+    label: "Human review",
     actor: "user",
     hint: "You validate the work.",
   },

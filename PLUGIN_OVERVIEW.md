@@ -17,10 +17,10 @@ issues in a tab beside the conversation, without leaving BB.
   levels. Drag an issue onto another to nest it.
 - **Current issue**: the issue a thread is working on, highlighted on top.
 - **A workflow for every issue**: Not started, Define, Review definition,
-  Plan, Review plan, Implement, Agent review, Your review. Each issue shows its step and
+  Plan, Review plan, Implement, Agent review, Human review. Each issue shows its step and
   one button for it: start the agent on its step, or give your approval.
   You can send a step back with a reason, or skip one.
-- **Accept & commit**: accepting at your review closes the issue and asks
+- **Accept & commit**: accepting at the human review closes the issue and asks
   the agent to commit its work.
 - In the message box: a pill showing the current issue, and two one-click
   replies, "Go" and "Agree & go".

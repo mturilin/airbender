@@ -119,7 +119,6 @@ export function IssueFacts({
   onEdit,
   category,
   showStatus = false,
-  showState = true,
 }: {
   issue: Issue;
   /** When given, priority and type become small dropdowns that call this. */
@@ -137,11 +136,6 @@ export function IssueFacts({
    * their parent and so are not under a status heading that would say it.
    */
   showStatus?: boolean;
-  /**
-   * Show the step of its workflow the issue is at, first on the line. False
-   * where the row already shows it beside the title.
-   */
-  showState?: boolean;
 }) {
   // The current type is always offered, even if it is one this plugin does
   // not otherwise list (beads has more types than the new-issue form).
@@ -151,7 +145,8 @@ export function IssueFacts({
       : [issue.type, ...ISSUE_TYPES];
   return (
     <span className="mt-1 flex flex-wrap items-center gap-1.5">
-      {showState ? <StateTag issue={issue} /> : null}
+      {/* The step comes first: it is the first thing to know. */}
+      <StateTag issue={issue} />
       {/* Clicking the id copies it (bead-bb-c58): ids are what you type
           to an agent or into bd, and they are awkward to select by hand
           between the tags. */}

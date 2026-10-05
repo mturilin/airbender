@@ -1,6 +1,7 @@
 // app/bits.tsx — small shared pieces of the tab.
 //
-// What: the dashed Notice box, the Tag and StatusTag chips, the link icon, and
+// What: the dashed Notice box, the Tag and StatusTag chips, the link and robot
+// icons, and
 // the class strings shared by the small dropdowns and form fields.
 //
 // Why: these are used by rows, opened issues, the new-issue form and the
@@ -115,6 +116,33 @@ export function LinkIcon({ className }: { className?: string }) {
     >
       <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
       <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+    </svg>
+  );
+}
+
+/**
+ * A robot's head, marking a step that is the agent's. Drawn here because
+ * BB's icon set has no robot (checked in its bundle), and an unknown name
+ * would show BB's fallback icon. Takes its colour from the text around it.
+ */
+export function RobotIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      className={className}
+    >
+      <path d="M12 8V4H8" />
+      <rect width="16" height="12" x="4" y="8" rx="2" />
+      <path d="M2 14h2" />
+      <path d="M20 14h2" />
+      <path d="M15 13v2" />
+      <path d="M9 13v2" />
     </svg>
   );
 }

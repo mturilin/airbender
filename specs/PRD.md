@@ -326,12 +326,16 @@ The steps, in order: `[e2b]`
 5. **Review plan** (owner) — is the plan good?
 6. **Implement** (agent) — do the work.
 7. **Agent review** (agent) — the agent reviews the work.
-8. **Your review** (owner) — the owner validates the work.
+8. **Human review** (owner) — the owner validates the work.
 9. Then the issue is **closed and its work committed**.
 
 Rules:
 
-- **The panel shows which step each open issue is at, prominently.** `[e2b]`
+- **The panel shows which step each open issue is at**, a little more
+  prominently than its other tags. `[e2b]`
+- **The step's tag carries an icon for whose move it is**: a person where
+  the owner's input is needed, a robot where the next step is the agent's.
+  `[e2b]`
 - **Each step has one main button.** At an agent's step it starts the agent
   on that step. At the owner's step it is the owner's approval. `[e2b]`
 - **Starting never begins again from the first step.** The agent is asked to
@@ -466,10 +470,9 @@ breaking a requirement above.
   "Approve definition", "Approve plan" and "Accept & commit". "Send back",
   "Skip" and "Mark as done" are inside the opened issue; a move that needs
   a reason shows a small field for it.
-- Workflow: the step is a filled pill at the end of the title line (first
-  among the tags on a sub-issue's one-line row and in the message-box
-  card). A step that waits for the owner is drawn inverted, dark on light or
-  light on dark; an agent's step has a soft fill. No colour is used.
+- Workflow: the step tag comes first among an issue's small tags. It has
+  the same outlined shape as the others, with darker, slightly bolder text:
+  a little more prominent, not much.
 - Workflow: while a conversation has a current issue, the step buttons are
   offered on that issue only.
 - Workflow: the confirmation for cancelling reads "Cancel this issue?" with

@@ -48,7 +48,7 @@ From top to bottom the tab shows:
    Ready into collapsible sub-groups by priority, type or category) and
    Filter (types, priorities, categories; narrows every group). Every open issue shows
    the step of its workflow it is at (Not started, Define, Review
-   definition, Plan, Review plan, Implement, Agent review, Your review) and one main button
+   definition, Plan, Review plan, Implement, Agent review, Human review) and one main button
    for that step: at an agent's step it starts the agent on that step and
    makes the issue the thread's bead; at one of yours it is your approval.
    Send back, Skip and Mark as done are inside the opened issue. While the

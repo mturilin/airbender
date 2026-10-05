@@ -70,7 +70,7 @@ not at the end.
 
 - **Take the bead through its workflow, one step at a time.** Every bead
   goes through these steps to be closed: Not started, Define, Review
-  definition, Plan, Review plan, Implement, Agent review, Your review. When
+  definition, Plan, Review plan, Implement, Agent review, Human review. When
   you are started on a bead you are told which step it is at. If you begin
   work on a bead that is still Not started (for example from a typed
   request), move it with `start` first. Then do that step only:
