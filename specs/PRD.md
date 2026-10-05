@@ -331,7 +331,7 @@ The steps, in order: `[e2b]`
 
 Rules:
 
-- **The panel shows which step each open issue is at.** `[e2b]`
+- **The panel shows which step each open issue is at, prominently.** `[e2b]`
 - **Each step has one main button.** At an agent's step it starts the agent
   on that step. At the owner's step it is the owner's approval. `[e2b]`
 - **Starting never begins again from the first step.** The agent is asked to
@@ -466,7 +466,10 @@ breaking a requirement above.
   "Approve definition", "Approve plan" and "Accept & commit". "Send back",
   "Skip" and "Mark as done" are inside the opened issue; a move that needs
   a reason shows a small field for it.
-- Workflow: the step tag is stronger when the issue waits for the owner.
+- Workflow: the step is a filled pill at the end of the title line (first
+  among the tags on a sub-issue's one-line row and in the message-box
+  card). A step that waits for the owner is drawn inverted, dark on light or
+  light on dark; an agent's step has a soft fill. No colour is used.
 - Workflow: while a conversation has a current issue, the step buttons are
   offered on that issue only.
 - Workflow: the confirmation for cancelling reads "Cancel this issue?" with

@@ -26,6 +26,7 @@ import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { Tip } from "@/components/ui/tip";
+import { cn } from "@/lib/utils";
 import type { Issue } from "../server/contract.ts";
 import { CLOSED_STATUS } from "../shared/constants.ts";
 import { workflow } from "../shared/current-workflow.ts";
@@ -33,7 +34,6 @@ import { movesFor, stateOf } from "../shared/workflow.ts";
 import type { WorkflowMove } from "../shared/workflow.ts";
 import { useActions } from "./actions.ts";
 import type { IssueActions } from "./actions.ts";
-import { Tag } from "./bits.tsx";
 
 /**
  * Whether the workflow buttons are offered on an issue: it is open, and it
@@ -47,9 +47,14 @@ function canAct(actions: IssueActions, issue: Issue): boolean {
 }
 
 /**
- * The step an open issue is at, as a tag. Stronger when the issue waits for
- * the user, so those stand out in a list. Nothing for a closed issue, whose
- * step no longer matters.
+ * The step an open issue is at, as a filled pill. Nothing for a closed
+ * issue, whose step no longer matters.
+ *
+ * Deliberately more prominent than the outlined tags beside it (the user's
+ * request): the step is the first thing to know about an issue. A step that
+ * waits for the user is drawn inverted, dark on light or light on dark, so
+ * the issues that need the user stand out in a list; an agent's step is a
+ * soft fill. No colour is used: the theme's own foreground and background.
  */
 export function StateTag({ issue }: { issue: Issue }) {
   if (issue.status === CLOSED_STATUS) return null;
@@ -58,9 +63,15 @@ export function StateTag({ issue }: { issue: Issue }) {
     <Tip
       label={`${state.actor === "user" ? "Waiting for you" : "The agent's step"}: ${state.hint}`}
     >
-      {/* A span of its own for the tooltip to attach to: Tag takes no ref. */}
-      <span className="flex shrink-0 cursor-default">
-        <Tag strong={state.actor === "user"}>{state.label}</Tag>
+      <span
+        className={cn(
+          "shrink-0 cursor-default whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-semibold leading-4",
+          state.actor === "user"
+            ? "bg-foreground text-background"
+            : "bg-foreground/15 text-foreground",
+        )}
+      >
+        {state.label}
       </span>
     </Tip>
   );
