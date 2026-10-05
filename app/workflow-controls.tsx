@@ -68,15 +68,18 @@ export function StateTag({ issue }: { issue: Issue }) {
     <Tip
       label={`${human ? "Needs you" : "The agent's work"}: ${state.hint}`}
     >
-      {/* No box at all: plain text with its icon, at the size and on the
-          line of the id beside it. With a border it sat next to the real
-          dropdowns (priority, type) and read as one more button, and its
-          box was taller than theirs, which threw the line off. */}
-      <span className="inline-flex shrink-0 cursor-default items-center gap-1 whitespace-nowrap text-xs font-medium leading-4 text-foreground">
+      {/* No box at all: plain text with its icon, at the size of the id
+          beside it. With a border it sat next to the real dropdowns
+          (priority, type) and read as one more button.
+          Plain inline text, not a flex box: the facts are lined up on
+          their text's baseline, and a flex box would offer the icon's
+          bottom edge as its baseline and sit a little off the line. The
+          icon is nudged down so it centres on the lower-case letters. */}
+      <span className="shrink-0 cursor-default whitespace-nowrap text-xs font-medium leading-4 text-foreground">
         {human ? (
-          <PersonIcon className="block size-3 shrink-0" />
+          <PersonIcon className="mr-1 inline-block size-3 align-[-1.5px]" />
         ) : (
-          <RobotIcon className="block size-3 shrink-0" />
+          <RobotIcon className="mr-1 inline-block size-3 align-[-1.5px]" />
         )}
         {state.label}
       </span>

@@ -144,7 +144,11 @@ export function IssueFacts({
       ? [...ISSUE_TYPES]
       : [issue.type, ...ISSUE_TYPES];
   return (
-    <span className="mt-1 flex flex-wrap items-center gap-1.5">
+    // Lined up on the text's baseline, not on the middle of each box. The
+    // id is in the monospace font, whose letters sit at a different height
+    // inside their line than the other font's, so centring the boxes left
+    // the id visibly off the line of the tags and dropdowns beside it.
+    <span className="mt-1 flex flex-wrap items-baseline gap-1.5">
       {/* The step comes first: it is the first thing to know. */}
       <StateTag issue={issue} />
       {/* Clicking the id copies it (bead-bb-c58): ids are what you type
