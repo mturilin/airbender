@@ -57,7 +57,6 @@ export function SectionBlock({
   /** Shown in place of the list when the group has no issues. */
   emptyNote?: string;
 }) {
-  const actions = useActions();
   /** One boxed list of rows; a group has one, or one per sub-group. */
   const rows = (issues: Issue[]) => (
     <ul

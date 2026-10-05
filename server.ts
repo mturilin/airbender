@@ -11,9 +11,10 @@
 // worker) and prompts.ts (the
 // wording sent to agents). The notes below describe the backend as a whole.
 //
-// What: the data behind the Beads tab. Lists the beads issues of the folder a
-// thread (or project) works in, creates new ones, and remembers which issue
-// each thread is working on — all by running the `bd` command-line tool.
+// What: the data behind the Airbender tab. Lists the beads issues of the
+// folder a thread (or project) works in, creates and changes them, remembers
+// which issue each thread is working on, and gets a folder ready for beads —
+// nearly all of it by running the `bd` command-line tool.
 //
 // Why: beads keeps a repo's issues in a database inside the repo, and the only
 // supported way to read it is the `bd` tool. The browser cannot run a program,
@@ -22,9 +23,12 @@
 // Design notes:
 // - Reading runs `bd --readonly`. The writes to the issue database are
 //   creating (`bd create`), closing (`bd close`), reopening (`bd reopen`)
-//   and changing an issue's type, priority, title, description, parent or
-//   category (`bd update`); nothing here deletes an issue or edits its design,
-//   acceptance criteria, notes or comments.
+//   changing an issue's type, priority, title, description, parent or
+//   category (`bd update`), and adding or removing links between issues
+//   (`bd dep`); nothing here deletes an issue or edits its design,
+//   acceptance criteria, notes or comments. Setup additionally runs
+//   `bd init` and `bd setup` in a terminal the user can see, and writes
+//   Airbender's rules into the folder's AGENTS.md.
 // - "Define" runs as a background agent: a hidden worker thread that is
 //   not shown in the sidebar and is archived and stopped when it finishes,
 //   so the thread the user is working in is not interrupted (bead-bb-4la).
@@ -32,9 +36,10 @@
 //   agree an implementation plan, then build; the agent may skip either of
 //   the first two when it is obvious, and must say so (bead-bb-avf).
 // - The plugin speaks to the current thread's agent in two places, both by
-//   sending the thread a message: the play button ("work on this issue") and, when the user
-//   picks it, closing an issue ("commit this issue's work"). The plugin never
-//   runs git itself.
+//   sending the thread a message: the play button ("work on this issue")
+//   and, when the user picks it, closing an issue ("commit this issue's
+//   work"). The quick-reply buttons send it a fixed reply as well. The
+//   plugin never runs git itself.
 // - "Current bead" is BB's knowledge, not beads': which issue a given thread
 //   is working on. It is stored on the thread (BB's per-plugin thread
 //   metadata), set either by the user in the tab or by the thread's agent

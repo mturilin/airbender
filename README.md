@@ -18,8 +18,9 @@ panel, beside a thread or on the New thread screen.
   opened issue, groups, new-issue field, menus, setup), and
   `app/composer.tsx` holds the message-box controls. Logic without React is
   in `app/issue-model.ts` and `app/quick-tags.ts`.
-- `shared/constants.ts` — the values both halves must agree on. It has no
-  imports, so it is safe to bundle on either side.
+- `shared/` — what both halves use: `constants.ts` (the values they must
+  agree on) and `tree.ts` (walking sub-issues). These files have no imports,
+  so they are safe to bundle on either side.
 - `*.test.ts` — tests for the logic without React or BB; run `npm test`.
 - `PLUGIN_OVERVIEW.md` — the text BB shows on the plugin's detail page.
 
@@ -155,7 +156,7 @@ npm test               # run the tests (node's own test runner)
 ```
 
 The frontend may import only types from `server.ts` and `server/`; values
-both sides need go in `shared/constants.ts`. Files that the tests load
+both sides need go in `shared/`. Files that the tests load
 (`server/issues.ts`, `server/prompts.ts`, `app/issue-model.ts`,
 `app/quick-tags.ts`) must not import React, the BB SDK or `@/...` paths.
 A new source folder must be added to `include` in `tsconfig.json`.

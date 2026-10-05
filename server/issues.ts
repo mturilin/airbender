@@ -250,26 +250,3 @@ export function toIssues(rows: BdIssue[]): Issue[] {
     links: links.get(row.id) ?? [],
   }));
 }
-
-/**
- * Every issue inside `rootId`, at any depth, in an order where each issue
- * comes before the issues inside it (parents before children).
- *
- * Guarded against a loop in the data (an issue that is, through bad data, its
- * own ancestor): each issue is visited once.
- */
-export function descendantsOf(rootId: string, issues: Issue[]): Issue[] {
-  const found: Issue[] = [];
-  const seen = new Set<string>([rootId]);
-  const queue = [rootId];
-  while (queue.length > 0) {
-    const parentId = queue.shift()!;
-    for (const issue of issues) {
-      if (issue.parentId !== parentId || seen.has(issue.id)) continue;
-      seen.add(issue.id);
-      found.push(issue);
-      queue.push(issue.id);
-    }
-  }
-  return found;
-}

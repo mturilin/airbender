@@ -22,7 +22,7 @@ import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { BEAD_ID_PATTERN, CLOSED_STATUS } from "../shared/constants.ts";
 import type { Issue } from "./contract.ts";
 import type { CurrentBead } from "./current-bead.ts";
-import { descendantsOf } from "./issues.ts";
+import { descendantsOf } from "../shared/tree.ts";
 import { workRequest } from "./prompts.ts";
 import type { FolderRef, Outcome, Store } from "./store.ts";
 

@@ -14,6 +14,7 @@
 // - Keep this file free of imports. In particular no zod: a schema here
 //   would be bundled into the browser.
 // - Types derived from these constants live here too, for the same reason.
+// - shared/tree.ts is the other file both sides import, under the same rule.
 
 /** Issue types offered when creating an issue (beads' built-in set). */
 export const ISSUE_TYPES = [

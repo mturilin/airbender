@@ -26,7 +26,7 @@ import { BEAD_ID_PATTERN, CHANGED_CHANNEL } from "../shared/constants.ts";
  * The id this plugin had before it was renamed to "airbender". BB keeps a
  * plugin's per-thread data under the plugin's id, so each thread's current
  * bead from before the rename is still stored under this one; it is read as
- * a fallback (see readCurrentBead) and never written.
+ * a fallback (see `read`) and never written.
  */
 const LEGACY_PLUGIN_ID = "beads";
 
@@ -77,7 +77,7 @@ export function createCurrentBead(bb: BbPluginApi) {
    */
   async function store(threadId: string, beadId: string | null): Promise<void> {
     // "None" is stored as an explicit null, not by removing the key: with
-    // the key gone, readCurrentBead would fall back to what the thread had
+    // the key gone, `read` would fall back to what the thread had
     // under the plugin's old id, and a cleared choice would come back.
     await bb.sdk.threads.updatePluginMetadata({
       threadId,

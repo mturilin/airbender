@@ -27,7 +27,7 @@ export interface Scope {
  *
  * @returns `result` (null until the first answer), `loading` while a request
  *   is in flight, `failure` when the request itself failed (as opposed to
- *   server.ts answering with a non-"ok" state), and `refresh` to ask again.
+ *   the backend answering with a non-"ok" state), and `refresh` to ask again.
  * Side effects: one RPC per refresh; listens for window focus while mounted.
  */
 export function useIssues(scope: Scope) {
@@ -60,7 +60,7 @@ export function useIssues(scope: Scope) {
     window.addEventListener("focus", refresh);
     return () => window.removeEventListener("focus", refresh);
   }, [refresh]);
-  // server.ts publishes after any change it makes and after any change it
+  // The backend publishes after any change it makes and after any change it
   // sees made outside the plugin (an agent or a terminal running bd), so the
   // tab follows along on its own.
   useRealtime(CHANGED_CHANNEL, refresh);

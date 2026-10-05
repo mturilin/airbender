@@ -1,7 +1,7 @@
 // server/issues.test.ts — tests for turning beads' rows into issues.
 //
 // What: checks toIssues (who is blocked and why, links from both ends),
-// descendantsOf, categoryOf and cleanCategory.
+// categoryOf and cleanCategory, and the shared descendantsOf walk.
 //
 // Why: a wrong edge here silently regroups every issue in the tab, and the
 // rules are easy to break: blocking passes down to sub-issues (beads' rule)
@@ -13,10 +13,10 @@ import { test } from "node:test";
 import {
   categoryOf,
   cleanCategory,
-  descendantsOf,
   toIssues,
   type BdIssue,
 } from "./issues.ts";
+import { descendantsOf } from "../shared/tree.ts";
 
 /** A row as `bd list --json` gives it; `blockers` become "blocks" links. */
 function row(

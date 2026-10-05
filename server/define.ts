@@ -17,7 +17,6 @@
 
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { BEAD_ID_PATTERN, CHANGED_CHANNEL } from "../shared/constants.ts";
-import type { Issue } from "./contract.ts";
 import { definePrompt } from "./prompts.ts";
 import type { Store } from "./store.ts";
 

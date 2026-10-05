@@ -58,12 +58,12 @@
 // - "Define" starts a background agent for the job and marks the row
 //   while it is busy; the thread the user is in is not touched.
 // - One component, two entry points: a thread tab passes its thread id, the
-//   New thread screen passes the selected project id. server.ts turns either
+//   New thread screen passes the selected project id. The backend turns either
 //   into a folder.
 // - The list is refreshed when the tab opens, when the Refresh button is
-//   pressed, when the BB window regains focus, and when server.ts signals a
+//   pressed, when the BB window regains focus, and when the backend signals a
 //   change: one made through this plugin, or one made outside it (an agent or
-//   a terminal running bd), which server.ts notices by watching a file that
+//   a terminal running bd), which it notices by watching a file that
 //   beads rewrites on every write. There is deliberately no
 //   timer: beads keeps its database in a single local store, and polling it
 //   would compete with an agent that is writing issues at the same moment.

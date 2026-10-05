@@ -20,6 +20,7 @@
 
 import type { Issue } from "../server/contract.ts";
 import { CLOSED_STATUS, ISSUE_TYPES } from "../shared/constants.ts";
+import { descendantsOf } from "../shared/tree.ts";
 
 /** A titled group of issues, in the order the tab shows them. */
 export interface Section {
@@ -32,7 +33,7 @@ export interface Section {
 
 /**
  * Whether the tab treats an open issue as blocked. Three ways, all worked
- * out in server.ts: it waits on an unfinished issue; an issue it sits
+ * out by the backend (server/issues.ts): it waits on an unfinished issue; an issue it sits
  * inside does (beads' own rule, already folded into `blockedBy`); or it has
  * open sub-issues and every one of them is blocked (the user's rule: an
  * issue with even one workable sub-issue is actionable and is not blocked).
@@ -351,28 +352,15 @@ export function buildTree(all: Issue[], currentId: string | null): IssueTree {
 
 /**
  * The ids of every issue inside `beadId`, at any depth, by the stored
- * parents. Guarded against a loop in the data: each issue is taken once.
- *
- * The backend has the same walk (descendantsOf in server/issues.ts); it is
- * written again here because that module brings zod with it, which must not
- * end up in the browser bundle.
+ * parents (see descendantsOf in shared/tree.ts, which the backend uses too).
  */
 export function descendantIdsOf(
   byId: Map<string, Issue>,
   beadId: string,
 ): Set<string> {
-  const found = new Set<string>();
-  const queue = [beadId];
-  while (queue.length > 0) {
-    const parentId = queue.shift()!;
-    for (const issue of byId.values()) {
-      if (issue.parentId !== parentId || found.has(issue.id)) continue;
-      if (issue.id === beadId) continue;
-      found.add(issue.id);
-      queue.push(issue.id);
-    }
-  }
-  return found;
+  return new Set(
+    descendantsOf(beadId, byId.values()).map((issue) => issue.id),
+  );
 }
 
 /**

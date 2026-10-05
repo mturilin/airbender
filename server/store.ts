@@ -38,6 +38,7 @@ import {
   CLOSED_STATUS,
 } from "../shared/constants.ts";
 import type { IssueType, LinkKind } from "../shared/constants.ts";
+import { descendantsOf } from "../shared/tree.ts";
 import type { Issue, IssueComment, IssuesResult } from "./contract.ts";
 import type { CurrentBead } from "./current-bead.ts";
 import type { Folders } from "./folder.ts";
@@ -46,7 +47,6 @@ import {
   RELATES_TO,
   bdIssueSchema,
   cleanCategory,
-  descendantsOf,
   toIssues,
 } from "./issues.ts";
 import type { BdIssue } from "./issues.ts";
