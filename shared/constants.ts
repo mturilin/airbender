@@ -1,0 +1,91 @@
+// shared/constants.ts — values both halves of the plugin must agree on.
+//
+// What: the plain constants used by the backend (server.ts and server/*) and
+// by the frontend (app.tsx and app/*) alike.
+//
+// Why: these used to be copied by hand into both entry files, on the belief
+// that the frontend could not import values at all. It cannot import from
+// the backend's modules (that would pull Node-only code into the browser
+// bundle), but `bb plugin build` bundles each entry point separately and
+// follows ordinary imports, so a file with no imports of its own is safe on
+// both sides. One copy means a new link kind or issue type is one edit.
+//
+// Gotchas:
+// - Keep this file free of imports. In particular no zod: a schema here
+//   would be bundled into the browser.
+// - Types derived from these constants live here too, for the same reason.
+
+/** Issue types offered when creating an issue (beads' built-in set). */
+export const ISSUE_TYPES = [
+  "task",
+  "feature",
+  "bug",
+  "epic",
+  "chore",
+  "decision",
+] as const;
+export type IssueType = (typeof ISSUE_TYPES)[number];
+
+/** The beads status of a finished or cancelled issue. */
+export const CLOSED_STATUS = "closed";
+
+/**
+ * What a beads issue id may look like. Checked before an id is handed to
+ * `bd`, so nothing that could be read as an option reaches its command line.
+ */
+export const BEAD_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+
+/**
+ * Realtime channel the tab listens on. The backend publishes on it after any
+ * change it makes or notices, so every open tab reloads.
+ */
+export const CHANGED_CHANNEL = "beads-changed";
+
+/**
+ * The link kinds the tab lets the user add (bead-bb-zty.4): beads' own
+ * dependency types, under beads' own names, and nothing else (the user:
+ * "standard bead to bead rels semantics, nothing additional").
+ *
+ * Two of beads' types are left out on purpose. "parent-child" has its own
+ * controls in the tab (sub-issues). "relates-to" is what "related" becomes:
+ * the tab creates a "related" link with `bd dep relate`, beads' own command
+ * for a see-also link, which stores a "relates-to" link on both issues.
+ */
+export const LINK_KINDS = [
+  "blocks",
+  "discovered-from",
+  "related",
+  "tracks",
+  "until",
+  "caused-by",
+  "validates",
+  "supersedes",
+] as const;
+export type LinkKind = (typeof LINK_KINDS)[number];
+
+/**
+ * The messages the quick-reply buttons send (bead-bb-lit). They exist so the
+ * user does not have to type "yes, go ahead" after every plan or question.
+ * Two flavours, as the user asked: a plain go-ahead, and one that also says
+ * the agent's recommendations are accepted. The backend sends them; the
+ * frontend shows the same text in the buttons' tooltips.
+ */
+export const QUICK_REPLIES = {
+  go: "Go ahead.",
+  agree: "I agree with your recommendations. Go ahead.",
+} as const;
+
+/**
+ * The four things that get a folder ready for Airbender (bead-bb-80e), in
+ * the order they make sense: the beads program on the machine, beads set up
+ * in the folder, beads configured for a coding agent, and Airbender's own
+ * working rules in the folder's AGENTS.md.
+ */
+export const SETUP_ACTIONS = ["install", "init", "agent", "rules"] as const;
+export type SetupAction = (typeof SETUP_ACTIONS)[number];
+
+/** The coding agents beads' own setup is offered for: the ones BB runs. */
+export const SETUP_AGENTS = [
+  { id: "claude", label: "Claude Code" },
+  { id: "codex", label: "Codex" },
+] as const;

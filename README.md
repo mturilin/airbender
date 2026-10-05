@@ -3,12 +3,20 @@
 A BB plugin that shows a repository's beads issues in a tab in the right-hand
 panel, beside a thread or on the New thread screen.
 
-- `server.ts` — the backend. Finds the folder a thread or project works in,
-  runs `bd` there to list and create issues, works out "blocked by" and
-  "holds up" from their dependencies, lists and changes the links between
-  issues (beads' own kinds), and stores each thread's current bead.
-- `app.tsx` — the frontend. The **Airbender** tab: issues grouped into in
-  progress, ready, blocked, other, and closed.
+- `server.ts` and `server/` — the backend. Finds the folder a thread or
+  project works in, runs `bd` there to list and change issues, and stores
+  each thread's current bead. `server/contract.ts` is the typed contract
+  with the frontend, `server/issues.ts` turns beads' rows into issues
+  (blocking, links, categories), `server/bd.ts` runs programs, and
+  `server/prompts.ts` holds the wording sent to agents.
+- `app.tsx` and `app/` — the frontend. `app.tsx` registers the surfaces;
+  the **Airbender** tab is `app/panel.tsx` and the files beside it (rows,
+  opened issue, groups, new-issue field, menus, setup), and
+  `app/composer.tsx` holds the message-box controls. Logic without React is
+  in `app/issue-model.ts` and `app/quick-tags.ts`.
+- `shared/constants.ts` — the values both halves must agree on. It has no
+  imports, so it is safe to bundle on either side.
+- `*.test.ts` — tests for the logic without React or BB; run `npm test`.
 - `PLUGIN_OVERVIEW.md` — the text BB shows on the plugin's detail page.
 
 ## Use
@@ -138,6 +146,14 @@ npm install --include=dev
 bb plugin build        # compile into dist/
 bb plugin install .    # register this folder with BB
 bb plugin dev          # rebuild and reload on every save
+npx tsc --noEmit       # typecheck
+npm test               # run the tests (node's own test runner)
 ```
+
+The frontend may import only types from `server.ts` and `server/`; values
+both sides need go in `shared/constants.ts`. Files that the tests load
+(`server/issues.ts`, `server/prompts.ts`, `app/issue-model.ts`,
+`app/quick-tags.ts`) must not import React, the BB SDK or `@/...` paths.
+A new source folder must be added to `include` in `tsconfig.json`.
 
 `components/ui/` is vendored source owned by this plugin; edit it freely.

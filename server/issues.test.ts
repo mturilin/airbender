@@ -1,0 +1,210 @@
+// server/issues.test.ts — tests for turning beads' rows into issues.
+//
+// What: checks toIssues (who is blocked and why, links from both ends),
+// descendantsOf, categoryOf and cleanCategory.
+//
+// Why: a wrong edge here silently regroups every issue in the tab, and the
+// rules are easy to break: blocking passes down to sub-issues (beads' rule)
+// and up to an issue whose open sub-issues are all blocked (the user's rule).
+//
+// Run with `npm test` (node's built-in test runner; no extra dependency).
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import {
+  categoryOf,
+  cleanCategory,
+  descendantsOf,
+  toIssues,
+  type BdIssue,
+} from "./issues.ts";
+
+/** A row as `bd list --json` gives it; `blockers` become "blocks" links. */
+function row(
+  id: string,
+  parent: string | null,
+  status: string,
+  blockers: string[] = [],
+  extra: Partial<BdIssue> = {},
+): BdIssue {
+  return {
+    id,
+    title: id,
+    status,
+    parent,
+    dependencies: blockers.map((blocker) => ({
+      depends_on_id: blocker,
+      type: "blocks",
+    })),
+    ...extra,
+  };
+}
+
+/** "id:blockers[*]" per issue, where * marks "all sub-issues blocked". */
+function blocking(rows: BdIssue[]): string {
+  return toIssues(rows)
+    .map(
+      (issue) =>
+        `${issue.id}:${issue.blockedBy.map((b) => b.id).join("+") || "-"}${issue.subIssuesBlocked ? "*" : ""}`,
+    )
+    .join(" ");
+}
+
+test("an open issue is blocked by an unfinished issue it depends on", () => {
+  const issues = toIssues([row("X", null, "open"), row("A", null, "open", ["X"])]);
+  const a = issues.find((issue) => issue.id === "A")!;
+  const x = issues.find((issue) => issue.id === "X")!;
+  assert.deepEqual(a.blockedBy, [{ id: "X", title: "X" }]);
+  assert.deepEqual(x.blocks, [{ id: "A", title: "A" }]);
+});
+
+test("a closed blocker does not block, and a closed issue is never blocked", () => {
+  assert.equal(
+    blocking([row("X", null, "closed"), row("A", null, "open", ["X"])]),
+    "X:- A:-",
+  );
+  assert.equal(
+    blocking([row("X", null, "open"), row("A", null, "closed", ["X"])]),
+    "X:- A:-",
+  );
+});
+
+test("an issue whose open sub-issues are all blocked counts as blocked", () => {
+  assert.equal(
+    blocking([
+      row("X", null, "open"),
+      row("E", null, "open"),
+      row("c1", "E", "open", ["X"]),
+      row("c2", "E", "open", ["X"]),
+    ]),
+    "X:- E:-* c1:X c2:X",
+  );
+});
+
+test("one workable sub-issue keeps its parent actionable", () => {
+  assert.equal(
+    blocking([
+      row("X", null, "open"),
+      row("E", null, "open"),
+      row("c1", "E", "open", ["X"]),
+      row("c2", "E", "open"),
+    ]),
+    "X:- E:- c1:X c2:-",
+  );
+});
+
+test("closed sub-issues are ignored; all closed is not blocked", () => {
+  assert.equal(
+    blocking([
+      row("X", null, "open"),
+      row("E", null, "open"),
+      row("c1", "E", "open", ["X"]),
+      row("c2", "E", "closed"),
+    ]),
+    "X:- E:-* c1:X c2:-",
+  );
+  assert.equal(blocking([row("E", null, "open"), row("c1", "E", "closed")]), "E:- c1:-");
+});
+
+test("blocking passes down from a blocked issue to its sub-issues, at any depth", () => {
+  assert.equal(
+    blocking([
+      row("X", null, "open"),
+      row("E", null, "open", ["X"]),
+      row("c1", "E", "open"),
+      row("g", "c1", "open"),
+    ]),
+    "X:- E:X* c1:X* g:X",
+  );
+});
+
+test("'all sub-issues blocked' works through several levels", () => {
+  assert.equal(
+    blocking([
+      row("X", null, "open"),
+      row("E", null, "open"),
+      row("m", "E", "open"),
+      row("g", "m", "open", ["X"]),
+    ]),
+    "X:- E:-* m:-* g:X",
+  );
+});
+
+test("a loop in the parent data does not hang or block anything", () => {
+  assert.equal(blocking([row("a", "b", "open"), row("b", "a", "open")]), "a:- b:-");
+});
+
+test("links are listed from both ends; parent-child is not a link", () => {
+  const issues = toIssues([
+    row("A", null, "open", [], {
+      dependencies: [
+        { depends_on_id: "B", type: "discovered-from" },
+        { depends_on_id: "P", type: "parent-child" },
+      ],
+    }),
+    row("B", null, "closed"),
+    row("P", null, "open"),
+  ]);
+  const links = (id: string) =>
+    issues.find((issue) => issue.id === id)!.links.map((link) => [
+      link.direction,
+      link.kind,
+      link.id,
+      link.closed,
+    ]);
+  assert.deepEqual(links("A"), [["out", "discovered-from", "B", true]]);
+  assert.deepEqual(links("B"), [["in", "discovered-from", "A", false]]);
+  assert.deepEqual(links("P"), []);
+});
+
+test("a two-way relates-to pair shows once on each issue", () => {
+  const issues = toIssues([
+    row("A", null, "open", [], {
+      dependencies: [{ depends_on_id: "B", type: "relates-to" }],
+    }),
+    row("B", null, "open", [], {
+      dependencies: [{ depends_on_id: "A", type: "relates-to" }],
+    }),
+  ]);
+  for (const issue of issues) {
+    assert.equal(issue.links.length, 1);
+    assert.equal(issue.links[0]!.direction, "out");
+  }
+});
+
+test("a link to an issue that is not in the list is left out", () => {
+  const [a] = toIssues([
+    row("A", null, "open", [], {
+      dependencies: [{ depends_on_id: "gone", type: "related" }],
+    }),
+  ]);
+  assert.deepEqual(a!.links, []);
+});
+
+test("the category comes from its label and is kept out of the labels", () => {
+  const [a] = toIssues([
+    row("A", null, "open", [], { labels: ["category:ux", "urgent"] }),
+  ]);
+  assert.equal(a!.category, "ux");
+  assert.deepEqual(a!.labels, ["urgent"]);
+  assert.equal(categoryOf(["urgent"]), null);
+});
+
+test("descendantsOf lists every level, parents before children", () => {
+  const issues = toIssues([
+    row("g", "c", "open"),
+    row("c", "E", "open"),
+    row("E", null, "open"),
+    row("other", null, "open"),
+  ]);
+  assert.deepEqual(
+    descendantsOf("E", issues).map((issue) => issue.id),
+    ["c", "g"],
+  );
+});
+
+test("cleanCategory lower-cases and tidies, and refuses bad names", () => {
+  assert.deepEqual(cleanCategory("  UX   Polish "), { name: "ux polish" });
+  assert.ok("reason" in cleanCategory("  "));
+  assert.ok("reason" in cleanCategory("a,b"));
+  assert.ok("reason" in cleanCategory("x".repeat(41)));
+});
