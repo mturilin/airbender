@@ -18,7 +18,7 @@ import { IssueRow } from "./issue-row.tsx";
 
 /**
  * One titled group of issues. `headerActions` puts buttons at the right end
- * of the title line; the Current group uses it for Clear and "define".
+ * of the title line; the Current group uses it for Clear.
  */
 export function SectionBlock({
   section,

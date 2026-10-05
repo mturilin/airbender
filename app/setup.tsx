@@ -111,7 +111,7 @@ function setupSteps(status: SetupStatus): SetupStep[] {
       action: "rules",
       option: null,
       label: "Add Airbender's rules for agents",
-      why: "The rules this tab's buttons rely on: agents ask before building, leave closing to you, and commit when you close an issue.",
+      why: "The rules this tab's buttons rely on: agents take an issue one step at a time, leave closing to you, and commit when you accept it.",
       needed: status.folderReady && !status.rulesPresent,
       blocked: status.rulesPresent
         ? "done"
@@ -461,9 +461,9 @@ export function SetupDialog({
           </p>
         ) : (
           <p className="text-sm text-muted-foreground">
-            The rules tell agents to give every piece of work an issue, ask
-            before building, record decisions on the issue, leave closing to
-            you, and commit when you close an issue.
+            The rules tell agents to give every piece of work an issue, take
+            it through its workflow one step at a time, record decisions on
+            the issue, leave closing to you, and commit when you accept it.
           </p>
         )}
         <DialogFooter>

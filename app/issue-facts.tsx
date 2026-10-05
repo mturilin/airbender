@@ -17,6 +17,7 @@ import { ISSUE_TYPES } from "../shared/constants.ts";
 import type { IssueType } from "../shared/constants.ts";
 import type { IssueActions } from "./actions.ts";
 import { StatusTag, TAG_SELECT_CLASS, Tag } from "./bits.tsx";
+import { StateTag } from "./workflow-controls.tsx";
 
 /** Value of the dropdown entry that switches CategorySelect to typing. */
 const NEW_CATEGORY = "\u0000new";
@@ -164,6 +165,7 @@ export function IssueFacts({
         </button>
       </Tip>
       {showStatus ? <StatusTag issue={issue} /> : null}
+      <StateTag issue={issue} />
       {onEdit === undefined ? (
         <>
           {issue.priority === null ? null : (
@@ -234,7 +236,6 @@ export function IssueFacts({
       {issue.blocks.length === 0 ? null : (
         <Tag>holds up {issue.blocks.length}</Tag>
       )}
-      {issue.defineThreadId === null ? null : <Tag strong>defining…</Tag>}
       {issue.commentCount === 0 ? null : (
         <Tag>
           {issue.commentCount}{" "}

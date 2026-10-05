@@ -64,6 +64,24 @@ const PARENT_CHILD = "parent-child";
  */
 export const CATEGORY_PREFIX = "category:";
 
+/**
+ * Prefix of the label that records which step of its workflow an issue is at
+ * (bead-bb-e2b), e.g. `step:plan`. A plain label, like the category: beads'
+ * own `bd set-state` would record every change as a closed child issue,
+ * which would clutter each issue's sub-issues.
+ */
+export const STEP_PREFIX = "step:";
+
+/**
+ * The workflow step recorded on an issue, or null when none is. The value is
+ * passed on as stored; the workflow decides what an unknown one means.
+ */
+export function stepOf(labels: string[]): string | null {
+  const label = labels.find((candidate) => candidate.startsWith(STEP_PREFIX));
+  const step = label?.slice(STEP_PREFIX.length).trim() ?? "";
+  return step === "" ? null : step;
+}
+
 /** Longest category name accepted. */
 const CATEGORY_MAX_LENGTH = 40;
 
@@ -234,14 +252,15 @@ export function toIssues(rows: BdIssue[]): Issue[] {
     closeReason: row.close_reason ?? "",
     commentCount: row.comment_count ?? 0,
     parentId: row.parent ?? null,
-    defineThreadId: null,
+    step: stepOf(row.labels ?? []),
     status: row.status,
     priority: row.priority ?? null,
     type: row.issue_type ?? null,
     assignee: row.assignee ?? null,
     category: categoryOf(row.labels ?? []),
     labels: (row.labels ?? []).filter(
-      (label) => !label.startsWith(CATEGORY_PREFIX),
+      (label) =>
+        !label.startsWith(CATEGORY_PREFIX) && !label.startsWith(STEP_PREFIX),
     ),
     updatedAt: row.updated_at ?? row.created_at ?? null,
     blockedBy: blockedBy.get(row.id) ?? [],

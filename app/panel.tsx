@@ -97,7 +97,7 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
   const {
     actions,
     createIn,
-    applyOpen,
+    confirmClose,
     actionProblem,
     setActionProblem,
     reportProblem,
@@ -110,8 +110,8 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
     categories,
     refresh,
     // Confirmed in a dialog first: remember which issue and which kind of
-    // close, and let CloseDialog call applyOpen when the user agrees.
-    askClose: (issue, commit) => setClosing({ issue, commit }),
+    // close, and let CloseDialog call confirmClose when the user agrees.
+    askClose: setClosing,
     openDetails: setDetailsId,
     closeDetails: () => setDetailsId(null),
     addSubIssue: (parentId) => {
@@ -337,24 +337,16 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
         />
         <CloseDialog
           closing={closing}
-          // Committing is only a meaningful part of the question for the
-          // thread's current issue.
-          isCurrent={
-            closing !== null &&
-            closing.issue.id === (result?.currentBeadId ?? null)
-          }
-          // "Close & commit" on an issue with sub-issues closes the open ones
-          // too; the dialog says how many.
+          // Finishing an issue with sub-issues closes the open ones too; the
+          // dialog says how many. Cancelling leaves them alone.
           openSubIssues={
-            closing === null || !closing.commit
+            closing === null || closing.moveId === null
               ? 0
               : [...descendantIds(closing.issue.id)].filter(
                   (id) => tree.byId.get(id)?.status !== CLOSED_STATUS,
                 ).length
           }
-          onConfirm={(pending) =>
-            applyOpen(pending.issue.id, false, pending.commit)
-          }
+          onConfirm={confirmClose}
           onCancel={() => setClosing(null)}
         />
         <IssueDetailsWindow

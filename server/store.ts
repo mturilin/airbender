@@ -23,8 +23,8 @@
 // - Every free-text value is passed to bd as the value of a named flag, so
 //   text that starts with a dash can never be read as an option. No shell is
 //   involved (see server/bd.ts).
-// - The marks for issues being defined live here because the list shows
-//   them; server/define.ts sets and clears them.
+// - An issue's category and its workflow step are both kept as one label
+//   with a fixed prefix; `setPrefixedLabel` is the one place that does it.
 //
 // Gotchas:
 // - bd reports some errors on standard output as JSON and prints `null`
@@ -45,6 +45,7 @@ import type { Folders } from "./folder.ts";
 import {
   CATEGORY_PREFIX,
   RELATES_TO,
+  STEP_PREFIX,
   bdIssueSchema,
   cleanCategory,
   toIssues,
@@ -82,8 +83,7 @@ const notInList = (id: string) => `Issue ${id} is no longer in the list.`;
  * @param watchFolder Starts watching a folder for outside changes
  *   (server/watch.ts).
  * @returns The operations named in this file's header, plus `readIssues`,
- *   `issuesIn`, and `defining` / `defineKey` (which issues a Define run is
- *   working on right now).
+ *   `issuesIn`, `setStep` and `addComment`.
  * Side effects: none until an operation is called.
  */
 export function createStore({
@@ -98,10 +98,6 @@ export function createStore({
   watchFolder: (path: string) => void;
 }) {
   const { folderFor, runBdIn, runIn, BD_NOT_FOUND_MESSAGE } = folders;
-
-  /** Running define runs: folder + issue id -> the thread doing the work. */
-  const defining = new Map<string, string>();
-  const defineKey = (path: string, beadId: string) => `${path}\n${beadId}`;
 
   /** Tells every open tab to reload. */
   const changed = (threadId: string | null) =>
@@ -151,13 +147,7 @@ export function createStore({
           "bd answered in a format this plugin does not understand. It may be a newer or older bd than the plugin was written for.",
       };
     }
-    return {
-      state: "ok",
-      issues: toIssues(rows).map((issue) => ({
-        ...issue,
-        defineThreadId: defining.get(defineKey(path, issue.id)) ?? null,
-      })),
-    };
+    return { state: "ok", issues: toIssues(rows) };
   }
 
   /**
@@ -451,10 +441,7 @@ export function createStore({
   /**
    * Sets or clears one issue's category.
    *
-   * Every category label the issue has is removed first, so an issue never
-   * ends up with two, even if one was added by hand with bd.
-   *
-   * Side effects: one `bd update` when there is something to change.
+   * Side effects: see setPrefixedLabel.
    */
   async function setCategory(
     input: FolderRef & { beadId: string; category: string | null },
@@ -467,13 +454,44 @@ export function createStore({
       if ("reason" in cleaned) return { message: cleaned.reason };
       next = cleaned.name;
     }
-    // The list this plugin returns has the category labels taken out, so the
-    // raw labels are read again here to know exactly which ones to remove.
-    const raw = await runIn(found.path, [
+    return setPrefixedLabel(
+      found.path,
+      input.threadId,
+      input.beadId,
+      CATEGORY_PREFIX,
+      next,
+      "bd update (category)",
+    );
+  }
+
+  /**
+   * Makes an issue carry exactly one label with a given prefix (or none):
+   * the way a category and a workflow step are kept.
+   *
+   * Every label with the prefix is removed first, so an issue never ends up
+   * with two, even if one was added by hand with bd.
+   *
+   * @param value What follows the prefix; null removes the label.
+   * @param publish Tell open tabs to reload afterwards.
+   * Side effects: one read of the issue's labels; one `bd update` when
+   *   there is something to change.
+   */
+  async function setPrefixedLabel(
+    path: string,
+    threadId: string | null,
+    beadId: string,
+    prefix: string,
+    value: string | null,
+    what: string,
+    publish = true,
+  ): Promise<Outcome> {
+    // The list this plugin returns has these labels taken out, so the raw
+    // labels are read again here to know exactly which ones to remove.
+    const raw = await runIn(path, [
       "--readonly",
       "label",
       "list",
-      input.beadId,
+      beadId,
       "--json",
     ]);
     if ("message" in raw) return { message: raw.message };
@@ -484,14 +502,14 @@ export function createStore({
         .nullable()
         .transform((labels) => labels ?? [])
         .parse(JSON.parse(raw.stdout))
-        .filter((label) => label.startsWith(CATEGORY_PREFIX));
+        .filter((label) => label.startsWith(prefix));
     } catch {
       return {
         message: "bd answered in a format this plugin does not understand.",
       };
     }
-    const wanted = next === null ? null : CATEGORY_PREFIX + next;
-    const args = ["update", input.beadId, "--json"];
+    const wanted = value === null ? null : prefix + value;
+    const args = ["update", beadId, "--json"];
     for (const label of present) {
       if (label !== wanted) args.push("--remove-label", label);
     }
@@ -499,7 +517,52 @@ export function createStore({
       args.push("--add-label", wanted);
     }
     if (args.length === 3) return { message: null }; // Nothing to change.
-    return applyIn(found.path, input.threadId, args, "bd update (category)");
+    const run = await runIn(path, args, what);
+    if ("message" in run) return { message: run.message };
+    if (publish) changed(threadId);
+    return { message: null };
+  }
+
+  /**
+   * Records the workflow step an issue is at.
+   *
+   * Pre-condition: `step` is a state id of the workflow (letters, digits and
+   *   dashes), and the issue is known to be in the folder.
+   */
+  function setStep(
+    path: string,
+    threadId: string | null,
+    beadId: string,
+    step: string,
+    publish = true,
+  ): Promise<Outcome> {
+    return setPrefixedLabel(
+      path,
+      threadId,
+      beadId,
+      STEP_PREFIX,
+      step,
+      "bd update (step)",
+      publish,
+    );
+  }
+
+  /**
+   * Adds a comment to an issue. Used for the record of workflow moves, which
+   * is where the tab already shows an issue's history.
+   *
+   * @param text Must not start with a dash (bd would read it as an option);
+   *   callers pass text that starts with a fixed word.
+   * Side effects: one `bd comment`. Nothing is published: callers publish
+   *   once for the whole move.
+   */
+  async function addComment(
+    path: string,
+    beadId: string,
+    text: string,
+  ): Promise<Outcome> {
+    const run = await runIn(path, ["comment", beadId, text], "bd comment");
+    return { message: "message" in run ? run.message : null };
   }
 
   /**
@@ -631,9 +694,9 @@ export function createStore({
     link,
     unlink,
     listComments,
+    setStep,
+    addComment,
     changed,
-    defining,
-    defineKey,
   };
 }
 

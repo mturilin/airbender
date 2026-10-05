@@ -284,6 +284,26 @@ function instruction(
   ].join("\n");
 }
 
+function commitRequest(
+  issue: { id: string; title: string },
+  closedSubIssues: readonly { id: string; title: string }[],
+): string {
+  const rules =
+    "following the commit rules in AGENTS.md if it has any";
+  const after =
+    "If this repository pushes commits by itself, tell the user if that push fails.";
+  return (
+    `The user accepted beads issue ${issue.id}: ${JSON.stringify(issue.title)} in the Airbender tab. It is closed, and its work is to be committed now.` +
+    (closedSubIssues.length === 0
+      ? ` Commit the changes that belong to this issue, ${rules}: only this issue's files, and the issue's id and title in the subject line. ${after} If there is nothing to commit for it, say so.`
+      : ` Its sub-issues were closed with it: ${closedSubIssues
+          .map((sub) => `${sub.id} (${JSON.stringify(sub.title)})`)
+          .join(
+            ", ",
+          )}. Commit the changes that belong to this issue and those sub-issues, ${rules}: one commit per issue where its changes can be told apart, otherwise one commit whose body lists each issue as id and title; only these issues' files; and the issue's id and title in the subject line. ${after} If there is nothing to commit, say so.`)
+  );
+}
+
 function describeForAgents(): string {
   const steps = states
     .map(
@@ -314,5 +334,6 @@ export const standardWorkflow: Workflow = {
   moves,
   initial: "define",
   instruction,
+  commitRequest,
   describeForAgents,
 };

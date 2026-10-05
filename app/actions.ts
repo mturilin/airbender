@@ -25,6 +25,9 @@ import type {
 } from "../server/contract.ts";
 import { CLOSED_STATUS } from "../shared/constants.ts";
 import type { IssueType, LinkKind } from "../shared/constants.ts";
+import { workflow } from "../shared/current-workflow.ts";
+import { CLOSED, movesFor, stateOf } from "../shared/workflow.ts";
+import type { PendingClose } from "./close-dialog.tsx";
 import type { IssueTree } from "./issue-model.ts";
 import type { Scope, useIssues } from "./use-issues.ts";
 
@@ -72,18 +75,24 @@ export interface IssueCommands {
    */
   setCurrent: ((beadId: string | null) => void) | null;
   /**
-   * The play button: marks an issue as this thread's bead and tells the
-   * agent to start on it (requirements, then a plan, then the work). Null
-   * when there is no thread.
+   * Play: makes an issue this thread's current one and gets the agent going
+   * on the step of the workflow the issue is at. Null when there is no
+   * thread, since there is then no agent to start.
    */
-  start: ((beadId: string) => void) | null;
+  run: ((beadId: string) => void) | null;
   /**
-   * Asks to close an open issue (the user confirms in a dialog first).
-   * `commit` true is the happy path: the work is accepted, so the thread's
-   * agent is also asked to commit it. `commit` false closes without a
-   * commit: the issue is dropped, not done.
+   * Makes one of the user's moves in an issue's workflow (approve, send
+   * back, skip, accept…). A move that closes the issue is confirmed in a
+   * dialog first; the others happen straight away.
+   *
+   * @param note The reason, for moves that need one; "" otherwise.
    */
-  close: (beadId: string, commit: boolean) => void;
+  move: (beadId: string, moveId: string, note: string) => void;
+  /**
+   * Cancel: asks to close an open issue without finishing it (the user
+   * confirms in a dialog first). Finishing an issue is a workflow move.
+   */
+  close: (beadId: string) => void;
   /**
    * Changes an issue's type and/or priority in beads, straight away and
    * without confirmation (it is one click to change back). A field left out
@@ -102,11 +111,6 @@ export interface IssueCommands {
     beadId: string,
     text: { title: string; description: string },
   ) => Promise<string | null>;
-  /**
-   * Starts a background agent that defines the issue. Does nothing
-   * visible here beyond the row showing that it is under way.
-   */
-  define: (beadId: string) => void;
   /**
    * Opens the details window on an issue that has sub-issues, or moves the
    * already open window to it.
@@ -189,8 +193,11 @@ export interface IssueActionsView {
       category: string | null;
     },
   ) => Promise<string | null>;
-  /** Closes (open=false) or reopens an issue, after any confirmation. */
-  applyOpen: (beadId: string, open: boolean, commit?: boolean) => void;
+  /**
+   * Carries out a close the user has confirmed: the workflow's closing move
+   * when it came from one, a plain cancel otherwise.
+   */
+  confirmClose: (pending: PendingClose) => void;
   /** The last action's failure in plain words; null when it worked. */
   actionProblem: string | null;
   setActionProblem: (problem: string | null) => void;
@@ -207,8 +214,9 @@ export interface IssueActionsView {
  * confirm a close, moving the details window, readying the new-issue field)
  * are handed in, because that state belongs to the panel.
  *
- * @param askClose Called when a row asks to close an issue; the panel
- *   confirms and then calls `applyOpen`.
+ * @param askClose Called when a row asks to close an issue, by cancelling
+ *   it or by a closing move; the panel confirms and then calls
+ *   `confirmClose`.
  * @param openDetails Opens the details window on an issue.
  * @param closeDetails Closes the details window (play starts the agent in
  *   the conversation, which the window would cover).
@@ -235,7 +243,7 @@ export function useIssueActions({
   descendantIds: (beadId: string) => Set<string>;
   categories: string[];
   refresh: () => void;
-  askClose: (issue: Issue, commit: boolean) => void;
+  askClose: (pending: PendingClose) => void;
   openDetails: (beadId: string) => void;
   closeDetails: () => void;
   addSubIssue: (parentId: string) => void;
@@ -256,30 +264,64 @@ export function useIssueActions({
     },
     [rpc, threadId, projectId],
   );
-  /**
-   * Closes (open=false) or reopens (open=true) an issue in beads.
-   *
-   * @param commit When closing, also ask the thread's agent to commit the
-   *   issue's work. Has no effect when reopening or without a thread.
-   */
-  const applyOpen = (beadId: string, open: boolean, commit = false) => {
-    const target = { threadId, projectId, beadId };
-    (open
-      ? rpc.call("issue_reopen", target)
-      : rpc.call("issue_close", { ...target, commit })
-    ).then((outcome) => {
-      setActionProblem(outcome.message);
-      refresh();
-    }, reportProblem);
+  /** After any request: show its problem, if it had one, and reload. */
+  const settle = (outcome: { message: string | null }) => {
+    setActionProblem(outcome.message);
+    refresh();
   };
+  /** Closes (open=false) or reopens (open=true) an issue in beads. */
+  const applyOpen = (beadId: string, open: boolean) => {
+    rpc
+      .call(open ? "issue_reopen" : "issue_close", {
+        threadId,
+        projectId,
+        beadId,
+      })
+      .then(settle, reportProblem);
+  };
+  /** Asks the backend to make a workflow move. */
+  const applyMove = (beadId: string, moveId: string, note: string) => {
+    rpc
+      .call("workflow_move", { threadId, projectId, beadId, moveId, note })
+      .then(settle, reportProblem);
+  };
+  const confirmClose = (pending: PendingClose) =>
+    pending.moveId === null
+      ? applyOpen(pending.issue.id, false)
+      : applyMove(pending.issue.id, pending.moveId, "");
   const actions: IssueActions = {
     currentBeadId: result?.currentBeadId ?? null,
     loadComments,
-    close: (beadId, commit) => {
-      // Confirmed in a dialog first: remember which issue and which kind of
-      // close, and let the dialog below call applyOpen when the user agrees.
-      const issue = result?.issues.find((candidate) => candidate.id === beadId);
-      if (issue !== undefined) askClose(issue, commit);
+    close: (beadId) => {
+      // Confirmed in a dialog first: the panel remembers which issue and
+      // calls confirmClose when the user agrees.
+      const issue = tree.byId.get(beadId);
+      if (issue !== undefined) askClose({ issue, commit: false, moveId: null, label: null });
+    },
+    move: (beadId, moveId, note) => {
+      const issue = tree.byId.get(beadId);
+      if (issue === undefined) return;
+      // The workflow is asked only whether this move closes the issue: a
+      // closing move is confirmed first, like any other close. Whether the
+      // move is allowed at all is the backend's check.
+      const closing = movesFor(
+        workflow,
+        stateOf(workflow, issue.step).id,
+        "user",
+      ).find((move) => move.id === moveId && move.to === CLOSED);
+      if (closing !== undefined) {
+        askClose({
+          issue,
+          commit: closing.commit === true,
+          moveId,
+          label: closing.label,
+        });
+        return;
+      }
+      // A move may start the agent in the conversation, which the details
+      // window covers, so the window gets out of the way.
+      closeDetails();
+      applyMove(beadId, moveId, note);
     },
     reopen: (beadId) => applyOpen(beadId, true),
     categories,
@@ -344,15 +386,6 @@ export function useIssueActions({
       );
     },
     addSubIssue,
-    define: (beadId) => {
-      rpc.call("issue_define", { threadId, projectId, beadId }).then(
-        (outcome) => {
-          setActionProblem(outcome.message);
-          refresh();
-        },
-        reportProblem,
-      );
-    },
     saveText: async (beadId, text) => {
       try {
         const outcome = await rpc.call("issue_update", {
@@ -386,7 +419,7 @@ export function useIssueActions({
           refresh();
         }, reportProblem);
     },
-    start:
+    run:
       threadId === null
         ? null
         : (beadId) => {
@@ -394,11 +427,8 @@ export function useIssueActions({
             // window covers, so the window gets out of the way.
             closeDetails();
             rpc
-              .call("current_start", { threadId, beadId })
-              .then((outcome) => {
-                setActionProblem(outcome.message);
-                refresh();
-              }, reportProblem);
+              .call("workflow_run", { threadId, beadId })
+              .then(settle, reportProblem);
           },
     setCurrent:
       threadId === null
@@ -443,7 +473,7 @@ export function useIssueActions({
   return {
     actions,
     createIn,
-    applyOpen,
+    confirmClose,
     actionProblem,
     setActionProblem,
     reportProblem,

@@ -25,8 +25,9 @@ import { CLOSED_STATUS } from "../shared/constants.ts";
 import { useActions } from "./actions.ts";
 import { StatusTag, Tag } from "./bits.tsx";
 import { getDragged, setDragged } from "./drag.ts";
-import { DefineButton, IssueDetails } from "./issue-details.tsx";
+import { IssueDetails } from "./issue-details.tsx";
 import { IssueFacts } from "./issue-facts.tsx";
+import { StateTag, WorkflowButton } from "./workflow-controls.tsx";
 
 /**
  * One issue: a compact line that opens to show its details, with its
@@ -211,6 +212,7 @@ export function IssueRow({
             </button>
             {hasSubIssues ? <Tag>{subIssues.length} sub</Tag> : null}
             <StatusTag issue={issue} />
+            <StateTag issue={issue} />
             {issue.priority === null ? null : (
               <Tag strong={issue.priority <= 1}>P{issue.priority}</Tag>
             )}
@@ -274,42 +276,20 @@ export function IssueRow({
             <Icon name="Maximize2" className="size-4" />
           </Button>
         )}
-        {/* An issue that is only a title is the one that most needs
-            defining, so the button is on the row for it instead of
-            hidden inside the opened issue. Once the issue has a description
-            the button is found inside, as before. */}
-        {closed || issue.description.trim() !== "" ? null : (
-          <DefineButton issue={issue} iconOnly />
+        {/* What the issue's step in its workflow offers: the agent's run
+            button ("Define", "Plan"…) or the user's main move ("Approve
+            plan", "Accept & commit"). Not on a compact sub-issue row, which
+            has no buttons; there it is inside the opened sub-issue. */}
+        {compact ? null : (
+          <WorkflowButton issue={issue} className="m-1 h-7 shrink-0 px-2" />
         )}
-        {/* Offered only while the thread has no bead: with one already
-            chosen, a stray click here would redirect an agent mid-task. */}
-        {actions.start === null ||
-        actions.currentBeadId !== null ||
-        closed ? null : (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="m-1 size-7 shrink-0"
-            tip="Start work: make this the current issue and start the agent on it"
-            aria-label={`Start work on ${issue.id}: ${issue.title}`}
-            onClick={() => actions.start?.(issue.id)}
-          >
-            <Icon name="Play" className="size-4" />
-          </Button>
-        )}
-        {/* Two different ways to close, two different icons.
-            - Finishing (check plus the words "Close & commit", in the
-              ordinary gray button style; the user did not want colour) is
-              the expected outcome, so on the thread's current bead it is the
-              one close button on the row. It exists only there, because that is the
-              work the thread's agent can commit.
-            - Dropping (cross) closes without a commit. On the current bead
-              it is kept off the row and shown only inside the opened issue
-              (see IssueDetails), so it cannot be mistaken for the default.
-              On every other open issue it is the only way to close, so it
-              stays on the row, muted.
-            Both ask for confirmation first (see BeadsPanel); reopening does
-            not, since it only puts an issue back on the list. */}
+        {/* Cancelling (the cross) closes an issue without finishing it;
+            finishing is the workflow's last move, above. On the thread's
+            current issue the cross is kept off the row and shown only
+            inside the opened issue (see IssueDetails), so it cannot be
+            pressed by mistake beside the main button. Cancelling asks for
+            confirmation first (see BeadsPanel); reopening does not, since
+            it only puts an issue back on the list. */}
         {/* Not on a compact sub-issue row: closing (and reopening) a
             sub-issue is done from inside the opened sub-issue, so a slip of
             the pointer over a short row cannot cancel it. */}
@@ -324,26 +304,14 @@ export function IssueRow({
           >
             <Icon name="RotateCcw" className="size-4" />
           </Button>
-        ) : actions.currentBeadId === issue.id ? (
-          <Button
-            variant="outline"
-            size="sm"
-            className="m-1 h-7 shrink-0 px-2"
-            tip="The work is accepted: close the issue and ask the agent to commit it"
-            aria-label={`Close and commit ${issue.id}: ${issue.title}`}
-            onClick={() => actions.close(issue.id, true)}
-          >
-            <Icon name="CircleCheck" className="size-4" />
-            Close &amp; commit
-          </Button>
-        ) : (
+        ) : actions.currentBeadId === issue.id ? null : (
           <Button
             variant="ghost"
             size="icon"
             className="m-1 size-7 shrink-0 text-muted-foreground"
-            tip="Close this issue without committing: use it to drop the issue"
-            aria-label={`Close ${issue.id}: ${issue.title}`}
-            onClick={() => actions.close(issue.id, false)}
+            tip="Cancel this issue: close it without finishing it"
+            aria-label={`Cancel ${issue.id}: ${issue.title}`}
+            onClick={() => actions.close(issue.id)}
           >
             <Icon name="CircleX" className="size-4" />
           </Button>

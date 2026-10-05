@@ -60,11 +60,12 @@ const issueSchema = z.object({
    */
   parentId: z.string().nullable(),
   /**
-   * Id of the hidden worker thread that is defining this issue right now,
-   * or null. Known only to the running plugin: it is forgotten when the
-   * plugin reloads, which costs the "in progress" mark, not the work.
+   * The workflow step recorded on the issue (a state id from the workflow in
+   * shared/), or null when none is. Kept in beads as a label `step:<id>`.
+   * Read it through `stateOf`, which gives an issue without one the
+   * workflow's first state.
    */
-  defineThreadId: z.string().nullable(),
+  step: z.string().nullable(),
   status: z.string(),
   /** 0 (most urgent) to 4; null when bd reported none. */
   priority: z.number().nullable(),
@@ -75,7 +76,7 @@ const issueSchema = z.object({
    * beads as a label of the form `category:<name>` (see CATEGORY_PREFIX).
    */
   category: z.string().nullable(),
-  /** The issue's labels, without the one that carries its category. */
+  /** The issue's labels, without the ones for its category and its step. */
   labels: z.array(z.string()),
   updatedAt: z.string().nullable(),
   /**
@@ -244,36 +245,16 @@ export const rpcContract = defineRpcContract({
     }),
   },
   issue_close: {
-    // Closes the issue in beads. If it was the thread's current bead, that
-    // choice is cleared too, since a finished issue is no longer worked on.
+    // Cancel: closes the issue in beads without finishing it. Finishing goes
+    // through the workflow (workflow_move). If it was the thread's current
+    // bead, that choice is cleared too.
     input: z.object({
       threadId: z.string().nullable(),
       projectId: z.string().nullable(),
       beadId: z.string(),
-      /**
-       * Also ask the thread's agent to commit this issue's work. Ignored
-       * without a thread, since there is then no agent to ask.
-       */
-      commit: z.boolean(),
     }),
     // `message` is null on success, else the reason in plain words.
     output: z.object({ message: z.string().nullable() }),
-  },
-  issue_define: {
-    // Starts a background agent (a hidden worker thread) that defines the
-    // issue (writes up what is wanted, acceptance criteria and a design), so
-    // the thread the user is working in is not interrupted. The button was
-    // called "Flesh out" until the user renamed it to "Define".
-    input: z.object({
-      threadId: z.string().nullable(),
-      projectId: z.string().nullable(),
-      beadId: z.string(),
-    }),
-    // `threadId` is the new thread on success; `message` the reason if not.
-    output: z.object({
-      threadId: z.string().nullable(),
-      message: z.string().nullable(),
-    }),
   },
   issue_link: {
     // Adds a link of one of beads' kinds, stored on `fromId` and pointing at
@@ -349,11 +330,25 @@ export const rpcContract = defineRpcContract({
     }),
     output: z.object({ message: z.string().nullable() }),
   },
-  current_start: {
-    // The play button: makes the bead the thread's current one and sends the
-    // thread's agent the message that starts work on it (see workRequest).
+  workflow_run: {
+    // Play: makes the issue the thread's current one and gets the agent
+    // going on the step the issue is at. Only for a step that is the agent's.
     input: z.object({ threadId: z.string(), beadId: z.string() }),
     // `message` is null on success, else the reason in plain words.
+    output: z.object({ message: z.string().nullable() }),
+  },
+  workflow_move: {
+    // One of the user's moves in the workflow (approve, send back, skip,
+    // accept, or reporting a step the agent finished). Refused when the
+    // workflow does not allow it from the issue's present step.
+    input: z.object({
+      threadId: z.string().nullable(),
+      projectId: z.string().nullable(),
+      beadId: z.string(),
+      moveId: z.string(),
+      /** Why: required by some moves, optional for the rest. */
+      note: z.string().max(2000),
+    }),
     output: z.object({ message: z.string().nullable() }),
   },
   current_set: {

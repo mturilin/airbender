@@ -94,6 +94,15 @@ export interface Workflow {
    *   (the reason it was sent back).
    */
   instruction(state: WorkflowState, issue: WorkflowIssue, note?: string): string;
+  /**
+   * What to tell the agent after a closing move that asks for a commit.
+   *
+   * @param closedSubIssues Sub-issues that were closed along with the issue.
+   */
+  commitRequest(
+    issue: { id: string; title: string },
+    closedSubIssues: readonly { id: string; title: string }[],
+  ): string;
   /** Standing instructions for agents: how issues move and what they may do. */
   describeForAgents(): string;
 }

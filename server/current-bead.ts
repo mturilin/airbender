@@ -4,7 +4,7 @@
 // agent is working on, which the tab shows in its own highlighted group.
 //
 // Why: the user wants to see at a glance what each conversation is working
-// on, and the tab's "Close & commit" is offered on that issue only.
+// on, and the tab keeps its workflow buttons to that issue while one is set.
 //
 // Design notes:
 // - It is a note kept by BB on the thread (plugin metadata), not in beads:

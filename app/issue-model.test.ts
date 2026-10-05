@@ -39,7 +39,7 @@ function issue(id: string, over: Partial<Issue> = {}): Issue {
     closeReason: "",
     commentCount: 0,
     parentId: null,
-    defineThreadId: null,
+    step: null,
     status: "open",
     priority: 2,
     type: "task",

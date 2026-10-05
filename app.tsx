@@ -55,8 +55,10 @@
 //   opened issue, and mark which bead a thread is working on (a note kept
 //   in BB, not in beads). It cannot delete an issue or edit its design,
 //   acceptance criteria, notes or comments.
-// - "Define" starts a background agent for the job and marks the row
-//   while it is busy; the thread the user is in is not touched.
+// - Every open issue shows the step of its workflow it is at, and one main
+//   button for that step: the agent's run button or the user's own move.
+//   The steps, labels and wording come from the workflow in shared/; the
+//   tab draws whatever it says (app/workflow-controls.tsx).
 // - One component, two entry points: a thread tab passes its thread id, the
 //   New thread screen passes the selected project id. The backend turns either
 //   into a folder.

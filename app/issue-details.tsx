@@ -1,7 +1,7 @@
 // app/issue-details.tsx — an opened issue.
 //
 // What: what shows when a row is opened: the description, the links line, the
-// Define button and the row of lean buttons, assembled with the facts line
+// workflow moves and the row of lean buttons, assembled with the facts line
 // (app/issue-facts.tsx), the folded sections and the edit form (app/issue-
 // sections.tsx) and the two search boxes (app/pickers.tsx).
 //
@@ -12,7 +12,7 @@
 // - The Move to and Link boxes are drawn inside the opened issue, not
 //   floating, because the list clips anything that hangs outside it.
 
-import { Markdown, useBbNavigate } from "@get-bb/plugin-sdk/app";
+import { Markdown } from "@get-bb/plugin-sdk/app";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
@@ -31,59 +31,12 @@ import {
   TextSection,
 } from "./issue-sections.tsx";
 import { LinkPicker, MoveToPicker } from "./pickers.tsx";
-
-/**
- * Starts defining an issue with a background agent, so the thread the
- * user is in is left alone. The agent runs in a hidden worker thread that is
- * not in the sidebar; while it is busy the button turns into the one way to
- * open it, in case the user wants to look in or it is waiting on a question.
- */
-export function DefineButton({
-  issue,
-  iconOnly = false,
-}: {
-  issue: Issue;
-  /**
-   * Draw it as a bare icon, in the same style as the row's close button.
-   * Used on a collapsed row, where a labelled button would crowd the title.
-   */
-  iconOnly?: boolean;
-}) {
-  const actions = useActions();
-  const navigate = useBbNavigate();
-  const running = issue.defineThreadId;
-  const look = iconOnly
-    ? ({
-        variant: "ghost",
-        size: "icon",
-        className: "m-1 size-7 shrink-0 text-muted-foreground",
-      } as const)
-    : ({ variant: "outline", size: "sm" } as const);
-  if (running !== null) {
-    return (
-      <Button
-        {...look}
-        tip="A background agent is writing this issue up. Click to open it."
-        aria-label={`Open the background agent that is defining ${issue.id}`}
-        onClick={() => navigate.toThread(running)}
-      >
-        <Icon name="Loading" className="size-4 animate-spin" />
-        {iconOnly ? null : "Defining… open"}
-      </Button>
-    );
-  }
-  return (
-    <Button
-      {...look}
-      tip="Define: have a background agent write this issue up (what is wanted, what done means, and an approach)"
-      aria-label={`Define ${issue.id} with a background agent`}
-      onClick={() => actions.define(issue.id)}
-    >
-      <Icon name="MessageSquare" className="size-4" />
-      {iconOnly ? null : "Define"}
-    </Button>
-  );
-}
+import type { WorkflowMove } from "../shared/workflow.ts";
+import {
+  NoteForm,
+  WorkflowButton,
+  WorkflowMoves,
+} from "./workflow-controls.tsx";
 
 /**
  * The links of an opened issue, as one line of chips (bead-bb-zty.4). It
@@ -199,6 +152,9 @@ export function IssueDetails({
   // Whether the "Link" box is showing under the buttons. Only one of the
   // two boxes shows at a time.
   const [linking, setLinking] = useState(false);
+  // The workflow move waiting for its reason (send back, skip); null when
+  // none is. Its field shows under the buttons.
+  const [noting, setNoting] = useState<WorkflowMove | null>(null);
   return (
     <div className="space-y-3">
       {showFacts ? (
@@ -266,26 +222,14 @@ export function IssueDetails({
           background, so a row of them does not pull the eye away from the
           issue's text. Styled here once, for every button in the row. */}
       <div className="flex flex-wrap gap-1.5 [&>button]:h-6 [&>button]:gap-1 [&>button]:rounded [&>button]:border-0 [&>button]:bg-foreground/[0.06] [&>button]:px-2 [&>button]:text-xs [&>button]:font-normal [&>button]:text-muted-foreground [&>button]:shadow-none [&>button:hover]:bg-foreground/[0.12] [&>button:hover]:text-foreground [&>button_[data-icon-root]]:size-3.5">
-        {/* Play for a compact sub-issue row, which has no buttons of its
-            own (see IssueRow). First in the row at the user's request:
-            starting work is the main thing to do with an open sub-issue. */}
-        {showFacts &&
-        !closed &&
-        actions.start !== null &&
-        actions.currentBeadId === null ? (
-          <Button
-            variant="outline"
-            size="sm"
-            tip="Make this the issue the conversation is working on and start the agent on it"
-            onClick={() => actions.start?.(issue.id)}
-          >
-            <Icon name="Play" className="size-4" />
-            Start work
-          </Button>
-        ) : null}
-        {closed ? null : (
-          <DefineButton issue={issue} />
-        )}
+        {/* The workflow's main button, for a compact sub-issue row, which
+            has no buttons of its own (see IssueRow). First in the row at
+            the user's request: getting on with it is the main thing to do
+            with an open sub-issue. */}
+        {showFacts ? <WorkflowButton issue={issue} /> : null}
+        {/* The user's other moves at this step: send back, skip, mark as
+            done. */}
+        <WorkflowMoves issue={issue} onNeedNote={setNoting} />
         {closed || editing ? null : (
           <Button
             variant="outline"
@@ -375,28 +319,35 @@ export function IssueDetails({
             variant="ghost"
             size="sm"
             className="text-muted-foreground"
-            tip="Close this issue without committing anything"
-            onClick={() => actions.close(issue.id, false)}
+            tip="Cancel this issue: close it without finishing it"
+            onClick={() => actions.close(issue.id)}
           >
             <Icon name="CircleX" className="size-4" />
-            Close
+            Cancel
           </Button>
         )}
-        {/* The current bead's "drop it" action lives here, out of the way,
-            instead of on the row beside "Close & commit". */}
+        {/* The current issue's "drop it" action lives here, out of the way,
+            instead of on the row beside its main workflow button. */}
         {closed || actions.currentBeadId !== issue.id ? null : (
           <Button
             variant="ghost"
             size="sm"
             className="text-muted-foreground"
-            tip="Close this issue without committing: use it to drop the issue"
-            onClick={() => actions.close(issue.id, false)}
+            tip="Cancel this issue: close it without finishing it"
+            onClick={() => actions.close(issue.id)}
           >
             <Icon name="CircleX" className="size-4" />
-            Close without commit
+            Cancel
           </Button>
         )}
       </div>
+      {noting === null ? null : (
+        <NoteForm
+          issue={issue}
+          move={noting}
+          onDone={() => setNoting(null)}
+        />
+      )}
       {moving ? (
         <MoveToPicker
           issue={issue}
