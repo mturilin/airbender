@@ -146,3 +146,26 @@ export function RobotIcon({ className }: { className?: string }) {
     </svg>
   );
 }
+
+/**
+ * A person, marking a step that needs the user. Drawn here, like the robot
+ * beside it, so the two are the same size and sit the same way in a tag;
+ * BB's own person icon comes in a wrapper that threw the tag's line off.
+ */
+export function PersonIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      className={className}
+    >
+      <circle cx="12" cy="8" r="5" />
+      <path d="M20 21a8 8 0 0 0-16 0" />
+    </svg>
+  );
+}

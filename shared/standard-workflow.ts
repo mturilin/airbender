@@ -59,7 +59,10 @@ const states: WorkflowState[] = [
     id: "not-started",
     label: "Not started",
     actor: "user",
-    hint: "Nobody has started on this issue yet.",
+    // It waits for the user only to say "go"; the work that follows, looking
+    // at what was written and defining it, is the agent's (the user's view).
+    nextWork: "agent",
+    hint: "Nobody has started on this issue yet; the agent defines it next.",
   },
   {
     id: "define",

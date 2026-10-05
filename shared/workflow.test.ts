@@ -12,7 +12,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { MOVE_TOOL, standardWorkflow as flow } from "./standard-workflow.ts";
-import { CLOSED, checkMove, movesFor, problemsIn, stateOf } from "./workflow.ts";
+import {
+  CLOSED,
+  checkMove,
+  movesFor,
+  nextWorkOf,
+  problemsIn,
+  stateOf,
+} from "./workflow.ts";
 import type { Actor } from "./workflow.ts";
 
 /** Where a move leads, or the refusal's message. */
@@ -28,7 +35,11 @@ test("the workflow hangs together", () => {
 test("an issue with no state, or an unknown one, is at the first state", () => {
   assert.equal(stateOf(flow, null).id, "not-started");
   assert.equal(stateOf(flow, "something-old").id, "not-started");
+  // It waits for the user to say go, but the work that follows is the agent's.
   assert.equal(stateOf(flow, null).actor, "user");
+  assert.equal(nextWorkOf(stateOf(flow, null)), "agent");
+  assert.equal(nextWorkOf(stateOf(flow, "review-plan")), "user");
+  assert.equal(nextWorkOf(stateOf(flow, "plan")), "agent");
   assert.equal(stateOf(flow, "plan").id, "plan");
 });
 

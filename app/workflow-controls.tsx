@@ -29,11 +29,11 @@ import { Tip } from "@/components/ui/tip";
 import type { Issue } from "../server/contract.ts";
 import { CLOSED_STATUS } from "../shared/constants.ts";
 import { workflow } from "../shared/current-workflow.ts";
-import { movesFor, stateOf } from "../shared/workflow.ts";
+import { movesFor, nextWorkOf, stateOf } from "../shared/workflow.ts";
 import type { WorkflowMove } from "../shared/workflow.ts";
 import { useActions } from "./actions.ts";
 import type { IssueActions } from "./actions.ts";
-import { RobotIcon } from "./bits.tsx";
+import { PersonIcon, RobotIcon } from "./bits.tsx";
 
 /**
  * Whether the workflow buttons are offered on an issue: it is open, and it
@@ -56,21 +56,25 @@ function canAct(actions: IssueActions, issue: Issue): boolean {
  *
  * The icon says whose move it is, which is what the user wants to see at a
  * glance: a person where the step waits for them, a robot where the next
- * step is the agent's.
+ * step is the agent's. A new issue counts as the agent's: it waits for the
+ * user only to say "go", and what follows is the agent's work.
  */
 export function StateTag({ issue }: { issue: Issue }) {
   if (issue.status === CLOSED_STATUS) return null;
   const state = stateOf(workflow, issue.step);
-  const human = state.actor === "user";
+  const human = nextWorkOf(state) === "user";
   return (
     <Tip
-      label={`${human ? "Waiting for you" : "The agent's step"}: ${state.hint}`}
+      label={`${human ? "Needs you" : "The agent's work"}: ${state.hint}`}
     >
-      <span className="flex shrink-0 cursor-default items-center gap-1 whitespace-nowrap rounded border border-foreground/30 px-1.5 py-px text-[11px] font-medium leading-4 text-foreground">
+      {/* A fixed height and centred contents, the same box as the tags
+          beside it (16px line, 1px padding, 1px border), so it sits on
+          their line whatever the icon's own box is. */}
+      <span className="inline-flex h-5 shrink-0 cursor-default items-center gap-1 whitespace-nowrap rounded border border-foreground/30 px-1.5 text-[11px] font-medium leading-none text-foreground">
         {human ? (
-          <Icon name="UserRound" className="size-3" />
+          <PersonIcon className="block size-3 shrink-0" />
         ) : (
-          <RobotIcon className="size-3" />
+          <RobotIcon className="block size-3 shrink-0" />
         )}
         {state.label}
       </span>
@@ -129,7 +133,12 @@ export function WorkflowButton({
       aria-label={`${main.label}: ${issue.id} ${issue.title}`}
       onClick={() => actions.move(issue.id, main.id, "")}
     >
-      <Icon name="CircleCheck" className="size-4" />
+      {/* A tick for an approval; play where the move only sets the agent
+          going (a new issue's "Define"). */}
+      <Icon
+        name={nextWorkOf(state) === "agent" ? "Play" : "CircleCheck"}
+        className="size-4"
+      />
       {main.label}
     </Button>
   );

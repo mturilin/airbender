@@ -41,6 +41,13 @@ export interface WorkflowState {
   label: string;
   /** Who the issue is waiting for while it is in this state. */
   actor: Actor;
+  /**
+   * Whose work comes next, when that is not the one the state waits for.
+   * A state can wait for the user only to say "go" (a new issue) while the
+   * work that follows is the agent's; the tab then marks it as the agent's.
+   * Left out, it is the same as `actor`.
+   */
+  nextWork?: Actor;
   /** One line saying what happens in this state, for tooltips. */
   hint: string;
   /**
@@ -120,6 +127,11 @@ export function stateOf(workflow: Workflow, step: string | null): WorkflowState 
     workflow.states.find((state) => state.id === step) ??
     workflow.states.find((state) => state.id === workflow.initial)!
   );
+}
+
+/** Whose work comes next for an issue in this state (see `nextWork`). */
+export function nextWorkOf(state: WorkflowState): Actor {
+  return state.nextWork ?? state.actor;
 }
 
 /** The moves out of a state that `by` may make, the main one first. */

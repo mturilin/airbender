@@ -335,7 +335,8 @@ Rules:
   prominently than its other tags. `[e2b]`
 - **The step's tag carries an icon for whose move it is**: a person where
   the owner's input is needed, a robot where the next step is the agent's.
-  `[e2b]`
+  **A Not started issue shows the robot**: the next step is for the agent
+  to look at what was written. `[e2b]`
 - **Each step has one main button.** At an agent's step it starts the agent
   on that step. At the owner's step it is the owner's approval. `[e2b]`
 - **Starting never begins again from the first step.** The agent is asked to
