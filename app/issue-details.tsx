@@ -13,7 +13,7 @@
 //   floating, because the list clips anything that hangs outside it.
 
 import { Markdown } from "@get-bb/plugin-sdk/app";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { Tip } from "@/components/ui/tip";
@@ -37,6 +37,8 @@ import {
   WorkflowButton,
   WorkflowMoves,
 } from "./workflow-controls.tsx";
+import { CurrentToggle } from "./current-toggle.tsx";
+import type { RowAsk } from "./row-menu.tsx";
 
 /**
  * The links of an opened issue, as one line of chips (bead-bb-zty.4). It
@@ -127,8 +129,25 @@ export function IssueDetails({
   issue,
   fullDescription = false,
   showFacts = false,
+  asked = null,
+  onAsked,
+  bodyClassName,
 }: {
+  /**
+   * Extra classes for the issue's text (description, sections, comments),
+   * for a place that caps its height and lets it scroll. The buttons and
+   * the Move to and Link boxes are outside it, so they stay in view however
+   * long the text is (the user's request, bead-bb-l3m).
+   */
+  bodyClassName?: string;
   issue: Issue;
+  /**
+   * What the row's "more" menu wants shown here: the edit form, or the
+   * Move to or Link box. Taken once and then cleared through `onAsked`, so
+   * closing the issue up and opening it again does not bring it back.
+   */
+  asked?: RowAsk | null;
+  onAsked?: () => void;
   /**
    * Show the id, priority and type line at the top. Used for compact
    * sub-issue rows, whose one-line row has no room for them.
@@ -155,68 +174,82 @@ export function IssueDetails({
   // The workflow move waiting for its reason (send back, skip); null when
   // none is. Its field shows under the buttons.
   const [noting, setNoting] = useState<WorkflowMove | null>(null);
+  useEffect(() => {
+    if (asked === null) return;
+    if (!closed) {
+      setEditing(asked === "edit");
+      setMoving(asked === "move");
+      setLinking(asked === "link");
+    }
+    onAsked?.();
+    // `onAsked` is a new function on every render of the row; only a new
+    // request should run this.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [asked]);
   return (
     <div className="space-y-3">
-      {showFacts ? (
-        <IssueFacts
-          issue={issue}
-          onEdit={closed ? undefined : actions.edit}
-          category={
-            closed
-              ? undefined
-              : { choices: actions.categories, onChange: actions.setCategory }
-          }
-        />
-      ) : null}
-      {editing ? (
-        <EditIssueText
-          issue={issue}
-          save={actions.saveText}
-          onDone={() => setEditing(false)}
-        />
-      ) : issue.description.trim() === "" ? (
-        <p className="text-xs text-muted-foreground">No description.</p>
-      ) : fullDescription || !isLongDescription(issue.description) ? (
-        <Markdown content={issue.description} className="text-sm" />
-      ) : (
-        // A long description is cut to about four lines so an opened row
-        // stays short; the rest is read in the details window.
-        <div>
-          <div className="relative max-h-[5.5rem] overflow-hidden">
-            <Markdown content={issue.description} className="text-sm" />
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-card to-transparent" />
+      <div className={cn("space-y-3", bodyClassName)}>
+        {showFacts ? (
+          <IssueFacts
+            issue={issue}
+            onEdit={closed ? undefined : actions.edit}
+            category={
+              closed
+                ? undefined
+                : { choices: actions.categories, onChange: actions.setCategory }
+            }
+          />
+        ) : null}
+        {editing ? (
+          <EditIssueText
+            issue={issue}
+            save={actions.saveText}
+            onDone={() => setEditing(false)}
+          />
+        ) : issue.description.trim() === "" ? (
+          <p className="text-xs text-muted-foreground">No description.</p>
+        ) : fullDescription || !isLongDescription(issue.description) ? (
+          <Markdown content={issue.description} className="text-sm" />
+        ) : (
+          // A long description is cut to about four lines so an opened row
+          // stays short; the rest is read in the details window.
+          <div>
+            <div className="relative max-h-[5.5rem] overflow-hidden">
+              <Markdown content={issue.description} className="text-sm" />
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-card to-transparent" />
+            </div>
+            <button
+              type="button"
+              className="mt-1 cursor-pointer text-xs text-muted-foreground hover:text-foreground hover:underline"
+              onClick={() => actions.openDetails(issue.id)}
+            >
+              View more
+            </button>
           </div>
-          <button
-            type="button"
-            className="mt-1 cursor-pointer text-xs text-muted-foreground hover:text-foreground hover:underline"
-            onClick={() => actions.openDetails(issue.id)}
-          >
-            View more
-          </button>
-        </div>
-      )}
-      <TextSection label="Acceptance criteria" text={issue.acceptance} />
-      <TextSection label="Design" text={issue.design} />
-      <TextSection label="Notes" text={issue.notes} />
-      <TextSection label="Close reason" text={issue.closeReason} />
-      <LinksLine issue={issue} />
-      {issue.labels.length === 0 ? null : (
-        <div className="flex flex-wrap gap-1.5">
-          {issue.labels.map((label) => (
-            <Tag key={label}>{label}</Tag>
-          ))}
-        </div>
-      )}
-      {issue.status === "open" ||
-      issue.status === "in_progress" ||
-      closed ? null : (
-        <p className="text-xs text-muted-foreground">Status: {issue.status}</p>
-      )}
-      {issue.commentCount === 0 ? null : (
-        <Collapsible label={`Comments (${issue.commentCount})`}>
-          <CommentList issue={issue} load={actions.loadComments} />
-        </Collapsible>
-      )}
+        )}
+        <TextSection label="Acceptance criteria" text={issue.acceptance} />
+        <TextSection label="Design" text={issue.design} />
+        <TextSection label="Notes" text={issue.notes} />
+        <TextSection label="Close reason" text={issue.closeReason} />
+        <LinksLine issue={issue} />
+        {issue.labels.length === 0 ? null : (
+          <div className="flex flex-wrap gap-1.5">
+            {issue.labels.map((label) => (
+              <Tag key={label}>{label}</Tag>
+            ))}
+          </div>
+        )}
+        {issue.status === "open" ||
+        issue.status === "in_progress" ||
+        closed ? null : (
+          <p className="text-xs text-muted-foreground">Status: {issue.status}</p>
+        )}
+        {issue.commentCount === 0 ? null : (
+          <Collapsible label={`Comments (${issue.commentCount})`}>
+            <CommentList issue={issue} load={actions.loadComments} />
+          </Collapsible>
+        )}
+      </div>
       {/* The opened issue's buttons are deliberately quiet (the user's
           request, bead-bb-zty.1): short, small text, no border, a soft
           background, so a row of them does not pull the eye away from the
@@ -227,6 +260,9 @@ export function IssueDetails({
             the user's request: getting on with it is the main thing to do
             with an open sub-issue. */}
         {showFacts ? <WorkflowButton issue={issue} /> : null}
+        {/* The target, also in the row's "more" menu: make this the thread's
+            current issue, or release it. */}
+        <CurrentToggle issue={issue} withLabel />
         {/* The user's other moves at this step: send back, skip, mark as
             done. */}
         <WorkflowMoves issue={issue} onNeedNote={setNoting} />
@@ -300,10 +336,11 @@ export function IssueDetails({
             Open with sub-issues
           </Button>
         ) : null}
-        {/* A compact sub-issue row has no close or reopen button of its own
-            (see IssueRow); they are here instead. The current bead's own
-            button follows below, so it is skipped here. */}
-        {!showFacts || actions.currentBeadId === issue.id ? null : closed ? (
+        {/* Close and reopen, here as well as in the row's "more" menu (the
+            user: "you can access those actions through two parts"). Closing
+            asks for confirmation first; reopening does not, since it only
+            puts an issue back on the list. */}
+        {closed ? (
           <Button
             variant="ghost"
             size="sm"
@@ -319,25 +356,11 @@ export function IssueDetails({
             variant="ghost"
             size="sm"
             className="text-muted-foreground"
-            tip="Cancel this issue: close it without finishing it"
+            tip="Close this issue without finishing it"
             onClick={() => actions.close(issue.id)}
           >
             <Icon name="CircleX" className="size-4" />
-            Cancel
-          </Button>
-        )}
-        {/* The current issue's "drop it" action lives here, out of the way,
-            instead of on the row beside its main workflow button. */}
-        {closed || actions.currentBeadId !== issue.id ? null : (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-muted-foreground"
-            tip="Cancel this issue: close it without finishing it"
-            onClick={() => actions.close(issue.id)}
-          >
-            <Icon name="CircleX" className="size-4" />
-            Cancel
+            Close
           </Button>
         )}
       </div>

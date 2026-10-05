@@ -23,6 +23,9 @@
 // - A move to "closed" is the only way the workflow ends. It closes the
 //   issue's open sub-issues first. Committing is not done here: it is a
 //   step of the workflow, done by the agent. The plugin never changes git.
+// - Which issue a thread is on is separate from the workflow: setCurrent
+//   moves no step. It still tells the agent, with a note that asks for
+//   nothing.
 // - Problems are returned as a message in plain words, like every other
 //   operation, so the tab (and the agent's tool) can show them.
 //
@@ -32,7 +35,7 @@
 //   work done without a report.
 
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
-import { BEAD_ID_PATTERN, CLOSED_STATUS } from "../shared/constants.ts";
+import { CLOSED_STATUS } from "../shared/constants.ts";
 import { descendantsOf } from "../shared/tree.ts";
 import { CLOSED, checkMove, stateOf } from "../shared/workflow.ts";
 import type { Actor, Workflow, WorkflowState } from "../shared/workflow.ts";
@@ -278,8 +281,18 @@ export function createWork({
   }
 
   /**
-   * Sets the thread's current issue without messaging the agent; null
-   * clears it.
+   * Sets the thread's current issue, or releases it (null), without moving
+   * any workflow step and without starting any work.
+   *
+   * The agent is told with a short note (the user's decision), so that it
+   * and the status line above the message box agree about which issue the
+   * thread is on. The note says plainly that nothing is to be done: it costs
+   * one short turn, in which the agent only acknowledges it.
+   *
+   * @returns `message` null on success. When the issue was set but the note
+   *   could not be delivered, the message says so; the setting stands.
+   * Side effects: writes the thread's current issue; one message to the
+   *   thread, unless nothing changed.
    */
   async function setCurrent({
     threadId,
@@ -288,13 +301,31 @@ export function createWork({
     threadId: string;
     beadId: string | null;
   }): Promise<Outcome> {
-    if (beadId !== null && !BEAD_ID_PATTERN.test(beadId)) {
-      return { message: `"${beadId}" is not a beads issue id.` };
+    let title = "";
+    if (beadId !== null) {
+      const found = await openIssue({ threadId, projectId: null }, beadId);
+      if ("message" in found) return found;
+      title = found.issue.title;
     }
+    let previous: string | null;
     try {
+      previous = await currentBead.read(threadId);
+      if (previous === beadId) return { message: null };
       await currentBead.write(threadId, beadId);
     } catch (cause) {
       return { message: reason(cause) };
+    }
+    const was = previous === null ? "" : ` It was ${previous}.`;
+    const note =
+      beadId === null
+        ? `FYI: the user released this thread's current issue (${previous}). The thread is on no issue now. No action is needed.`
+        : `FYI: the user made ${beadId} (${JSON.stringify(title)}) this thread's current issue.${was} This only changes which issue the thread is on: do not start work on it until you are asked to. No action is needed.`;
+    try {
+      await deliver(threadId, note);
+    } catch (cause) {
+      return {
+        message: `The current issue was changed, but the agent could not be told: ${reason(cause)}`,
+      };
     }
     return { message: null };
   }

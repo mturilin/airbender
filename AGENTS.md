@@ -69,6 +69,14 @@ not at the end.
   lists an answer you "would assume". Record each answer on the bead as a
   comment.
 
+- **A question is not a go-ahead.** When the user's message asks you
+  something, or you have asked them something that is not yet answered,
+  answer or wait, and change nothing: no file edits, no new or moved beads,
+  no commits, no settings. This holds even when the answer seems obvious and
+  the work seems agreed. Agreement on an idea is not approval to build it.
+  Start only when the user says so in words ("go", "do it", "build it") or
+  presses a button that says so.
+
 - **Take the bead through its workflow, one step at a time.** Every bead
   goes through these steps to be closed: Not started, Define, Review
   definition, Plan, Review plan, Implement, Agent review, Human review,

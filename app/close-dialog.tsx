@@ -9,8 +9,8 @@
 // Design notes:
 // - One dialog, two wordings. Finishing is the workflow's closing move, and
 //   its button carries that move's own label. Cancelling says the issue is closed without
-//   being finished; its buttons read "Cancel issue" and "Keep it", so that
-//   the word Cancel never means two things in one dialog.
+//   being finished; its buttons read "Close issue" and "Keep it", matching
+//   the "Close" entry and button that lead here.
 // - Finishing an issue with sub-issues closes the open ones too; the dialog
 //   says how many, so it is never a surprise.
 
@@ -68,7 +68,9 @@ export function CloseDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>
-            {finishing ? "Close this issue as finished?" : "Cancel this issue?"}
+            {finishing
+              ? "Close this issue as finished?"
+              : "Close this issue without finishing it?"}
           </DialogTitle>
           <DialogDescription>
             <span className="font-mono">{closing?.issue.id}</span>{" "}
@@ -93,7 +95,7 @@ export function CloseDialog({
               onCancel();
             }}
           >
-            {finishing ? (closing?.label ?? "Close") : "Cancel issue"}
+            {finishing ? (closing?.label ?? "Close") : "Close issue"}
           </Button>
         </DialogFooter>
       </DialogContent>

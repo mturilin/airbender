@@ -45,7 +45,7 @@ compact layout; the status line stays.
 From top to bottom the tab shows:
 
 1. **Current** (pinned): the bead this thread is working on, as one row that
-   opens on its chevron, with Clear.
+   opens on its chevron.
 2. **Toolbar** (pinned): the folder and a refresh button.
 3. **Every other issue**, grouped by status; this part scrolls. The Ready
    heading carries two menus, both remembered per folder: Group (divides
@@ -56,7 +56,14 @@ From top to bottom the tab shows:
    then Commit or Commit & merge) and one main button
    for that step: at an agent's step it starts the agent on that step and
    makes the issue the thread's bead; at one of yours it is your approval.
-   Send back, Skip and Mark as done are inside the opened issue. While the
+   Send back, Skip and Mark as done are inside the opened issue. Next to it
+   is the row's "⋯" menu, the only other thing on a row besides the button
+   that opens an issue with its sub-issues: Make current, Edit, Add
+   sub-issue, Move to, Link and Close, or Reopen on a closed issue. Edit,
+   Move to and Link open the issue and are done there. The same actions are
+   buttons inside the opened issue; a sub-issue's row has no menu. Make
+   current makes an issue the thread's bead (Release undoes it), without starting the agent or moving the workflow; the agent gets a
+   short note, and replacing another bead asks first. While the
    thread has a bead, these buttons are offered on that issue only.
    An opened issue shows its description, then a folded heading for each
    of acceptance criteria, design, notes, close reason and comments that the
@@ -68,11 +75,9 @@ From top to bottom the tab shows:
    "Accept" at Human review moves an issue to Apply, where you choose
    "Commit" or "Commit & merge" (the second only when the work is on its
    own branch); the agent does it, and reporting it done closes the issue.
-   The cross
-   cancels an issue: it closes it without finishing it. On other open
-   issues the cross is on the row; on the thread's bead it is only inside
-   the opened issue. Both ask for confirmation. A closed row has a reopen
-   button instead. Closing the thread's bead also clears it as current.
+   Close, in the menu and inside the opened issue, cancels an issue: it
+   closes it without finishing it, after asking for confirmation. A closed
+   issue has Reopen there instead. Closing the thread's bead also clears it as current.
    The Closed group's heading is always last in the list, with its count
    and a Show/Hide button; closed issues start hidden.
    Issues can sit inside other issues, to any depth. A sub-issue is drawn

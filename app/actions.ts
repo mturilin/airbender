@@ -75,10 +75,17 @@ export interface IssueLookups {
  */
 export interface IssueCommands {
   /**
-   * Changes which bead this thread works on without messaging the agent; the
-   * tab uses it to clear the choice. Null when there is no thread.
+   * Changes which bead this thread works on, straight away; null releases
+   * it. No workflow step is moved; the backend tells the agent with a short
+   * note. Null when there is no thread.
    */
   setCurrent: ((beadId: string | null) => void) | null;
+  /**
+   * Makes an issue this thread's current one, asking first when another
+   * issue is current and would be replaced (see CurrentToggle). Null when
+   * there is no thread.
+   */
+  makeCurrent: ((beadId: string) => void) | null;
   /**
    * Play: makes an issue this thread's current one and gets the agent going
    * on the step of the workflow the issue is at. Null when there is no
@@ -222,6 +229,8 @@ export interface IssueActionsView {
  * @param askClose Called when a row asks to close an issue, by cancelling
  *   it or by a closing move; the panel confirms and then calls
  *   `confirmClose`.
+ * @param askSwitch Called when making an issue current would replace
+ *   another current issue; the panel confirms and then sets it.
  * @param openDetails Opens the details window on an issue.
  * @param closeDetails Closes the details window (play starts the agent in
  *   the conversation, which the window would cover).
@@ -237,6 +246,7 @@ export function useIssueActions({
   categories,
   refresh,
   askClose,
+  askSwitch,
   openDetails,
   closeDetails,
   addSubIssue,
@@ -249,6 +259,7 @@ export function useIssueActions({
   categories: string[];
   refresh: () => void;
   askClose: (pending: PendingClose) => void;
+  askSwitch: (to: Issue) => void;
   openDetails: (beadId: string) => void;
   closeDetails: () => void;
   addSubIssue: (parentId: string) => void;
@@ -441,10 +452,23 @@ export function useIssueActions({
         : (beadId) => {
             rpc
               .call("current_set", { threadId, beadId })
-              .then((outcome) => {
-                setActionProblem(outcome.message);
-                refresh();
-              }, reportProblem);
+              .then(settle, reportProblem);
+          },
+    makeCurrent:
+      threadId === null
+        ? null
+        : (beadId) => {
+            const present = result?.currentBeadId ?? null;
+            const issue = tree.byId.get(beadId);
+            // Asked about only when it replaces another current issue (the
+            // user's decision); otherwise it is one click to undo.
+            if (present !== null && present !== beadId && issue !== undefined) {
+              askSwitch(issue);
+              return;
+            }
+            rpc
+              .call("current_set", { threadId, beadId })
+              .then(settle, reportProblem);
           },
   };
   /**

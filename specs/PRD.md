@@ -175,7 +175,21 @@ its category.
 - **Clicking the issue's id copies it** to the clipboard. `[c58]`
 - **It also shows the step of the workflow the issue is at**, and one main
   button for that step. See "The workflow". `[e2b]`
-- Cancelling is described under "Closing".
+- **Besides that button, a row has one "more" menu, three dots**, and
+  nothing else, because closing is not the most frequent thing done to an
+  issue. The menu holds: make current (or release), edit, add sub-issue,
+  move to, link and close. `[l3m]`
+- **The button that opens an issue with its sub-issues stays on the row**,
+  next to the menu; it is not moved into the menu. `[l3m]`
+- **Edit, move to and link, chosen from the menu, open the issue** and are
+  done there. `[l3m]`
+- **For a closed issue the menu holds reopen.** `[l3m]`
+- **Every action in the menu is also inside the opened issue**, so each can
+  be reached in two ways. `[l3m]`
+- **Each entry of the menu has an icon.** `[l3m]`
+- **Workflow moves are not in the menu.** `[l3m]`
+- **A sub-issue's row has no menu.** `[l3m]`
+- Closing is described under "Closing".
 
 ## An opened issue
 
@@ -192,6 +206,8 @@ Opening a row shows:
   opens the issue. `[vve]`
 - **The owner's other moves at the issue's step**: send back, skip, and
   marking an agent's step as done (see "The workflow"). `[e2b]`
+- **The buttons are always in view**, also where the opened issue's text is
+  too long for its space and scrolls: only the text scrolls. `[l3m]`
 - **The buttons inside an opened issue are lean and quiet**: little vertical
   padding, and less prominent than ordinary buttons, with no sharp border,
   so they do not take much space or attract too much attention. `[zty.1]`
@@ -277,7 +293,7 @@ An issue can contain other issues, and those can contain more, to any depth.
     are full-size rows**, the same as normal issues in the panel, because
     the window has the room; `[zty.2]`
   - a sub-issue row has no buttons, not even on hover. Its step's button,
-    cancel and the way into the details window are inside the opened
+    make current, cancel and the way into the details window are inside the opened
     sub-issue. Only the drag anchor appears while the pointer is on the row.
   - in an opened open sub-issue, **the button that starts work is the first
     button**. `[uca]`
@@ -305,8 +321,19 @@ An issue can contain other issues, and those can contain more, to any depth.
 One conversation works on at most one issue at a time: its current issue.
 
 - The Current group is first, above everything else. `[pp7]`
-- It has one extra button: **Clear** (stop treating this issue as current).
-  `[pp7]`
+- **Every open issue can be made current**, from its row's menu and from a
+  button inside the opened issue, marked with a target icon. That only
+  makes the issue the conversation's current one. It is different from
+  doing the issue's next step: it does not move the workflow and does not
+  start the agent. `[l3m]`
+- **On the current issue the same control makes it non-current.** `[l3m]`
+- These two affect only which issue is current, never the workflow
+  directly. `[l3m]`
+- **Making an issue current asks for confirmation only when another issue
+  is current and would be replaced.** The confirmation speaks of the switch
+  as something that will happen, not as something done. `[l3m]`
+- **The agent is let know with a short message** that the current issue
+  changed. `[l3m]`
 - **A closed issue stops being current**, however it was closed: from the
   panel, by the agent, or from a terminal. The panel must show this on its
   own, without the owner pressing refresh. `[p49]` `[m4b]`
@@ -391,10 +418,10 @@ Rules:
   without a commit. It is always possible, at any step. `[e2b]` `[0rg]`
 - **Closing always asks for confirmation**, whether finishing or cancelling.
   `[pp7]`
-- For the current issue, Cancel is less prominent than the main button: it
-  is shown only inside the opened issue. `[d37]`
-- On a top-level backlog row, Cancel is a muted icon. A sub-issue is
-  cancelled from inside the opened sub-issue. `[5qt]`
+- Cancel is less prominent than the main button `[d37]`: it is in the
+  row's menu and inside the opened issue, never a button of its own on the
+  row. `[l3m]` A sub-issue is cancelled from inside the opened sub-issue.
+  `[5qt]`
 - Buttons are ordinary gray. No green. `[d37]`
 
 ## In the main window
@@ -481,6 +508,29 @@ Behaviour the owner did not ask for or decide. It is what the product does
 today, recorded so a rebuild matches. Any of it may be changed without
 breaking a requirement above.
 
+- Current: inside an opened issue the target button is one toggle, with the
+  words "Make current" or "Release", outlined and grey on an issue that is
+  not current, with a filled centre on the one that is. In the row's menu
+  the entry reads "Make current" or "Release from current". A closed issue
+  has neither, and there is none where there is no conversation.
+- The row's menu: it opens under its button, or above it near the bottom of
+  the window, and closes on a choice, on Escape and on a click elsewhere.
+  Its entries, in order: the current entry, Edit, Add sub-issue, Move to…,
+  Link…, then, under a line, Close. Each entry's icon is the one the same
+  action has as a button inside the opened issue. The menu and the opened issue call
+  cancelling "Close"; inside the opened issue it is a labelled button, as
+  is Reopen on a closed issue.
+- A choice of Edit, Move to or Link from the menu shows one of the three at
+  a time, replacing any of the others that was showing.
+- Current: the note to the agent says which issue is current now and which
+  was before, that this only changes which issue the conversation is on, and
+  that no action is needed and no work should start. It arrives as a message
+  in the conversation, so the agent takes one short turn to acknowledge it.
+  Nothing is sent when nothing changed.
+- Current: the confirmation reads "Switch the current issue?" with "Switch"
+  and "Keep it".
+- Current: when the current issue is no longer in the list, the Current
+  group says so and offers "Clear".
 - Workflow: the step is kept on the issue in the tracker as a label,
   `step:<name>`, and every move is added to the issue's comments with who
   made it and the reason given. An issue with no step recorded is Not started.
@@ -524,8 +574,8 @@ breaking a requirement above.
   than the facts beside it.
 - Workflow: while a conversation has a current issue, the step buttons are
   offered on that issue only.
-- Workflow: the confirmation for cancelling reads "Cancel this issue?" with
-  "Cancel issue" and "Keep it"; for finishing, "Close this issue as
+- Workflow: the confirmation for cancelling reads "Close this issue without
+  finishing it?" with "Close issue" and "Keep it"; for finishing, "Close this issue as
   finished?" with the move's own label and "Not yet".
 - Workflow: a closed issue keeps its last step; reopened, it is at that
   step again.
@@ -699,7 +749,6 @@ breaking a requirement above.
   shown is not remembered: they are hidden again each time the panel opens.
 - With no closed issues, the Closed heading shows a count of zero and no
   button.
-- To switch a conversation to another issue, press Clear first.
 - Messages to the agent (the instruction for a step, the request to
   commit) arrive in the conversation. If the agent is busy, the message
   waits its turn.
@@ -723,8 +772,10 @@ breaking a requirement above.
   opened sub-issue, where priority and type can also be changed.
 - The drag anchor of a compact row also appears while the keyboard focus
   is on the row.
-- In Current, the opened description and the sub-issue list each scroll
-  inside a height limit, so the pinned band leaves room for the list.
+- In Current, the opened issue's text and the sub-issue list each scroll
+  inside a height limit, so the pinned band leaves room for the list. The
+  text's limit is high enough that an opened issue with nothing unfolded
+  does not scroll.
 - "Move to" lists at most eight matches at a time; Enter takes the first,
   Escape cancels. It offers open issues only, never the issue itself, its own
   sub-issues, or the parent it is already in.

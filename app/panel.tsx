@@ -12,12 +12,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
+import type { Issue } from "../server/contract.ts";
 import { CLOSED_STATUS } from "../shared/constants.ts";
 import { IssueActionsProvider, useIssueActions } from "./actions.ts";
 import { Notice } from "./bits.tsx";
 import { CloseDialog } from "./close-dialog.tsx";
 import type { PendingClose } from "./close-dialog.tsx";
 import { CreateIssue } from "./create-issue.tsx";
+import { SwitchDialog } from "./current-toggle.tsx";
 import { IssueDetailsWindow } from "./details-window.tsx";
 import { getDragged, setDragged } from "./drag.ts";
 import {
@@ -48,6 +50,9 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
   const [confirmingStep, setConfirmingStep] = useState<SetupStep | null>(null);
   // The issue waiting for the user's "yes, close it"; null when none is.
   const [closing, setClosing] = useState<PendingClose | null>(null);
+  // The issue waiting for the user's "yes, switch to it", when making it
+  // current would replace another current issue; null when none is.
+  const [switching, setSwitching] = useState<Issue | null>(null);
   const { threadId, projectId } = scope;
   const { currentIssue, tree, descendantIds, types, categories } =
     useIssueTree(result);
@@ -112,6 +117,7 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
     // Confirmed in a dialog first: remember which issue and which kind of
     // close, and let CloseDialog call confirmClose when the user agrees.
     askClose: setClosing,
+    askSwitch: setSwitching,
     openDetails: setDetailsId,
     closeDetails: () => setDetailsId(null),
     addSubIssue: (parentId) => {
@@ -334,6 +340,12 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
                 refresh();
               }, reportProblem);
           }}
+        />
+        <SwitchDialog
+          from={currentIssue}
+          to={switching}
+          onConfirm={(to) => actions.setCurrent?.(to.id)}
+          onCancel={() => setSwitching(null)}
         />
         <CloseDialog
           closing={closing}

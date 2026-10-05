@@ -161,10 +161,18 @@ export function CurrentSection({
           issues: [issue],
         }}
         // Pinned, so an opened long description scrolls inside itself
-        // instead of covering the list below. For the same reason the
-        // current bead's sub-issues scroll inside a cap. The two caps
-        // together leave at least half the panel to the list.
-        detailsClassName="max-h-[22vh] overflow-y-auto"
+        // instead of covering the list below. Only the text scrolls: the
+        // opened issue's buttons stay in view under it. For the same reason the
+        // current bead's sub-issues scroll inside a cap.
+        //
+        // The text's cap is the larger of 30% of the window and 20rem. An
+        // opened issue with nothing unfolded (a description cut to four
+        // lines, the folded headings, its links) is at most about that
+        // tall, so it shows no scrollbar; one appears only once a long
+        // section is unfolded. The first cap, 22% of the window, was a
+        // little shorter than that and scrolled for nothing (the user's
+        // complaint, bead-bb-l3m).
+        detailsClassName="max-h-[max(30vh,20rem)] overflow-y-auto"
         // The current issue stands out by a box with a thicker border and a
         // light green background, the look the user chose after trying it
         // (bead-bb-6ui).
@@ -197,7 +205,8 @@ export function CurrentSection({
       <div className="mt-2 rounded-lg border border-dashed border-border px-3 py-2 text-sm text-muted-foreground">
         {currentBeadId === null ? (
           <>
-            None yet. Press play on an issue to start the agent on it.
+            None yet. Make an issue current from its "⋯" menu, or start
+            one with its step button.
           </>
         ) : (
           <>

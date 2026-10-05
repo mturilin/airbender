@@ -28,6 +28,8 @@ import { getDragged, setDragged } from "./drag.ts";
 import { IssueDetails } from "./issue-details.tsx";
 import { IssueFacts } from "./issue-facts.tsx";
 import { StateTag, WorkflowButton } from "./workflow-controls.tsx";
+import { RowMenu } from "./row-menu.tsx";
+import type { RowAsk } from "./row-menu.tsx";
 
 /**
  * One issue: a compact line that opens to show its details, with its
@@ -89,6 +91,9 @@ export function IssueRow({
   // rule), so the nesting is visible without clicking, and for the issue the
   // details window is showing, which was opened to be read.
   const [open, setOpen] = useState(isDetailsRoot || hasSubIssues);
+  // What the "more" menu has asked the opened issue to show (its edit form,
+  // or the Move to or Link box); null once the opened issue has taken it.
+  const [asked, setAsked] = useState<RowAsk | null>(null);
   // An issue that gains its first sub-issue while on screen opens too;
   // otherwise the new sub-issue would be created out of sight.
   useEffect(() => {
@@ -283,50 +288,35 @@ export function IssueRow({
         {compact ? null : (
           <WorkflowButton issue={issue} className="m-1 h-7 shrink-0 px-2" />
         )}
-        {/* Cancelling (the cross) closes an issue without finishing it;
-            finishing is the workflow's last move, above. On the thread's
-            current issue the cross is kept off the row and shown only
-            inside the opened issue (see IssueDetails), so it cannot be
-            pressed by mistake beside the main button. Cancelling asks for
-            confirmation first (see BeadsPanel); reopening does not, since
-            it only puts an issue back on the list. */}
-        {/* Not on a compact sub-issue row: closing (and reopening) a
-            sub-issue is done from inside the opened sub-issue, so a slip of
-            the pointer over a short row cannot cancel it. */}
-        {compact ? null : closed ? (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="m-1 size-7 shrink-0"
-            tip="Reopen this issue"
-            aria-label={`Reopen ${issue.id}: ${issue.title}`}
-            onClick={() => actions.reopen(issue.id)}
-          >
-            <Icon name="RotateCcw" className="size-4" />
-          </Button>
-        ) : actions.currentBeadId === issue.id ? null : (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="m-1 size-7 shrink-0 text-muted-foreground"
-            tip="Cancel this issue: close it without finishing it"
-            aria-label={`Cancel ${issue.id}: ${issue.title}`}
-            onClick={() => actions.close(issue.id)}
-          >
-            <Icon name="CircleX" className="size-4" />
-          </Button>
+        {/* Everything else one does to an issue is in the "more" menu:
+            make current, edit, add a sub-issue, move, link, close; reopen
+            for a closed one. Not on a compact sub-issue row (the user's
+            decision, for now): there everything is inside the opened
+            sub-issue. Edit, Move to and Link open the row and are shown
+            there. */}
+        {compact ? null : (
+          <RowMenu
+            issue={issue}
+            className="m-1"
+            onAsk={(what) => {
+              setOpen(true);
+              setAsked(what);
+            }}
+          />
         )}
         </div>
       </div>
       {open ? (
         <div
-          className={cn(
-            "border-t border-border px-3 py-3 pl-14",
-            detailsClassName,
-          )}
+          className="border-t border-border px-3 py-3 pl-14"
         >
           <IssueDetails
             issue={issue}
+            // A cap on the height applies to the text only: the buttons
+            // under it stay in view.
+            bodyClassName={detailsClassName}
+            asked={asked}
+            onAsked={() => setAsked(null)}
             fullDescription={isDetailsRoot}
             showFacts={compact}
           />

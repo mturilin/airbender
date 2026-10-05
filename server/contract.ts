@@ -359,7 +359,8 @@ export const rpcContract = defineRpcContract({
     output: z.object({ message: z.string().nullable() }),
   },
   current_set: {
-    // beadId null clears the thread's current bead.
+    // Makes an open issue the thread's current one; beadId null releases
+    // it. No workflow step is moved; the agent is told with a short note.
     input: z.object({ threadId: z.string(), beadId: z.string().nullable() }),
     output: z.object({ message: z.string().nullable() }),
   },
