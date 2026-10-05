@@ -331,8 +331,8 @@ The steps, in order: `[e2b]`
 
 Rules:
 
-- **The panel shows which step each open issue is at**, a little more
-  prominently than its other tags. `[e2b]`
+- **The panel shows which step each open issue is at**, first among the
+  issue's small facts, on a **light blue background**. `[e2b]`
 - **The step's tag carries an icon for whose move it is**: a person where
   the owner's input is needed, a robot where the next step is the agent's.
   **A Not started issue shows the robot**: the next step is for the agent
@@ -471,9 +471,8 @@ breaking a requirement above.
   "Approve definition", "Approve plan" and "Accept & commit". "Send back",
   "Skip" and "Mark as done" are inside the opened issue; a move that needs
   a reason shows a small field for it.
-- Workflow: the step comes first among an issue's small facts, as plain
-  text with its icon and no outline, in darker, slightly bolder text than
-  the rest: a little more prominent, not much, and not like a button.
+- Workflow: the step chip has no outline, and its text is slightly bolder
+  than the facts beside it.
 - Workflow: while a conversation has a current issue, the step buttons are
   offered on that issue only.
 - Workflow: the confirmation for cancelling reads "Cancel this issue?" with

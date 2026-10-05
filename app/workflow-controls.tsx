@@ -50,10 +50,10 @@ function canAct(actions: IssueActions, issue: Issue): boolean {
  * The step an open issue is at, as a tag. Nothing for a closed issue, whose
  * step no longer matters.
  *
- * A little more prominent than the facts beside it, and no more: darker
- * text in medium weight, with an icon, and no outline. (A filled, inverted
- * pill on the title line was tried and the user found it far too loud; an
- * outlined tag was tried and looked like a button.)
+ * A little more prominent than the facts beside it, and no more. What was
+ * tried on the way here: a filled, inverted pill on the title line (far too
+ * loud), an outlined tag (looked like a button), plain text (too weak, and
+ * it ran into the id). The user settled on a light blue fill, in this spot.
  *
  * The icon says whose move it is, which is what the user wants to see at a
  * glance: a person where the step waits for them, a robot where the next
@@ -68,14 +68,15 @@ export function StateTag({ issue }: { issue: Issue }) {
     <Tip
       label={`${human ? "Needs you" : "The agent's work"}: ${state.hint}`}
     >
-      {/* No box at all: plain text with its icon, at the size of the id
-          beside it. With a border it sat next to the real dropdowns
-          (priority, type) and read as one more button.
-          Plain inline text, not a flex box: the facts are lined up on
-          their text's baseline, and a flex box would offer the icon's
-          bottom edge as its baseline and sit a little off the line. The
-          icon is nudged down so it centres on the lower-case letters. */}
-      <span className="shrink-0 cursor-default whitespace-nowrap text-xs font-medium leading-4 text-foreground">
+      {/* A chip with a light blue fill and no outline (the user's choice):
+          the fill sets it apart from the id beside it, and without an
+          outline it is not taken for one of the dropdowns. The blue is a
+          tint over whatever is behind it, so it works in light and dark
+          themes. Same box as the tags beside it (an invisible border
+          makes up the height), and plain inline text, not a flex box: the
+          facts are lined up on their text's baseline, and a flex box would
+          offer the icon's bottom edge as its baseline. */}
+      <span className="shrink-0 cursor-default whitespace-nowrap rounded border border-transparent bg-blue-500/15 px-1.5 py-px text-[11px] font-medium leading-4 text-foreground">
         {human ? (
           <PersonIcon className="mr-1 inline-block size-3 align-[-1.5px]" />
         ) : (
