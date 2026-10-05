@@ -278,7 +278,7 @@ export function IssueRow({
         )}
         {/* What the issue's step in its workflow offers: the agent's run
             button ("Define", "Plan"…) or the user's main move ("Approve
-            plan", "Accept & commit"). Not on a compact sub-issue row, which
+            plan", "Accept"). Not on a compact sub-issue row, which
             has no buttons; there it is inside the opened sub-issue. */}
         {compact ? null : (
           <WorkflowButton issue={issue} className="m-1 h-7 shrink-0 px-2" />

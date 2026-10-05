@@ -7,9 +7,8 @@
 // only mentioned where it applies.
 //
 // Design notes:
-// - One dialog, two wordings. Finishing says what the closing move does
-//   (close, ask the agent to commit) and its button carries the move's own
-//   label from the workflow. Cancelling says the issue is closed without
+// - One dialog, two wordings. Finishing is the workflow's closing move, and
+//   its button carries that move's own label. Cancelling says the issue is closed without
 //   being finished; its buttons read "Cancel issue" and "Keep it", so that
 //   the word Cancel never means two things in one dialog.
 // - Finishing an issue with sub-issues closes the open ones too; the dialog
@@ -29,10 +28,8 @@ import type { Issue } from "../server/contract.ts";
 /** An issue waiting for the user's "yes, close it". */
 export interface PendingClose {
   issue: Issue;
-  /** Also ask the thread's agent to commit the issue's work. */
-  commit: boolean;
   /**
-   * The workflow move that closes it ("Accept & commit"), or null when the
+   * The workflow move that closes it, or null when the
    * issue is being cancelled: closed without finishing.
    */
   moveId: string | null;
@@ -80,9 +77,7 @@ export function CloseDialog({
         </DialogHeader>
         <p className="text-sm text-muted-foreground">
           {finishing
-            ? closing?.commit
-              ? "The issue is closed, and this thread's agent is asked to commit its work."
-              : "The issue is closed."
+            ? "The issue is closed."
             : "The issue is closed without being finished. Nothing is committed."}
           {!finishing || openSubIssues === 0
             ? ""

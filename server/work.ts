@@ -21,8 +21,8 @@
 // - Each move is recorded as a comment on the issue, with who made it and
 //   the note given: the issue's own history, shown in the tab.
 // - A move to "closed" is the only way the workflow ends. It closes the
-//   issue's open sub-issues first and, where the workflow says so, asks the
-//   agent to commit. The plugin never runs git itself.
+//   issue's open sub-issues first. Committing is not done here: it is a
+//   step of the workflow, done by the agent. The plugin never runs git.
 // - Problems are returned as a message in plain words, like every other
 //   operation, so the tab (and the agent's tool) can show them.
 //
@@ -35,12 +35,7 @@ import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { BEAD_ID_PATTERN, CLOSED_STATUS } from "../shared/constants.ts";
 import { descendantsOf } from "../shared/tree.ts";
 import { CLOSED, checkMove, stateOf } from "../shared/workflow.ts";
-import type {
-  Actor,
-  Workflow,
-  WorkflowMove,
-  WorkflowState,
-} from "../shared/workflow.ts";
+import type { Actor, Workflow, WorkflowState } from "../shared/workflow.ts";
 import type { Issue } from "./contract.ts";
 import type { CurrentBead } from "./current-bead.ts";
 import type { FolderRef, Outcome, Store } from "./store.ts";
@@ -175,8 +170,7 @@ export function createWork({
    *   not two);
    * - when the agent's move lands on another of its own steps, the next
    *   instruction is handed back for it to carry on;
-   * - a move to "closed" closes the issue and, if the workflow says so,
-   *   asks the agent to commit.
+   * - a move to "closed" closes the issue.
    *
    * @param by Who is making the move. The tab passes "user"; the agent's
    *   tool passes "agent". The workflow decides what each may do.
@@ -202,15 +196,9 @@ export function createWork({
       );
 
     if (checked.to === CLOSED) {
-      const closed = await finish(input, issue, issues, checked);
-      // Recorded only when the issue really was closed (a failure to ask
-      // for the commit comes after the close, so it still counts).
-      if (
-        closed.message === null ||
-        closed.message.startsWith("The issue was closed")
-      ) {
-        await record("closed");
-      }
+      const closed = await finish(input, issues);
+      // Recorded only when the issue really was closed.
+      if (closed.message === null) await record("closed");
       return { ...closed, state: null, instruction: null };
     }
 
@@ -220,9 +208,18 @@ export function createWork({
     const stepped = await setStep(path, threadId, beadId, to.id, false);
     if (stepped.message !== null) return fail(stepped.message);
     await record(to.label);
+    // The note is passed on to the agent only when the issue was sent back
+    // to an earlier step: then it says what to redo. The note of a move
+    // forward (what was done, why a step was skipped) is for the record,
+    // not an instruction.
+    const order = (state: WorkflowState) => workflow.states.indexOf(state);
     const text =
       to.actor === "agent"
-        ? workflow.instruction(to, describe(issue, issues), note)
+        ? workflow.instruction(
+            to,
+            describe(issue, issues),
+            order(to) < order(from) ? note : undefined,
+          )
         : null;
     let message: string | null = null;
     if (text !== null && by === "user" && threadId !== null) {
@@ -238,21 +235,20 @@ export function createWork({
   }
 
   /**
-   * The closing move: closes the issue's open sub-issues, then the issue,
-   * and asks the thread's agent to commit when the move says so.
+   * The closing move: closes the issue's open sub-issues, then the issue.
+   * Nothing else: getting the work into git is a step of the workflow that
+   * comes before this, not a side effect of closing.
    *
    * Sub-issues are closed deepest first, because beads refuses to close an
    * issue that still has open sub-issues (the user's decision, bead-bb-5qt:
    * finishing an epic finishes everything inside it).
    *
-   * Side effects: one `bd close` per issue closed; one message to the
-   *   thread when committing; one change published at the end.
+   * Side effects: one `bd close` per issue closed; one change published at
+   *   the end.
    */
   async function finish(
     input: FolderRef & { beadId: string },
-    issue: Issue,
     issues: Issue[],
-    closing: WorkflowMove,
   ): Promise<Outcome> {
     const { beadId, threadId } = input;
     const closedSubIssues: Issue[] = [];
@@ -278,18 +274,6 @@ export function createWork({
     }
     const outcome = await setIssueOpen("close", input, false);
     changed(threadId);
-    // Only after bd close succeeded: a failed close (for example a blocked
-    // issue) must not leave the agent committing work that is not accepted.
-    if (outcome.message !== null || closing.commit !== true || threadId === null) {
-      return outcome;
-    }
-    try {
-      await deliver(threadId, workflow.commitRequest(issue, closedSubIssues));
-    } catch (cause) {
-      return {
-        message: `The issue was closed, but the agent could not be asked to commit: ${reason(cause)}`,
-      };
-    }
     return outcome;
   }
 

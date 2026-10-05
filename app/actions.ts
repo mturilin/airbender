@@ -296,7 +296,7 @@ export function useIssueActions({
       // Confirmed in a dialog first: the panel remembers which issue and
       // calls confirmClose when the user agrees.
       const issue = tree.byId.get(beadId);
-      if (issue !== undefined) askClose({ issue, commit: false, moveId: null, label: null });
+      if (issue !== undefined) askClose({ issue, moveId: null, label: null });
     },
     move: (beadId, moveId, note) => {
       const issue = tree.byId.get(beadId);
@@ -312,7 +312,6 @@ export function useIssueActions({
       if (closing !== undefined) {
         askClose({
           issue,
-          commit: closing.commit === true,
           moveId,
           label: closing.label,
         });

@@ -52,9 +52,10 @@ not at the end.
   `beads_set_current` tool with its id, as soon as you start on it. This
   matters most when the work began from a plain typed request and you
   created the bead yourself: the tab's buttons set the current bead for you,
-  a typed request does not. The Airbender tab offers the user "Close &
-  commit" only on the current bead, so a bead you work on without making it
-  current leaves the user with no button to close it and have it committed.
+  a typed request does not. While a thread has a current bead, the Airbender
+  tab offers its workflow buttons (approve, accept and so on) on that bead
+  only, so a bead you work on without making it current leaves the user with
+  no button to move it on.
   When you switch to another bead, set that one; when the work is committed
   and you are on no bead, clear it.
 - Give the bead a real description: what is wanted and **why**, in the user's
@@ -70,7 +71,8 @@ not at the end.
 
 - **Take the bead through its workflow, one step at a time.** Every bead
   goes through these steps to be closed: Not started, Define, Review
-  definition, Plan, Review plan, Implement, Agent review, Human review. When
+  definition, Plan, Review plan, Implement, Agent review, Human review,
+  Apply. When
   you are started on a bead you are told which step it is at. If you begin
   work on a bead that is still Not started (for example from a typed
   request), move it with `start` first. Then do that step only:
@@ -82,6 +84,9 @@ not at the end.
   3. *Implement.* Do the work.
   4. *Agent review.* Review the work against the bead as if someone else had
      done it; fix what you find.
+  5. *Apply.* After the user has accepted the work: commit it (see "Apply:
+     committing a bead's work" below), and report the step done, which
+     closes the bead.
   The reviews of the definition, of the plan and of the finished work are
   the user's: they approve or send back in the Airbender tab.
   When you finish a step, report it with the `beads_workflow_move` tool,
@@ -112,9 +117,10 @@ not at the end.
 
 **When finishing**
 
-- **Do not close the bead.** The user validates the work and closes it
-  themselves. This overrides any "close when done" wording elsewhere in this
-  file. Close a bead only when the user tells you to close that bead.
+- **Do not close the bead.** The user validates the work and accepts it;
+  the bead closes when its last step, Apply, is reported done. Never run
+  `bd close` on it yourself, unless the user tells you to close that bead.
+  This overrides any "close when done" wording elsewhere in this file.
 - Instead, add a comment that says what was done and how it was checked, and
   state plainly what was not tested: `bd comment <id> "..."`. Leave the bead
   in progress and tell the user it is ready for them to validate.
@@ -122,13 +128,18 @@ not at the end.
   in your hand-over comment that you did.
 - Anything left undone becomes a new bead before you hand over.
 
-**After the user closes a bead**
+**Apply: committing a bead's work**
 
-- Commit the work that belongs to that bead, as soon as you learn it is
-  closed (the user tells you, or you see it closed in `bd show`). Closing is
-  the user's sign that the work is validated, so it is the moment the work
-  becomes worth keeping in git. Do not commit a bead's work before it is
-  closed.
+- Commit the work that belongs to a bead when it reaches the Apply step,
+  which it does when the user accepts it at Human review. The user's
+  acceptance is the sign that the work is validated, so it is the moment
+  the work becomes worth keeping in git. Do not commit a bead's work before
+  that, unless the user has told you to commit as you go on a branch.
+- If the work was done on its own branch, merge it into the main branch as
+  part of Apply. Your own standing instructions about approval for merges
+  still apply.
+- When the work is in git, report Apply done with the `beads_workflow_move`
+  tool, naming the commit. That closes the bead.
 - One commit per bead. Stage only the files that belong to it; never
   `git add -A`.
 - The commit message names the bead by **id and description**:

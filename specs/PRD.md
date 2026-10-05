@@ -327,7 +327,9 @@ The steps, in order: `[e2b]`
 6. **Implement** (agent) — do the work.
 7. **Agent review** (agent) — the agent reviews the work.
 8. **Human review** (owner) — the owner validates the work.
-9. Then the issue is **closed and its work committed**.
+9. **Apply** (agent) — commit the accepted work, and merge it in if it was
+   done on its own branch. `[0uh]`
+10. Then the issue is **closed**.
 
 Rules:
 
@@ -351,13 +353,14 @@ Rules:
 - **At a review, the owner approves or sends it back** to the step before,
   saying why. `[e2b]`
 - **The agent can move an issue forward, but only as the workflow allows.**
-  It cannot make the owner's moves, and it cannot close an issue. `[e2b]`
+  It cannot make the owner's moves, and no issue reaches its last step
+  without the owner's acceptance. `[e2b]` `[0uh]`
 - **A step may be skipped with a stated reason**, which is recorded. `[e2b]`
-- **Accepting at the owner's review closes the issue and tells the
-  conversation's agent to commit that issue's work.** `[e2b]` `[d37]`
-- **Accepting an issue that has sub-issues closes all of them**: the issue
-  and every sub-issue still open inside it, at any depth. The confirmation
-  says how many. `[5qt]`
+- **Accepting at the owner's review does not close the issue. It moves it
+  to Apply**, where the agent commits the work. **The issue closes only
+  once its work is in git.** `[0uh]` `[d37]`
+- **Closing an issue that has sub-issues closes all of them**: the issue
+  and every sub-issue still open inside it, at any depth. `[5qt]`
 - **While there is no current issue, every open issue offers its step's
   button.** A top-level issue has it on its row; a sub-issue has it inside
   the opened sub-issue. Starting an issue makes it current. `[pp7]` `[5qt]`
@@ -419,10 +422,11 @@ These rules apply to any agent working in a repository that uses the product.
   Chat is lost; the issue is not. `[—]`
 - **Take an issue through its workflow one step at a time**, as under "The
   workflow", and report each finished step. `[e2b]`
-- **Do not close issues.** The owner validates and accepts, which closes.
-  `[e1d]`
-- **Commit after the owner has accepted an issue.** One commit per issue.
-  The commit message carries the issue's id and its description. `[d37]`
+- **Do not close issues by hand.** The owner validates and accepts; the
+  issue closes when its last step, Apply, is reported done. `[e1d]` `[0uh]`
+- **Commit at Apply, after the owner has accepted an issue, and not
+  before.** One commit per issue. The commit message carries the issue's id
+  and its description. `[d37]` `[0uh]`
 - **Every commit is pushed** to the project's remote repository as soon as
   it is made, automatically, whoever makes it. `[bfi]`
 - **Update this spec with every change.** The spec and the implementation
@@ -434,8 +438,9 @@ These rules apply to any agent working in a repository that uses the product.
 - **Not a second issue tracker.** Issues live in beads; the panel shows and
   changes them there. `[02g]`
 - **Not a place in the left sidebar.** `[02g]`
-- **Not an auto-closer.** Nothing closes an issue except the owner, or an
-  agent the owner told to. `[e1d]`
+- **Not an auto-closer.** No issue is closed without the owner: by their
+  acceptance, which leads to its last step, or by their cancelling it.
+  `[e1d]` `[0uh]`
 - **Not a git tool.** The panel never commits by itself; it asks the agent
   to. Pushing is done by the repository, not by the panel. `[d37]` `[bfi]`
 - **Not multi-machine.** It reads the repository on the machine the app
@@ -468,9 +473,19 @@ breaking a requirement above.
   back. When the agent finishes a step and the next one is also its own,
   it carries on; otherwise it tells the owner and stops.
 - Workflow: the main buttons read "Define", "Plan", "Implement", "Review",
-  "Approve definition", "Approve plan" and "Accept & commit". "Send back",
+  "Apply", "Approve definition", "Approve plan" and "Accept". "Send back",
   "Skip" and "Mark as done" are inside the opened issue; a move that needs
   a reason shows a small field for it.
+- Workflow: at Apply the agent is told to commit only that issue's files
+  with its id and title in the subject, to follow the repository's own
+  commit rules, to merge the issue's branch into the main one if it has its
+  own (asking first where its own rules require approval), and to say if a
+  push fails. It then reports the step done, which closes the issue; or
+  sends it back to Implement with a reason if the work cannot be applied.
+  The owner can also mark Apply as done, for work committed by hand; that
+  asks for confirmation, since it closes the issue.
+- Workflow: the reason given with a move is passed on to the agent only
+  when the issue is sent back to an earlier step.
 - Workflow: the step chip has no outline, and its text is slightly bolder
   than the facts beside it.
 - Workflow: while a conversation has a current issue, the step buttons are

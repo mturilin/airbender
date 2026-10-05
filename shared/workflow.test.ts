@@ -53,6 +53,7 @@ test("the whole path, each move made by the one whose move it is", () => {
     ["implement", "done", "agent"],
     ["agent-review", "pass", "agent"],
     ["user-review", "accept", "user"],
+    ["apply", "done", "agent"],
   ];
   const order = flow.states.map((state) => state.id);
   path.forEach(([from, moveId, by], index) => {
@@ -72,12 +73,25 @@ test("the agent cannot make the user's moves", () => {
   }
 });
 
-test("nothing closes an issue except the user's acceptance at the last step", () => {
+test("an issue closes only from the last step, which needs the user's acceptance", () => {
   const closing = flow.moves.filter((move) => move.to === CLOSED);
   assert.equal(closing.length, 1);
-  assert.equal(closing[0]!.from, "user-review");
-  assert.deepEqual(closing[0]!.by, ["user"]);
-  assert.equal(closing[0]!.commit, true);
+  assert.equal(closing[0]!.from, "apply");
+  // The only way into that step is the user's own move.
+  const into = flow.moves.filter((move) => move.to === "apply");
+  assert.equal(into.length, 1);
+  assert.equal(into[0]!.from, "user-review");
+  assert.deepEqual(into[0]!.by, ["user"]);
+  // Accepting does not close the issue: the work has to be applied first.
+  assert.equal(go("user-review", "accept", "user"), "apply");
+  assert.match(go("user-review", "done", "agent"), /^refused/u);
+});
+
+test("apply can go back to the work when it cannot be applied", () => {
+  assert.equal(go("apply", "send-back", "agent", "merge conflict"), "implement");
+  assert.match(go("apply", "send-back", "agent", ""), /^refused: .*needs a reason/u);
+  // The user can report it applied, for work they committed by hand.
+  assert.equal(go("apply", "done", "user"), CLOSED);
 });
 
 test("a move cannot jump ahead", () => {
@@ -125,7 +139,7 @@ test("a refusal says what is allowed instead", () => {
 
 test("the user's main button comes first, and agent states have none", () => {
   assert.equal(movesFor(flow, "review-plan", "user")[0]!.id, "approve");
-  assert.equal(movesFor(flow, "user-review", "user")[0]!.label, "Accept & commit");
+  assert.equal(movesFor(flow, "user-review", "user")[0]!.label, "Accept");
   for (const state of flow.states.filter((s) => s.actor === "agent")) {
     assert.ok(!movesFor(flow, state.id, "user").some((move) => move.primary));
     assert.ok(state.runLabel);

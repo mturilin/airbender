@@ -91,7 +91,7 @@ export function StateTag({ issue }: { issue: Issue }) {
 /**
  * The main button for an issue's step: at one of the agent's steps it gets
  * the agent going ("Define", "Plan", "Implement"…); at one of the user's it
- * is the user's main move ("Approve plan", "Accept & commit").
+ * is the user's main move ("Approve plan", "Accept").
  *
  * Draws nothing when the buttons are not offered on this issue (see
  * canAct), when the step is the agent's and there is no thread to run it

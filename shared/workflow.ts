@@ -75,8 +75,6 @@ export interface WorkflowMove {
   primary?: boolean;
   /** A note is required: why it is sent back, or why it is skipped. */
   needsNote?: boolean;
-  /** For a move to CLOSED: also ask the agent to commit the work. */
-  commit?: boolean;
 }
 
 /** What a workflow's instruction may say about the issue. */
@@ -101,15 +99,6 @@ export interface Workflow {
    *   (the reason it was sent back).
    */
   instruction(state: WorkflowState, issue: WorkflowIssue, note?: string): string;
-  /**
-   * What to tell the agent after a closing move that asks for a commit.
-   *
-   * @param closedSubIssues Sub-issues that were closed along with the issue.
-   */
-  commitRequest(
-    issue: { id: string; title: string },
-    closedSubIssues: readonly { id: string; title: string }[],
-  ): string;
   /** Standing instructions for agents: how issues move and what they may do. */
   describeForAgents(): string;
 }
@@ -211,9 +200,6 @@ export function problemsIn(workflow: Workflow): string[] {
     if (!ids.has(move.from)) problems.push(`Move "${move.id}" starts at an unknown state.`);
     if (move.to !== CLOSED && !ids.has(move.to)) {
       problems.push(`Move "${move.id}" from "${move.from}" leads to an unknown state.`);
-    }
-    if (move.commit === true && move.to !== CLOSED) {
-      problems.push(`Move "${move.id}" asks for a commit without closing.`);
     }
   }
   // Every state must be able to reach CLOSED.

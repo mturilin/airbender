@@ -5,7 +5,7 @@
 //
 //   Not started -> Define -> Review definition -> Plan -> Review plan
 //          -> Implement
-//          -> Agent review -> Human review -> closed (with a commit)
+//          -> Agent review -> Human review -> Apply -> closed
 //
 // Why: this is how the user works an issue (bead-bb-e2b, in their words):
 // "First, we need to define what the issue is, and there is some review ...
@@ -33,8 +33,12 @@
 // - The user may also make the agent's "done" moves. An agent can be asked
 //   to report but not forced to, and an issue must not get stuck behind a
 //   report that never came.
-// - Accepting at "Human review" closes the issue and asks the agent to commit
-//   it: the user's acceptance is the moment the work becomes worth keeping.
+// - Accepting at "Human review" does not close the issue: it moves it to
+//   Apply, where the agent commits the work (and merges it, if it was done
+//   on its own branch). The issue closes only when that is reported done.
+//   Before, the issue was closed first and the commit asked for afterwards,
+//   so a commit or merge that failed left a closed issue whose work was not
+//   in git, with nothing showing it. The user named the step.
 // - Dropping an issue (Cancel) is not a move here. It is always possible and
 //   is the tab's own action, outside the workflow.
 //
@@ -109,6 +113,13 @@ const states: WorkflowState[] = [
     label: "Human review",
     actor: "user",
     hint: "You validate the work.",
+  },
+  {
+    id: "apply",
+    label: "Apply",
+    actor: "agent",
+    runLabel: "Apply",
+    hint: "The agent commits the accepted work, and merges it in if it has its own branch.",
   },
 ];
 
@@ -208,12 +219,11 @@ const moves: WorkflowMove[] = [
   {
     id: "accept",
     from: "user-review",
-    to: CLOSED,
+    to: "apply",
     by: ["user"],
-    label: "Accept & commit",
-    hint: "Close the issue and ask the agent to commit its work.",
+    label: "Accept",
+    hint: "The work is good: have the agent commit it, which closes the issue.",
     primary: true,
-    commit: true,
   },
   {
     id: "send-back",
@@ -222,6 +232,23 @@ const moves: WorkflowMove[] = [
     by: ["user"],
     label: "Send back",
     hint: "Say what is wrong and have the agent fix it.",
+    needsNote: true,
+  },
+  {
+    id: "done",
+    from: "apply",
+    to: CLOSED,
+    by: ["agent", "user"],
+    label: "Mark as applied",
+    hint: "The work is in git: committed, and merged if it had its own branch. Closes the issue.",
+  },
+  {
+    id: "send-back",
+    from: "apply",
+    to: "implement",
+    by: ["agent"],
+    label: "Send back",
+    hint: "The work cannot be applied as it is (for example a conflict that needs rework); say why.",
     needsNote: true,
   },
 ];
@@ -274,7 +301,19 @@ function stepText(stateId: string, id: string): string[] {
         "- Check each acceptance criterion. Look for what was missed, what was not tested, and anything the project's own rules require (documents to update, tests to run).",
         "",
         `If something needs fixing, ${report(id, "send-back")} saying what, and fix it.`,
-        `If nothing does, add a comment to the issue saying what was done, how it was checked and what was not checked, then ${report(id, "pass")}, and tell the user it is ready for them to validate. Do not close the issue and do not commit: the user accepts it from the Airbender tab, and you are asked to commit then.`,
+        `If nothing does, add a comment to the issue saying what was done, how it was checked and what was not checked, then ${report(id, "pass")}, and tell the user it is ready for them to validate. Do not close the issue and do not commit: the user accepts it from the Airbender tab, and committing is the step after that.`,
+      ];
+    case "apply":
+      return [
+        "The user has accepted this work. Your job now is to get it into git.",
+        "",
+        "- Commit the changes that belong to this issue, following the commit rules in AGENTS.md if it has any: only this issue's files, with the issue's id and title in the subject line. With sub-issues: one commit per issue where its changes can be told apart, otherwise one commit whose body lists each issue as id and title.",
+        "- If the work was done on its own branch (not the repository's main branch), merge that branch into the main one once everything is committed. If your own rules require the user's approval for a merge, ask for it and wait.",
+        "- If this repository pushes commits by itself, tell the user if that push fails. Do not push by hand unless the repository's rules say to.",
+        "- If everything was already committed and there is nothing to merge, say so.",
+        "",
+        `When the work is in git, ${report(id, "done")} naming the commit. That closes the issue.`,
+        `If it cannot be applied as it is, for example a merge conflict that needs the work redone, ${report(id, "send-back")} saying why.`,
       ];
     default:
       return [];
@@ -312,26 +351,6 @@ function instruction(
   ].join("\n");
 }
 
-function commitRequest(
-  issue: { id: string; title: string },
-  closedSubIssues: readonly { id: string; title: string }[],
-): string {
-  const rules =
-    "following the commit rules in AGENTS.md if it has any";
-  const after =
-    "If this repository pushes commits by itself, tell the user if that push fails.";
-  return (
-    `The user accepted beads issue ${issue.id}: ${JSON.stringify(issue.title)} in the Airbender tab. It is closed, and its work is to be committed now.` +
-    (closedSubIssues.length === 0
-      ? ` Commit the changes that belong to this issue, ${rules}: only this issue's files, and the issue's id and title in the subject line. ${after} If there is nothing to commit for it, say so.`
-      : ` Its sub-issues were closed with it: ${closedSubIssues
-          .map((sub) => `${sub.id} (${JSON.stringify(sub.title)})`)
-          .join(
-            ", ",
-          )}. Commit the changes that belong to this issue and those sub-issues, ${rules}: one commit per issue where its changes can be told apart, otherwise one commit whose body lists each issue as id and title; only these issues' files; and the issue's id and title in the subject line. ${after} If there is nothing to commit, say so.`)
-  );
-}
-
 function describeForAgents(): string {
   const steps = states
     .map(
@@ -352,7 +371,7 @@ function describeForAgents(): string {
     "You are told which step an issue is at when you are started on it. Do that step only.",
     `If you begin work on an issue that is still at ${states[0]!.label} (for example from a typed request), move it with \`start\` first.`,
     `When you finish a step, report it with the ${MOVE_TOOL} tool (${agentMoves}), each with a short note. The tool tells you what comes next: either your next step, or that the issue now waits for the user.`,
-    "The steps that are the user's are theirs alone: they approve or send back in the Airbender tab. Do not close an issue yourself and do not commit before the user has accepted it.",
+    "The steps that are the user's are theirs alone: they approve or send back in the Airbender tab. Do not commit before the user has accepted an issue; an issue is closed by reporting its last step, never with bd close.",
   ].join(" ");
 }
 
@@ -362,6 +381,5 @@ export const standardWorkflow: Workflow = {
   moves,
   initial: "not-started",
   instruction,
-  commitRequest,
   describeForAgents,
 };
