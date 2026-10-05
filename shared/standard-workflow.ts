@@ -5,7 +5,8 @@
 //
 //   Not started -> Define -> Review definition -> Plan -> Review plan
 //          -> Implement
-//          -> Agent review -> Human review -> Apply -> closed
+//          -> Agent review -> Human review -> Apply -> Commit (or
+//             Commit & merge) -> closed
 //
 // Why: this is how the user works an issue (bead-bb-e2b, in their words):
 // "First, we need to define what the issue is, and there is some review ...
@@ -34,11 +35,11 @@
 //   to report but not forced to, and an issue must not get stuck behind a
 //   report that never came.
 // - Accepting at "Human review" does not close the issue: it moves it to
-//   Apply, where the agent commits the work (and merges it, if it was done
-//   on its own branch). The issue closes only when that is reported done.
-//   Before, the issue was closed first and the commit asked for afterwards,
-//   so a commit or merge that failed left a closed issue whose work was not
-//   in git, with nothing showing it. The user named the step.
+//   Apply, where the user chooses how the work goes into git: Commit, or
+//   Commit & merge. The agent then does that, and the issue closes only when
+//   it is reported done. Before, the issue was closed first and the commit
+//   asked for afterwards, so a commit or merge that failed left a closed
+//   issue whose work was not in git, with nothing showing it.
 // - Dropping an issue (Cancel) is not a move here. It is always possible and
 //   is the tab's own action, outside the workflow.
 //
@@ -125,11 +126,25 @@ const states: WorkflowState[] = [
   {
     id: "apply",
     label: "Apply",
+    actor: "user",
+    hint: "You choose how the accepted work goes into git.",
+    ask: "The work is accepted. Choose how to apply it.",
+  },
+  {
+    id: "commit",
+    label: "Commit",
     actor: "agent",
-    // The step is Apply; its button says what applying will be here.
-    runLabel: ({ ownBranch }) => (ownBranch ? "Commit & merge" : "Commit"),
-    hint: "The agent commits the accepted work, and merges it in if it has its own branch.",
+    runLabel: "Commit",
+    hint: "The agent commits the accepted work.",
     ask: "The agent is committing the work.",
+  },
+  {
+    id: "commit-merge",
+    label: "Commit & merge",
+    actor: "agent",
+    runLabel: "Commit & merge",
+    hint: "The agent commits the accepted work and merges its branch into the main one.",
+    ask: "The agent is committing and merging the work.",
   },
 ];
 
@@ -247,7 +262,7 @@ const moves: WorkflowMove[] = [
     to: "apply",
     by: ["user"],
     label: "Accept",
-    hint: "The work is good: have the agent commit it, which closes the issue.",
+    hint: "The work is good. Next you choose how it goes into git.",
     primary: true,
   },
   {
@@ -268,21 +283,90 @@ const moves: WorkflowMove[] = [
     hint: "The user has accepted the work in the conversation; quote what they said.",
     needsNote: true,
   },
+  // Apply is the user's choice between the two ways the work can go into
+  // git (their request: "one option is commit and second, commit and merge,
+  // and both of them close the issue"). Before, Apply was the agent's step
+  // and it had to ask in the conversation whether it may merge; pressing
+  // "Commit & merge" is now that permission.
   {
-    id: "done",
+    id: "commit",
     from: "apply",
-    to: CLOSED,
-    by: ["agent", "user"],
-    label: "Mark as applied",
-    hint: "The work is in git: committed, and merged if it had its own branch. Closes the issue.",
+    to: "commit",
+    by: ["user"],
+    label: "Commit",
+    hint: "Commit the work where it is. The issue closes when that is done.",
+    primary: true,
+  },
+  {
+    id: "commit-merge",
+    from: "apply",
+    to: "commit-merge",
+    by: ["user"],
+    label: "Commit & merge",
+    hint: "Commit the work and merge its branch into the main one. The issue closes when that is done.",
+    ownBranchOnly: true,
   },
   {
     id: "send-back",
     from: "apply",
     to: "implement",
+    by: ["user", "agent"],
+    label: "Send back",
+    hint: "It needs changes after all: say what, and the agent fixes it.",
+    needsNote: true,
+  },
+  // The user's choice, made in the conversation and recorded by the agent,
+  // quoting them (as with approvals).
+  {
+    id: "approved:commit",
+    from: "apply",
+    to: "commit",
+    by: ["agent"],
+    label: "Commit, as the user said",
+    hint: "The user has said to commit; quote what they said.",
+    needsNote: true,
+  },
+  {
+    id: "approved:commit-merge",
+    from: "apply",
+    to: "commit-merge",
+    by: ["agent"],
+    label: "Commit & merge, as the user said",
+    hint: "The user has said to commit and merge; quote what they said.",
+    needsNote: true,
+  },
+  {
+    id: "done",
+    from: "commit",
+    to: CLOSED,
+    by: ["agent", "user"],
+    label: "Mark as done",
+    hint: "The work is in git: committed. Closes the issue.",
+  },
+  {
+    id: "send-back",
+    from: "commit",
+    to: "implement",
     by: ["agent"],
     label: "Send back",
-    hint: "The work cannot be applied as it is (for example a conflict that needs rework); say why.",
+    hint: "It cannot be done as it is (for example a conflict that needs rework); say why.",
+    needsNote: true,
+  },
+  {
+    id: "done",
+    from: "commit-merge",
+    to: CLOSED,
+    by: ["agent", "user"],
+    label: "Mark as done",
+    hint: "The work is in git: committed, and its branch merged into the main one. Closes the issue.",
+  },
+  {
+    id: "send-back",
+    from: "commit-merge",
+    to: "implement",
+    by: ["agent"],
+    label: "Send back",
+    hint: "It cannot be done as it is (for example a conflict that needs rework); say why.",
     needsNote: true,
   },
 ];
@@ -297,16 +381,17 @@ const moves: WorkflowMove[] = [
  * - from a step where the agent's work is next, to any other step;
  * - from a step that waits for the user's review, only back to an earlier
  *   step;
- * - never to Apply, whichever way: that is reached only by the user's
- *   acceptance (the agent's own caution, kept from before the rule above).
+ * - never to Apply or beyond, whichever way: those steps are reached only by
+ *   the user's acceptance and then their choice of how to apply the work
+ *   (the agent's own caution, kept from before the rule above).
  */
-const LAST_STEP = "apply";
+const APPLY_FROM = states.findIndex((state) => state.id === "apply");
 const jumps: WorkflowMove[] = states.flatMap((from, fromIndex) =>
   states
     .filter(
       (to, toIndex) =>
         to.id !== from.id &&
-        to.id !== LAST_STEP &&
+        toIndex < APPLY_FROM &&
         ((from.nextWork ?? from.actor) === "agent" || toIndex < fromIndex),
     )
     .map((to) => ({
@@ -372,17 +457,29 @@ function stepText(stateId: string, id: string): string[] {
         `If something needs fixing, ${report(id, "send-back")} saying what, and fix it.`,
         `If nothing does, add a comment to the issue saying what was done, how it was checked and what was not checked, then ${report(id, "pass")}, and tell the user it is ready for them to validate. Do not close the issue and do not commit: the user accepts it from the Airbender tab, and committing is the step after that.`,
       ];
-    case "apply":
+    case "commit":
       return [
-        "The user has accepted this work. Your job now is to get it into git.",
+        "The user has accepted this work and chosen to commit it. Your job now is to get it into git.",
         "",
         "- Commit the changes that belong to this issue, following the commit rules in AGENTS.md if it has any: only this issue's files, with the issue's id and title in the subject line. With sub-issues: one commit per issue where its changes can be told apart, otherwise one commit whose body lists each issue as id and title.",
-        "- If the work was done on its own branch (not the repository's main branch), merge that branch into the main one once everything is committed. If your own rules require the user's approval for a merge, ask for it and wait.",
+        "- Commit only. Do not merge: the user chose to leave the work on the branch it is on.",
         "- If this repository pushes commits by itself, tell the user if that push fails. Do not push by hand unless the repository's rules say to.",
-        "- If everything was already committed and there is nothing to merge, say so.",
+        "- If everything was already committed, say so.",
         "",
-        `When the work is in git, ${report(id, "done")} naming the commit. That closes the issue.`,
-        `If it cannot be applied as it is, for example a merge conflict that needs the work redone, ${report(id, "send-back")} saying why.`,
+        `When the work is committed, ${report(id, "done")} naming the commit. That closes the issue.`,
+        `If it cannot be done as it is, ${report(id, "send-back")} saying why.`,
+      ];
+    case "commit-merge":
+      return [
+        "The user has accepted this work and chosen to commit it and merge it. Your job now is to get it into git and onto the main branch.",
+        "",
+        "- Commit the changes that belong to this issue, following the commit rules in AGENTS.md if it has any: only this issue's files, with the issue's id and title in the subject line. With sub-issues: one commit per issue where its changes can be told apart, otherwise one commit whose body lists each issue as id and title.",
+        "- Then merge the branch the work is on into the repository's main branch. The user chose this in the Airbender tab: that is their approval of this merge, so do not ask again.",
+        "- If this repository pushes commits by itself, tell the user if that push fails, and tell them if the merge left the main branch ahead of its remote. Do not push by hand unless the repository's rules say to.",
+        "- If everything was already committed, say so and merge. If the work is already on the main branch, say so: there is nothing to merge.",
+        "",
+        `When the work is committed and merged, ${report(id, "done")} naming the commit. That closes the issue.`,
+        `If it cannot be done as it is, for example a merge conflict that needs the work redone, ${report(id, "send-back")} saying why.`,
       ];
     default:
       return [];
@@ -445,8 +542,8 @@ function describeForAgents(): string {
     "You are told which step an issue is at when you are started on it. Do that step.",
     `If you begin work on an issue that is still at ${states[0]!.label} (for example from a typed request), move it with \`start\` first.`,
     `When you finish a step, report it with the ${MOVE_TOOL} tool (${agentMoves}), each with a short note. The tool tells you what comes next: either your next step, or that the issue now waits for the user.`,
-    "You have the judgment to move an issue to where the work really is: the move `to:<step id>` (the ids are in square brackets above) takes it to any step, with your reason, for example to leave out steps that are not needed. Two limits: while an issue waits for the user's review you may only move it back, not on; and you can never move an issue to Apply.",
-    "While an issue waits for the user's review, read what they reply. If they ask for changes, move it back with `send-back`, giving their words as the reason, and redo the work; a long rework belongs in the work step, a quick question does not need a move at all. If they approve in the conversation, record it with `approved`, quoting what they said, and carry on. Never record an approval the user has not given.",
+    "You have the judgment to move an issue to where the work really is: the move `to:<step id>` (the ids are in square brackets above) takes it to any step, with your reason, for example to leave out steps that are not needed. Two limits: while an issue waits for the user's review you may only move it back, not on; and you can never move an issue to Apply or past it.",
+    "While an issue waits for the user's review, read what they reply. If they ask for changes, move it back with `send-back`, giving their words as the reason, and redo the work; a long rework belongs in the work step, a quick question does not need a move at all. If they approve in the conversation, record it with `approved`, quoting what they said, and carry on. At Apply the user chooses between committing and committing with a merge; if they say which in the conversation, record it with `approved:commit` or `approved:commit-merge`, quoting them. Never record an approval the user has not given.",
     "Do not commit before the user has accepted an issue; an issue is closed by reporting its last step, never with bd close.",
   ].join(" ");
 }

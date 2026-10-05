@@ -20,8 +20,9 @@ issues in a tab beside the conversation, without leaving BB.
   Plan, Review plan, Implement, Agent review, Human review, Apply. Each issue shows its step and
   one button for it: start the agent on its step, or give your approval.
   You can send a step back with a reason, or skip one.
-- **Accept, then Apply**: accepting at the human review has the agent commit
-  the work; the issue closes once it is in git.
+- **Accept, then Apply**: after you accept the work you choose "Commit" or
+  "Commit & merge"; the agent does it, and the issue closes once the work
+  is in git.
 - Around the message box: a status line with the current issue, its step
   and what is needed, and the step's main move as a button right where you
   read the agent's messages, beside a one-click "Agree & continue".

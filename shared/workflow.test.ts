@@ -18,7 +18,7 @@ import {
   movesFor,
   nextWorkOf,
   problemsIn,
-  runLabelOf,
+  offeredMoves,
   stateOf,
 } from "./workflow.ts";
 import type { Actor } from "./workflow.ts";
@@ -54,12 +54,18 @@ test("the whole path, each move made by the one whose move it is", () => {
     ["implement", "done", "agent"],
     ["agent-review", "pass", "agent"],
     ["user-review", "accept", "user"],
-    ["apply", "done", "agent"],
+    ["apply", "commit", "user"],
+    ["commit", "done", "agent"],
   ];
   const order = flow.states.map((state) => state.id);
   path.forEach(([from, moveId, by], index) => {
     assert.equal(from, order[index]);
-    assert.equal(go(from, moveId, by), order[index + 1] ?? CLOSED);
+    // The last step listed, "commit", is followed in the list of states by
+    // its sibling "commit-merge"; finishing either closes the issue.
+    assert.equal(
+      go(from, moveId, by),
+      from === "commit" ? CLOSED : order[index + 1],
+    );
   });
 });
 
@@ -73,27 +79,60 @@ test("the agent cannot press the user's approval buttons", () => {
   }
 });
 
-test("an issue closes only from the last step, which needs the user's acceptance", () => {
+test("an issue closes only once its work is in git, which needs the user twice", () => {
+  // Closing happens only from the two steps where the agent commits.
   const closing = flow.moves.filter((move) => move.to === CLOSED);
-  assert.equal(closing.length, 1);
-  assert.equal(closing[0]!.from, "apply");
-  // Every way into that step starts at the user's review: their own
-  // button, or their acceptance in the conversation recorded by the agent.
-  const into = flow.moves.filter((move) => move.to === "apply");
-  assert.deepEqual(into.map((move) => [move.from, move.id]).sort(), [
+  assert.deepEqual(closing.map((move) => move.from).sort(), ["commit", "commit-merge"]);
+  // Those are reached only from Apply, by the user's choice (their button,
+  // or their words recorded by the agent).
+  for (const step of ["commit", "commit-merge"]) {
+    const into = flow.moves.filter((move) => move.to === step);
+    assert.deepEqual([...new Set(into.map((move) => move.from))], ["apply"], step);
+  }
+  // And Apply only from the user's review.
+  const intoApply = flow.moves.filter((move) => move.to === "apply");
+  assert.deepEqual(intoApply.map((move) => [move.from, move.id]).sort(), [
     ["user-review", "accept"],
     ["user-review", "approved"],
   ]);
-  // Accepting does not close the issue: the work has to be applied first.
   assert.equal(go("user-review", "accept", "user"), "apply");
   assert.match(go("user-review", "done", "agent"), /^refused/u);
 });
 
-test("apply can go back to the work when it cannot be applied", () => {
-  assert.equal(go("apply", "send-back", "agent", "merge conflict"), "implement");
-  assert.match(go("apply", "send-back", "agent", ""), /^refused: .*needs a reason/u);
-  // The user can report it applied, for work they committed by hand.
-  assert.equal(go("apply", "done", "user"), CLOSED);
+test("at Apply the user chooses Commit or Commit & merge, and both close the issue", () => {
+  const apply = stateOf(flow, "apply");
+  assert.equal(apply.actor, "user");
+  assert.equal(go("apply", "commit", "user"), "commit");
+  assert.equal(go("apply", "commit-merge", "user"), "commit-merge");
+  assert.equal(go("commit", "done", "agent"), CLOSED);
+  assert.equal(go("commit-merge", "done", "agent"), CLOSED);
+  // The agent cannot choose for the user...
+  assert.match(go("apply", "commit", "agent"), /^refused/u);
+  assert.match(go("apply", "commit-merge", "agent"), /^refused/u);
+  // ...but records a choice the user made in the conversation, quoting them.
+  assert.equal(go("apply", "approved:commit-merge", "agent", "user: commit and merge"), "commit-merge");
+  assert.match(go("apply", "approved:commit", "agent", ""), /^refused: .*needs a reason/u);
+});
+
+test("Commit & merge is offered only when the work is on its own branch", () => {
+  const labels = (ownBranch: boolean) =>
+    offeredMoves(flow, "apply", "user", { ownBranch }).map((move) => move.label);
+  assert.deepEqual(labels(true), ["Commit", "Commit & merge", "Send back"]);
+  assert.deepEqual(labels(false), ["Commit", "Send back"]);
+  // Elsewhere the branch makes no difference.
+  assert.deepEqual(
+    offeredMoves(flow, "review-plan", "user", { ownBranch: false }),
+    movesFor(flow, "review-plan", "user"),
+  );
+});
+
+test("committing can go back to the work when it cannot be done", () => {
+  assert.equal(go("commit-merge", "send-back", "agent", "merge conflict"), "implement");
+  assert.match(go("commit", "send-back", "agent", ""), /^refused: .*needs a reason/u);
+  // The user can report it done, for work they committed by hand.
+  assert.equal(go("commit", "done", "user"), CLOSED);
+  // And can still change their mind at Apply.
+  assert.equal(go("apply", "send-back", "user", "one more thing"), "implement");
 });
 
 test("a move cannot jump ahead", () => {
@@ -204,7 +243,9 @@ test("while an issue waits for the user's review the agent may only move it back
 
 test("the agent can never move an issue to Apply by its own judgment", () => {
   for (const state of flow.states) {
-    assert.match(go(state.id, "to:apply", "agent"), /^refused/u, state.id);
+    for (const target of ["apply", "commit", "commit-merge"]) {
+      assert.match(go(state.id, `to:${target}`, "agent"), /^refused/u, state.id);
+    }
   }
 });
 
@@ -227,15 +268,6 @@ test("a refusal lists the moves particular to the step, not every jump", () => {
   const refusal = go("plan", "approve", "agent");
   assert.match(refusal, /"done"/u);
   assert.doesNotMatch(refusal, /"to:/u);
-});
-
-test("the Apply step's button says what applying will be", () => {
-  const apply = stateOf(flow, "apply");
-  assert.equal(apply.label, "Apply");
-  assert.equal(runLabelOf(apply, { ownBranch: false }), "Commit");
-  assert.equal(runLabelOf(apply, { ownBranch: true }), "Commit & merge");
-  assert.equal(runLabelOf(stateOf(flow, "plan"), { ownBranch: true }), "Plan");
-  assert.equal(runLabelOf(stateOf(flow, "review-plan"), { ownBranch: true }), "");
 });
 
 test("every step has a friendly sentence for the user, and the reviews ask for feedback", () => {

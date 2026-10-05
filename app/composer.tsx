@@ -46,7 +46,7 @@ import { useIssues } from "./use-issues.ts";
 import { workflow } from "../shared/current-workflow.ts";
 import {
   CLOSED,
-  movesFor,
+  offeredMoves,
   nextWorkOf,
   stateOf,
 } from "../shared/workflow.ts";
@@ -432,8 +432,9 @@ export function ComposerStatusLine() {
  * (bead-bb-eg0). What is expected is said in the line above the box;
  * a sentence was tried here, beside the buttons, and the user moved it up.
  *
- * At one of the user's steps, their two answers: the main move ("Approve
- * plan", "Accept") and "Send back". Text buttons, because what they do
+ * At one of the user's steps, their answers: the main move ("Approve plan",
+ * "Accept"), any other choice the step has ("Commit & merge" beside
+ * "Commit"), and "Send back". Text buttons, because what they do
  * changes with the step. At one of the agent's steps, none.
  *
  * They make the real workflow moves, which is the point: before, the reply
@@ -486,14 +487,17 @@ function StepButton({ threadId }: { threadId: string }) {
   // was disabled whenever the agent was working, which is nearly always, so
   // it was never of use. A stalled step can be started from the side panel.
   if (state.actor === "agent") return agree;
-  // The user's main move, and any move that takes the issue back to an
-  // earlier step ("Send back"): the two answers a review has. Moves that
-  // close the issue or are rare (skip, mark as done) are in the side panel.
+  // The user's answers at this step: every move that can be made on a
+  // click, plus "Send back", whose reason is what is typed in the box. Left
+  // for the side panel: moves that close the issue, and forward moves that
+  // need a reason (skipping a step).
   const stepIndex = workflow.states.indexOf(state);
-  const offered = movesFor(workflow, state.id, "user").filter(
+  const offered = offeredMoves(workflow, state.id, "user", {
+    ownBranch: result.ownBranch,
+  }).filter(
     (move) =>
       move.to !== CLOSED &&
-      (move.primary === true ||
+      (move.needsNote !== true ||
         workflow.states.findIndex((other) => other.id === move.to) < stepIndex),
   );
   if (offered.length === 0) return agree;

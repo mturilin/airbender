@@ -30,9 +30,8 @@ import type { Issue } from "../server/contract.ts";
 import { CLOSED_STATUS } from "../shared/constants.ts";
 import { workflow } from "../shared/current-workflow.ts";
 import {
-  movesFor,
   nextWorkOf,
-  runLabelOf,
+  offeredMoves,
   stateOf,
 } from "../shared/workflow.ts";
 import type { WorkflowMove, WorkflowState } from "../shared/workflow.ts";
@@ -134,7 +133,7 @@ export function WorkflowButton({
   if (state.actor === "agent") {
     const { run } = actions;
     if (run === null) return null;
-    const runLabel = runLabelOf(state, { ownBranch: actions.ownBranch });
+    const { runLabel } = state;
     return (
       <Button
         variant="outline"
@@ -149,7 +148,9 @@ export function WorkflowButton({
       </Button>
     );
   }
-  const main = movesFor(workflow, state.id, "user").find(
+  const main = offeredMoves(workflow, state.id, "user", {
+    ownBranch: actions.ownBranch,
+  }).find(
     (move) => move.primary === true,
   );
   if (main === undefined) return null;
@@ -195,7 +196,9 @@ export function WorkflowMoves({
   const state = stateOf(workflow, issue.step);
   return (
     <>
-      {movesFor(workflow, state.id, "user")
+      {offeredMoves(workflow, state.id, "user", {
+    ownBranch: actions.ownBranch,
+  })
         .filter((move) => move.primary !== true)
         .map((move) => (
           <Button

@@ -84,9 +84,9 @@ not at the end.
   3. *Implement.* Do the work.
   4. *Agent review.* Review the work against the bead as if someone else had
      done it; fix what you find.
-  5. *Apply.* After the user has accepted the work: commit it (see "Apply:
-     committing a bead's work" below), and report the step done, which
-     closes the bead.
+  5. *Commit*, or *Commit & merge.* After the user has accepted the work
+     and chosen one of the two at Apply: do that (see "Committing a bead's
+     work" below), and report the step done, which closes the bead.
   The reviews of the definition, of the plan and of the finished work are
   the user's. While a bead waits for one of them, read what the user
   replies: if they ask for changes, move it back (`send-back`, giving their
@@ -101,7 +101,7 @@ not at the end.
   your reason: `skip` leaves out Define or Plan when it is obvious (clear,
   complete requirements; a small change with one evident way to do it), and
   `to:<step>` goes to any step. Say so in one line, so the user can stop
-  you. If in doubt, do not skip. You cannot move a bead to Apply.
+  you. If in doubt, do not skip. You cannot move a bead to Apply or past it.
 
 **While working**
 
@@ -124,7 +124,7 @@ not at the end.
 **When finishing**
 
 - **Do not close the bead.** The user validates the work and accepts it;
-  the bead closes when its last step, Apply, is reported done. Never run
+  the bead closes when its last step, the commit, is reported done. Never run
   `bd close` on it yourself, unless the user tells you to close that bead.
   This overrides any "close when done" wording elsewhere in this file.
 - Instead, add a comment that says what was done and how it was checked, and
@@ -134,18 +134,19 @@ not at the end.
   in your hand-over comment that you did.
 - Anything left undone becomes a new bead before you hand over.
 
-**Apply: committing a bead's work**
+**Committing a bead's work**
 
-- Commit the work that belongs to a bead when it reaches the Apply step,
-  which it does when the user accepts it at Human review. The user's
-  acceptance is the sign that the work is validated, so it is the moment
-  the work becomes worth keeping in git. Do not commit a bead's work before
-  that, unless the user has told you to commit as you go on a branch.
-- If the work was done on its own branch, merge it into the main branch as
-  part of Apply. Your own standing instructions about approval for merges
-  still apply.
-- When the work is in git, report Apply done with the `beads_workflow_move`
-  tool, naming the commit. That closes the bead.
+- Commit the work that belongs to a bead when it reaches the Commit or the
+  Commit & merge step. It gets there when the user accepts it at Human
+  review and then, at Apply, chooses one of the two. The user's acceptance
+  is the sign that the work is validated, so it is the moment the work
+  becomes worth keeping in git. Do not commit a bead's work before that,
+  unless the user has told you to commit as you go on a branch.
+- At Commit, commit only; leave the work on the branch it is on. At Commit
+  & merge, also merge that branch into the main branch: the user chose
+  this, which is their approval of that merge.
+- When the work is in git, report the step done with the
+  `beads_workflow_move` tool, naming the commit. That closes the bead.
 - One commit per bead. Stage only the files that belong to it; never
   `git add -A`.
 - The commit message names the bead by **id and description**:

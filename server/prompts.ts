@@ -63,9 +63,10 @@ example "\`bd close <id>\` to complete work"), these rules take precedence.
   a comment saying what you did, how you checked it and what you did not
   check, and tell the user it is ready to validate. Never close an issue
   with \`bd close\`: it closes when its last step is reported done.
-- **Commit when the user has accepted the issue**, not before. That is the
-  workflow's last step, Apply: one commit per issue, only that issue's
-  files, with the issue's id and title as the subject line.
+- **Commit when the user has accepted the issue and chosen how**, not
+  before. That is the workflow's last step: one commit per issue, only that
+  issue's files, with the issue's id and title as the subject line; and a
+  merge only when the user chose "Commit & merge".
 ${RULES_END}
 `;
 

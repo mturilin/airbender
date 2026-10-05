@@ -34,8 +34,9 @@ export type Actor = "agent" | "user";
 export const CLOSED = "closed";
 
 /**
- * What a workflow may know about where an issue's work lives, when it words
- * a button. Deliberately small: facts the tab can be given, not git itself.
+ * What a workflow may know about where an issue's work lives, when it
+ * decides which moves to offer. Deliberately small: facts the tab can be
+ * given, not git itself.
  */
 export interface WorkflowContext {
   /** The folder is on a branch other than the repository's main one. */
@@ -69,10 +70,9 @@ export interface WorkflowState {
   /**
    * For an agent's state: the label of the button that gets the agent going
    * on it, e.g. "Plan". Left out for the user's states, where the buttons
-   * are the user's own moves. A function where the wording depends on where
-   * the work lives (see WorkflowContext).
+   * are the user's own moves.
    */
-  runLabel?: string | ((context: WorkflowContext) => string);
+  runLabel?: string;
 }
 
 /** One allowed change of state. */
@@ -92,6 +92,12 @@ export interface WorkflowMove {
   primary?: boolean;
   /** A note is required: why it is sent back, or why it is skipped. */
   needsNote?: boolean;
+  /**
+   * Offered only when the issue's work is on a branch of its own (see
+   * WorkflowContext), e.g. a move that merges. It is a matter of what to
+   * show: the move itself stays valid, since only the tab knows the branch.
+   */
+  ownBranchOnly?: boolean;
   /**
    * Left out when the moves open at a step are listed for someone (in a
    * refusal, in the agent's instructions). For moves that exist at nearly
@@ -141,13 +147,19 @@ export function stateOf(workflow: Workflow, step: string | null): WorkflowState 
   );
 }
 
-/** The label of the button that starts the agent on a state; "" if none. */
-export function runLabelOf(
-  state: WorkflowState,
+/**
+ * The moves out of a state to show `by`, given where the work lives: the
+ * same as movesFor, without the ones that do not apply here.
+ */
+export function offeredMoves(
+  workflow: Workflow,
+  stateId: string,
+  by: Actor,
   context: WorkflowContext,
-): string {
-  const { runLabel } = state;
-  return typeof runLabel === "function" ? runLabel(context) : (runLabel ?? "");
+): WorkflowMove[] {
+  return movesFor(workflow, stateId, by).filter(
+    (move) => move.ownBranchOnly !== true || context.ownBranch,
+  );
 }
 
 /** Whose work comes next for an issue in this state (see `nextWork`). */

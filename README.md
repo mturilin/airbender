@@ -52,7 +52,8 @@ From top to bottom the tab shows:
    Ready into collapsible sub-groups by priority, type or category) and
    Filter (types, priorities, categories; narrows every group). Every open issue shows
    the step of its workflow it is at (Not started, Define, Review
-   definition, Plan, Review plan, Implement, Agent review, Human review, Apply) and one main button
+   definition, Plan, Review plan, Implement, Agent review, Human review, Apply,
+   then Commit or Commit & merge) and one main button
    for that step: at an agent's step it starts the agent on that step and
    makes the issue the thread's bead; at one of yours it is your approval.
    Send back, Skip and Mark as done are inside the opened issue. While the
@@ -64,9 +65,10 @@ From top to bottom the tab shows:
    value changes the issue straight away.
    An opened open issue has an Edit button: it turns the title and
    description into a form with Save and Cancel.
-   "Accept" at Human review moves an issue to Apply, where the agent
-   commits the work (and merges it, if it has its own branch); reporting
-   Apply done closes the issue. The cross
+   "Accept" at Human review moves an issue to Apply, where you choose
+   "Commit" or "Commit & merge" (the second only when the work is on its
+   own branch); the agent does it, and reporting it done closes the issue.
+   The cross
    cancels an issue: it closes it without finishing it. On other open
    issues the cross is on the row; on the thread's bead it is only inside
    the opened issue. Both ask for confirmation. A closed row has a reopen
