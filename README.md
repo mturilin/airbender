@@ -5,10 +5,14 @@ panel, beside a thread or on the New thread screen.
 
 - `server.ts` and `server/` — the backend. Finds the folder a thread or
   project works in, runs `bd` there to list and change issues, and stores
-  each thread's current bead. `server/contract.ts` is the typed contract
-  with the frontend, `server/issues.ts` turns beads' rows into issues
-  (blocking, links, categories), `server/bd.ts` runs programs, and
-  `server/prompts.ts` holds the wording sent to agents.
+  each thread's current bead. `server.ts` wires the pieces and maps each
+  request to one call. `server/contract.ts` is the typed contract with the
+  frontend; `folder.ts` finds the folder and runs `bd`; `store.ts` holds the
+  issue operations; `work.ts` is play and close-with-commit;
+  `current-bead.ts` is the thread's current issue; `issues.ts` turns beads'
+  rows into issues (blocking, links, categories); `watch.ts`, `setup.ts` and
+  `define.ts` are what their names say; `prompts.ts` holds the wording sent
+  to agents.
 - `app.tsx` and `app/` — the frontend. `app.tsx` registers the surfaces;
   the **Airbender** tab is `app/panel.tsx` and the files beside it (rows,
   opened issue, groups, new-issue field, menus, setup), and

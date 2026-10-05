@@ -2,11 +2,13 @@
 //
 // Where things are: this file reads the settings, wires the pieces together
 // and holds the table of request handlers and the agent tool. The pieces are
-// in server/: contract.ts (the typed contract with the frontend), store.ts
-// (finding the folder, running bd, listing and changing issues, the thread's
-// current bead), issues.ts (turning beads' rows into issues), bd.ts (running
-// programs), watch.ts (noticing changes made outside the plugin), setup.ts
-// (getting a folder ready), define.ts (the Define worker) and prompts.ts (the
+// in server/: contract.ts (the typed contract with the frontend), folder.ts
+// (finding the folder and running bd in it), current-bead.ts (which issue a
+// thread is working on), store.ts (listing and changing issues), work.ts
+// (play, and close with a commit), issues.ts (turning beads' rows into
+// issues), bd.ts (running programs), watch.ts (noticing changes made outside
+// the plugin), setup.ts (getting a folder ready), define.ts (the Define
+// worker) and prompts.ts (the
 // wording sent to agents). The notes below describe the backend as a whole.
 //
 // What: the data behind the Beads tab. Lists the beads issues of the folder a
@@ -76,16 +78,15 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 import { rpcContract } from "./server/contract.ts";
-import type { Issue } from "./server/contract.ts";
+import { createCurrentBead } from "./server/current-bead.ts";
 import { createDefine } from "./server/define.ts";
-import { RELATES_TO, descendantsOf } from "./server/issues.ts";
-import { workRequest } from "./server/prompts.ts";
+import { createFolders } from "./server/folder.ts";
 import { createSetup } from "./server/setup.ts";
 import { createStore } from "./server/store.ts";
 import { createWatcher } from "./server/watch.ts";
+import { createWork } from "./server/work.ts";
 import {
   BEAD_ID_PATTERN,
-  CHANGED_CHANNEL,
   CLOSED_STATUS,
   QUICK_REPLIES,
 } from "./shared/constants.ts";
@@ -128,276 +129,35 @@ export default async function plugin(bb: BbPluginApi) {
     "/opt/homebrew/bin/bd",
   ];
 
-  // The pieces, built in dependency order: the watcher, the store that runs
-  // bd, then setup and Define on top of the store.
+  // The pieces, built in dependency order: folders and the thread's current
+  // issue first, the watcher, the store of issue operations on top of those,
+  // then work (play, close and commit), setup and Define on top of the store.
+  const folders = createFolders({ bb, bdCandidates });
+  const currentBead = createCurrentBead(bb);
   const { watchFolder } = await createWatcher(bb);
-  const store = createStore({ bb, bdCandidates, watchFolder });
-  const {
-    resolveFolder,
-    BD_NOT_FOUND_MESSAGE,
-    runBdIn,
-    linkEnds,
-    writeCurrentBead,
-    listIssues,
-    setCategory,
-    createIssue,
-    setIssueOpen,
-    listComments,
-  } = store;
-  const { setupStatus, runSetup } = createSetup({ bb, store });
+  const store = createStore({ bb, folders, currentBead, watchFolder });
+  const work = createWork({ bb, store, currentBead });
+  const { setupStatus, runSetup } = createSetup({ bb, folders, store });
   const { startDefine } = createDefine({ bb, store, defineModel });
 
+  // Every handler is one call into a module: what each does, and how it
+  // reports a problem, is documented where it is written. All of them
+  // answer with data (a state or a message in plain words) and none throws
+  // for an expected problem, so the tab has one way to show a failure.
   bb.rpc.register(rpcContract, {
-    issues_list: (input) => listIssues(input),
-    issue_comments: (input) => listComments(input),
-    issue_create: (input) => createIssue(input),
-    issue_close: async ({ commit, ...input }) => {
-      // Read the issue before closing: its title goes into the message to
-      // the agent, and its open sub-issues have to be closed first.
-      const before =
-        commit && input.threadId !== null ? await listIssues(input) : null;
-      const title =
-        before?.issues.find((issue) => issue.id === input.beadId)?.title ??
-        null;
-      // "Close & commit" on an epic closes everything still open inside it
-      // (the user's decision, bead-bb-5qt). Deepest first, because beads
-      // refuses to close an issue that still has open sub-issues. A plain
-      // close (commit false) does not do this: it is the "drop this issue"
-      // action, and dropping a whole tree by one click would be too easy.
-      const closedSubIssues: Issue[] = [];
-      if (before !== null) {
-        const open = descendantsOf(input.beadId, before.issues).filter(
-          (issue) => issue.status !== CLOSED_STATUS,
-        );
-        for (const subIssue of open.reverse()) {
-          const closedOne = await setIssueOpen("close", {
-            ...input,
-            beadId: subIssue.id,
-          });
-          if (closedOne.message !== null) {
-            return {
-              message: `Could not close sub-issue ${subIssue.id}, so ${input.beadId} was left open: ${closedOne.message}`,
-            };
-          }
-          closedSubIssues.push(subIssue);
-        }
-      }
-      const outcome = await setIssueOpen("close", input);
-      // Only after bd close succeeded: a failed close (for example a blocked
-      // issue) must not leave the agent committing work that is not accepted.
-      if (outcome.message !== null || !commit || input.threadId === null) {
-        return outcome;
-      }
-      try {
-        // "auto" starts a turn when the agent is idle and queues behind the
-        // running turn otherwise. The plugin never runs git itself; the agent
-        // commits under its own rules, including any need to ask first.
-        await bb.sdk.threads.send({
-          threadId: input.threadId,
-          mode: "auto",
-          input: [
-            {
-              type: "text",
-              mentions: [],
-              text:
-                `The user closed beads issue ${input.beadId}${title === null ? "" : `: ${JSON.stringify(title)}`} from the Airbender tab and asked for its work to be committed.` +
-                (closedSubIssues.length === 0
-                  ? " Commit the changes that belong to this issue, following the commit rules in AGENTS.md: only this issue's files, and the issue's id and title in the subject line. The repository's hook pushes each commit by itself; tell the user if that push fails. If there is nothing to commit for it, say so."
-                  : ` Its sub-issues were closed with it: ${closedSubIssues
-                      .map((issue) => `${issue.id} (${JSON.stringify(issue.title)})`)
-                      .join(
-                        ", ",
-                      )}. Commit the changes that belong to this issue and those sub-issues, following the commit rules in AGENTS.md: one commit per issue where its changes can be told apart, otherwise one commit whose body lists each issue as id and title; only these issues' files; and the issue's id and title in the subject line. The repository's hook pushes each commit by itself; tell the user if that push fails. If there is nothing to commit, say so.`),
-            },
-          ],
-        });
-      } catch (cause) {
-        return {
-          message: `The issue was closed, but the agent could not be asked to commit: ${cause instanceof Error ? cause.message : String(cause)}`,
-        };
-      }
-      return outcome;
-    },
-    issue_reopen: (input) => setIssueOpen("reopen", input),
+    issues_list: (input) => store.listIssues(input),
+    issue_comments: (input) => store.listComments(input),
+    issue_create: (input) => store.createIssue(input),
+    issue_close: (input) => work.closeIssue(input),
+    issue_reopen: (input) => store.setIssueOpen("reopen", input),
+    issue_update: (input) => store.updateIssue(input),
+    issue_set_parent: (input) => store.setParent(input),
+    issue_set_category: (input) => store.setCategory(input),
+    issue_link: (input) => store.link(input),
+    issue_unlink: (input) => store.unlink(input),
     issue_define: (input) => startDefine(input),
-    issue_set_category: (input) => setCategory(input),
-    issue_link: async ({ threadId, projectId, fromId, toId, kind }) => {
-      const checked = await linkEnds({ threadId, projectId, fromId, toId });
-      if ("message" in checked) return checked;
-      // "related" goes through beads' own see-also command, which links both
-      // issues to each other; every other kind is a one-way dependency.
-      // Cycles and duplicates are left to bd, whose message is passed on.
-      const run = await runBdIn(
-        checked.path,
-        kind === "related"
-          ? ["dep", "relate", fromId, toId, "--json"]
-          : ["dep", "add", fromId, toId, "--type", kind, "--json"],
-      );
-      if (run.kind === "not-found") return { message: BD_NOT_FOUND_MESSAGE };
-      if (run.kind === "failed") {
-        bb.log.warn("bd dep add failed in " + checked.path + ": " + run.message);
-        return { message: run.message };
-      }
-      bb.realtime.publish(CHANGED_CHANNEL, { threadId });
-      return { message: null };
-    },
-    issue_unlink: async ({ threadId, projectId, fromId, toId, kind }) => {
-      const checked = await linkEnds({ threadId, projectId, fromId, toId });
-      if ("message" in checked) return checked;
-      // A two-way link is undone with the command that made it, so both
-      // halves go; `dep remove` would leave the other issue's half behind.
-      const run = await runBdIn(
-        checked.path,
-        kind === RELATES_TO
-          ? ["dep", "unrelate", fromId, toId, "--json"]
-          : ["dep", "remove", fromId, toId, "--json"],
-      );
-      if (run.kind === "not-found") return { message: BD_NOT_FOUND_MESSAGE };
-      if (run.kind === "failed") {
-        bb.log.warn(
-          "bd dep remove failed in " + checked.path + ": " + run.message,
-        );
-        return { message: run.message };
-      }
-      bb.realtime.publish(CHANGED_CHANNEL, { threadId });
-      return { message: null };
-    },
-    issue_set_parent: async ({ threadId, projectId, beadId, parentId }) => {
-      if (!BEAD_ID_PATTERN.test(beadId)) {
-        return { message: `"${beadId}" is not a beads issue id.` };
-      }
-      if (parentId !== null && !BEAD_ID_PATTERN.test(parentId)) {
-        return { message: `"${parentId}" is not a beads issue id.` };
-      }
-      const listed = await listIssues({ threadId, projectId });
-      if (listed.state !== "ok" || listed.path === null) {
-        return { message: listed.message ?? "The issues could not be read." };
-      }
-      if (!listed.issues.some((issue) => issue.id === beadId)) {
-        return { message: `Issue ${beadId} is no longer in the list.` };
-      }
-      if (parentId !== null) {
-        if (!listed.issues.some((issue) => issue.id === parentId)) {
-          return { message: `Issue ${parentId} is no longer in the list.` };
-        }
-        // Checked here and not left to bd: an issue inside itself would
-        // disappear from every view that walks the tree from the top.
-        if (
-          parentId === beadId ||
-          descendantsOf(beadId, listed.issues).some(
-            (issue) => issue.id === parentId,
-          )
-        ) {
-          return {
-            message:
-              "An issue cannot be moved inside itself or inside one of its own sub-issues.",
-          };
-        }
-      }
-      // An empty --parent is how bd takes an issue out of its parent.
-      const run = await runBdIn(listed.path, [
-        "update",
-        beadId,
-        "--json",
-        "--parent",
-        parentId ?? "",
-      ]);
-      if (run.kind === "not-found") return { message: BD_NOT_FOUND_MESSAGE };
-      if (run.kind === "failed") {
-        bb.log.warn("bd update --parent failed in " + listed.path + ": " + run.message);
-        return { message: run.message };
-      }
-      bb.realtime.publish(CHANGED_CHANNEL, { threadId });
-      return { message: null };
-    },
-    issue_update: async ({
-      threadId,
-      projectId,
-      beadId,
-      type,
-      priority,
-      title,
-      description,
-    }) => {
-      if (!BEAD_ID_PATTERN.test(beadId)) {
-        return { message: `"${beadId}" is not a beads issue id.` };
-      }
-      if (
-        type === null &&
-        priority === null &&
-        title === null &&
-        description === null
-      ) {
-        return { message: null };
-      }
-      const folder = await resolveFolder({ threadId, projectId });
-      if ("reason" in folder) return { message: folder.reason };
-      if (!existsSync(folder.path)) {
-        return {
-          message: `The folder ${folder.path} does not exist on the machine BB runs on.`,
-        };
-      }
-      // Type comes from a fixed list and priority is a checked number. Title
-      // and description are free text, so each is passed as the value of a
-      // named flag: text that starts with a dash can then never be read by
-      // bd as an option. No shell is involved (see runBd).
-      const args = ["update", beadId, "--json"];
-      if (type !== null) args.push("--type", type);
-      if (priority !== null) args.push("--priority", `${priority}`);
-      if (title !== null) args.push("--title", title);
-      if (description !== null) args.push("--description", description);
-      const run = await runBdIn(folder.path, args);
-      if (run.kind === "not-found") return { message: BD_NOT_FOUND_MESSAGE };
-      if (run.kind === "failed") {
-        bb.log.warn("bd update failed in " + folder.path + ": " + run.message);
-        return { message: run.message };
-      }
-      bb.realtime.publish(CHANGED_CHANNEL, { threadId });
-      return { message: null };
-    },
-    current_start: async ({ threadId, beadId }) => {
-      if (!BEAD_ID_PATTERN.test(beadId)) {
-        throw new Error(`"${beadId}" is not a beads issue id.`);
-      }
-      // Look the issue up so the message can carry its title, and so a stale
-      // row (issue deleted since the tab loaded) fails before anything is sent.
-      const listed = await listIssues({ threadId, projectId: null });
-      const issue = listed.issues.find((candidate) => candidate.id === beadId);
-      if (issue?.status === CLOSED_STATUS) {
-        throw new Error(`Issue ${beadId} is closed. Reopen it before starting work on it.`);
-      }
-      if (issue === undefined) {
-        throw new Error(`Issue ${beadId} is no longer in the list. Refresh and try again.`);
-      }
-      await writeCurrentBead(threadId, beadId);
-      // "auto" starts a turn when the agent is idle and queues behind the
-      // running turn otherwise, so pressing play never interrupts work.
-      await bb.sdk.threads.send({
-        threadId,
-        mode: "auto",
-        input: [
-          {
-            type: "text",
-            mentions: [],
-            text: workRequest(
-              issue.id,
-              issue.title,
-              descendantsOf(issue.id, listed.issues).filter(
-                (candidate) => candidate.status !== CLOSED_STATUS,
-              ),
-            ),
-          },
-        ],
-      });
-      return { currentBeadId: beadId };
-    },
-    current_set: async ({ threadId, beadId }) => {
-      if (beadId !== null && !BEAD_ID_PATTERN.test(beadId)) {
-        throw new Error(`"${beadId}" is not a beads issue id.`);
-      }
-      await writeCurrentBead(threadId, beadId);
-      return { currentBeadId: beadId };
-    },
+    current_start: (input) => work.startWork(input),
+    current_set: (input) => work.setCurrent(input),
     setup_status: (input) => setupStatus(input),
     setup_run: (input) => runSetup(input),
     // Sent from the server, like the play message, rather than through the
@@ -433,7 +193,7 @@ export default async function plugin(bb: BbPluginApi) {
     async execute({ id }, { threadId }) {
       const beadId = id.trim();
       if (beadId === "") {
-        await writeCurrentBead(threadId, null);
+        await currentBead.write(threadId, null);
         return "Cleared this thread's current bead.";
       }
       if (!BEAD_ID_PATTERN.test(beadId)) {
@@ -444,7 +204,7 @@ export default async function plugin(bb: BbPluginApi) {
       }
       // Reject ids that do not exist, so a typo is reported to the agent
       // instead of showing the user a highlight that points nowhere.
-      const listed = await listIssues({ threadId, projectId: null });
+      const listed = await store.listIssues({ threadId, projectId: null });
       const target = listed.issues.find((issue) => issue.id === beadId);
       if (target?.status === CLOSED_STATUS) {
         return {
@@ -468,7 +228,7 @@ export default async function plugin(bb: BbPluginApi) {
           isError: true,
         };
       }
-      await writeCurrentBead(threadId, beadId);
+      await currentBead.write(threadId, beadId);
       return `This thread's current bead is now ${beadId}.`;
     },
   });

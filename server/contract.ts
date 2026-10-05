@@ -353,12 +353,13 @@ export const rpcContract = defineRpcContract({
     // The play button: makes the bead the thread's current one and sends the
     // thread's agent the message that starts work on it (see workRequest).
     input: z.object({ threadId: z.string(), beadId: z.string() }),
-    output: z.object({ currentBeadId: z.string() }),
+    // `message` is null on success, else the reason in plain words.
+    output: z.object({ message: z.string().nullable() }),
   },
   current_set: {
     // beadId null clears the thread's current bead.
     input: z.object({ threadId: z.string(), beadId: z.string().nullable() }),
-    output: z.object({ currentBeadId: z.string().nullable() }),
+    output: z.object({ message: z.string().nullable() }),
   },
   setup_status: {
     // What is in place for the folder and what could be set up.

@@ -349,22 +349,23 @@ export function useIssueActions({
             // Play starts the agent in the conversation, which the details
             // window covers, so the window gets out of the way.
             closeDetails();
-            rpc.call("current_start", { threadId, beadId }).then(() => {
-              setActionProblem(null);
-              refresh();
-            }, reportProblem);
+            rpc
+              .call("current_start", { threadId, beadId })
+              .then((outcome) => {
+                setActionProblem(outcome.message);
+                refresh();
+              }, reportProblem);
           },
     setCurrent:
       threadId === null
         ? null
         : (beadId) => {
-            rpc.call("current_set", { threadId, beadId }).then(
-              () => {
-                setActionProblem(null);
+            rpc
+              .call("current_set", { threadId, beadId })
+              .then((outcome) => {
+                setActionProblem(outcome.message);
                 refresh();
-              },
-              reportProblem,
-            );
+              }, reportProblem);
           },
   };
   /**

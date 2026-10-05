@@ -28,6 +28,7 @@ import type { SetupAction } from "../shared/constants.ts";
 import { programExists, runBd, shellQuote } from "./bd.ts";
 import type { SetupStatus } from "./contract.ts";
 import { AIRBENDER_RULES, RULES_START, claudeFileFor } from "./prompts.ts";
+import type { Folders } from "./folder.ts";
 import type { Store } from "./store.ts";
 
 /**
@@ -76,8 +77,17 @@ const SETUP_TIMEOUT_MS = 15 * 60_000;
  *   (start one action).
  * Side effects: none until one of them is called.
  */
-export function createSetup({ bb, store }: { bb: BbPluginApi; store: Store }) {
-  const { resolveFolder, findBd, listIssues } = store;
+export function createSetup({
+  bb,
+  folders,
+  store,
+}: {
+  bb: BbPluginApi;
+  folders: Folders;
+  store: Store;
+}) {
+  const { resolveFolder, findBd } = folders;
+  const { readIssues } = store;
   /** The setup action running in a terminal, per folder. */
   const setupRunning = new Map<
     string,
@@ -141,7 +151,7 @@ export function createSetup({ bb, store }: { bb: BbPluginApi; store: Store }) {
     if (bd !== null && !met.folder) {
       // "Set up" means what listing issues means by it, so the panel and
       // the list agree: bd finds a database from this folder upward.
-      met.folder = (await listIssues(input)).state === "ok";
+      met.folder = (await readIssues(path)).state === "ok";
     }
     const folderReady = met.folder;
     const agents = [];
