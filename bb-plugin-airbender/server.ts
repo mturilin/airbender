@@ -309,7 +309,10 @@ const setupStatusSchema = z.object({
   agents: z.array(
     z.object({ id: z.string(), label: z.string(), configured: z.boolean() }),
   ),
-  /** Whether the folder's AGENTS.md already carries Airbender's rules. */
+  /**
+   * Whether Airbender's rules are in place: in the folder's AGENTS.md, with
+   * CLAUDE.md pointing at it.
+   */
   rulesPresent: z.boolean(),
   /** The setup action running in a terminal for this folder right now. */
   running: z
@@ -556,6 +559,8 @@ const AIRBENDER_RULES = `${RULES_START}
 
 This repository's issues are tracked in beads (\`bd\`) and worked from the
 Airbender tab in BB. Follow these rules whenever you work on an issue.
+Where they disagree with beads' own instructions elsewhere in this file (for
+example "\`bd close <id>\` to complete work"), these rules take precedence.
 
 - **Every piece of work has an issue.** If the user asks for something that
   has no issue yet, create one first (\`bd create\`), with what is wanted and
@@ -583,6 +588,62 @@ Airbender tab in BB. Follow these rules whenever you work on an issue.
   subject line.
 ${RULES_END}
 `;
+
+/**
+ * The line that makes Claude Code read AGENTS.md from a CLAUDE.md. Used
+ * only where a CLAUDE.md already exists: such a file would otherwise carry
+ * its own, possibly contradicting, instructions.
+ */
+const CLAUDE_IMPORT = "@AGENTS.md";
+
+/** CLAUDE.md as the rules step writes it when it owns the whole file. */
+const CLAUDE_POINTER = `# Project Instructions for AI Agents
+
+The instructions for this project are in [AGENTS.md](AGENTS.md). Read that
+file in full before doing anything, and follow it.
+
+${CLAUDE_IMPORT}
+
+This file is only a pointer, so that tools which look for \`CLAUDE.md\` find
+the same rules as tools which look for \`AGENTS.md\`. Do not add instructions
+here; put them in \`AGENTS.md\`.
+`;
+
+/** Whether a CLAUDE.md already points at AGENTS.md (a line of its own). */
+function claudePointsAtAgents(text: string): boolean {
+  return text.split("\n").some((line) => line.trim() === CLAUDE_IMPORT);
+}
+
+/**
+ * What the rules step should write to CLAUDE.md (bead-bb-0bk), given what is
+ * there now.
+ *
+ * Why it touches this file at all: \`bd init\` creates a CLAUDE.md holding
+ * beads' generic instructions, which tell agents to close issues themselves,
+ * against Airbender's rules, and Claude Code reads that file.
+ *
+ * - No file (or an empty one): left alone. The user's decision: Claude Code
+ *   reads AGENTS.md itself now, so there is no reason to create the file.
+ * - The file beads generated and nobody filled in (its title, beads' block
+ *   and its three untouched placeholders): replaced by the pointer. Nothing
+ *   of the user's is lost, and beads' block stays available in AGENTS.md.
+ * - Anything else is the user's own: kept whole, with the import line added
+ *   at the top so AGENTS.md is read as well.
+ *
+ * @param existing The file's text, or null when there is no file.
+ * @returns The new text, or null when nothing needs writing: there is no
+ *   file, or it already points at AGENTS.md.
+ */
+export function claudeFileFor(existing: string | null): string | null {
+  if (existing === null || existing.trim() === "") return null;
+  if (claudePointsAtAgents(existing)) return null;
+  const generated =
+    existing.includes("<!-- BEGIN BEADS INTEGRATION") &&
+    existing.includes("_Add your build and test commands here_") &&
+    existing.includes("_Add a brief overview of your project architecture_") &&
+    existing.includes("_Add your project-specific conventions here_");
+  return generated ? CLAUDE_POINTER : `${CLAUDE_IMPORT}\n\n${existing}`;
+}
 
 /** The coding agents beads' own setup is offered for: the ones BB runs. */
 const SETUP_AGENTS = [
@@ -1238,11 +1299,16 @@ export default async function plugin(bb: BbPluginApi) {
     }
     if (!met.rules) {
       try {
-        met.rules = readFileSync(join(path, "AGENTS.md"), "utf8").includes(
-          RULES_START,
-        );
+        // Both halves must hold: the rules in AGENTS.md, and a CLAUDE.md,
+        // where there is one, that needs no change (see claudeFileFor).
+        const claudeFile = join(path, "CLAUDE.md");
+        met.rules =
+          readFileSync(join(path, "AGENTS.md"), "utf8").includes(RULES_START) &&
+          claudeFileFor(
+            existsSync(claudeFile) ? readFileSync(claudeFile, "utf8") : null,
+          ) === null;
       } catch {
-        // No AGENTS.md (or unreadable): the rules are not there.
+        // A file is missing (or unreadable): the step is not done.
       }
     }
     const rulesPresent = met.rules;
@@ -2259,20 +2325,32 @@ export default async function plugin(bb: BbPluginApi) {
       // that actually runs things.
       if (action === "rules") {
         if (status.rulesPresent) {
-          return { message: "Airbender's rules are already in AGENTS.md." };
+          return { message: "Airbender's rules are already in place." };
         }
         const file = join(path, "AGENTS.md");
         try {
           const existing = existsSync(file) ? readFileSync(file, "utf8") : "";
           // Added at the end, after whatever is there; nothing is replaced.
-          writeFileSync(
-            file,
-            existing === ""
-              ? AIRBENDER_RULES
-              : `${existing.replace(/\n*$/u, "")}\n\n${AIRBENDER_RULES}`,
-          );
+          // Skipped when only the CLAUDE.md half was missing.
+          if (!existing.includes(RULES_START)) {
+            writeFileSync(
+              file,
+              existing === ""
+                ? AIRBENDER_RULES
+                : `${existing.replace(/\n*$/u, "")}\n\n${AIRBENDER_RULES}`,
+            );
+          }
         } catch (cause) {
           return { message: `AGENTS.md could not be written: ${cause}` };
+        }
+        const claudeFile = join(path, "CLAUDE.md");
+        try {
+          const next = claudeFileFor(
+            existsSync(claudeFile) ? readFileSync(claudeFile, "utf8") : null,
+          );
+          if (next !== null) writeFileSync(claudeFile, next);
+        } catch (cause) {
+          return { message: `CLAUDE.md could not be written: ${cause}` };
         }
         bb.realtime.publish(CHANGED_CHANNEL, { path });
         return { message: null };

@@ -3222,7 +3222,7 @@ function setupSteps(status: SetupStatus): SetupStep[] {
       key: "rules",
       action: "rules",
       option: null,
-      label: "Add Airbender's rules to AGENTS.md",
+      label: "Add Airbender's rules for agents",
       why: "The rules this tab's buttons rely on: agents ask before building, leave closing to you, and commit when you close an issue.",
       needed: status.folderReady && !status.rulesPresent,
       blocked: status.rulesPresent
@@ -3518,7 +3518,7 @@ function SetupDialog({
           <DialogTitle>{step?.label}</DialogTitle>
           <DialogDescription>
             {step?.action === "rules"
-              ? "Adds a section to this folder's AGENTS.md, at the end; nothing already there is changed."
+              ? "Adds a section to this folder's AGENTS.md, at the end, and, if this folder has a CLAUDE.md, makes it point at AGENTS.md so Claude Code reads the same rules. A CLAUDE.md that holds only beads' generated text is replaced by that pointer; one with your own text is kept, with one line added at the top. No CLAUDE.md is created."
               : "Runs in a BB terminal, so you can watch it and answer anything it asks."}
           </DialogDescription>
         </DialogHeader>

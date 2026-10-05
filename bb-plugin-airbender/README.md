@@ -102,9 +102,12 @@ lists every step, greyed out when done or not yet possible:
 1. **Install beads** — pick a method (install script, mise, Homebrew, npm).
 2. **Set up beads in this folder** — runs `bd init`.
 3. **Configure beads for Claude Code / Codex** — runs `bd setup <agent>`.
-4. **Add Airbender's rules to AGENTS.md** — the working rules the buttons
-   rely on, added between `<!-- airbender:rules:start -->` and
-   `<!-- airbender:rules:end -->`.
+4. **Add Airbender's rules for agents** — the working rules the buttons
+   rely on, added to `AGENTS.md` between `<!-- airbender:rules:start -->`
+   and `<!-- airbender:rules:end -->`. It also makes `CLAUDE.md` point at
+   `AGENTS.md` (an `@AGENTS.md` line): a beads-generated
+   `CLAUDE.md` becomes a short pointer, one with your own text keeps it,
+   and none is created where there is none.
 
 Steps 1 to 3 run in a BB terminal you can watch and type into; the tab
 reloads when it ends and shows the last output if it failed.

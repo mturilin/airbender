@@ -87,7 +87,10 @@ When something the panel needs is missing, the panel offers to set it up.
      the tracker's own setup for the agent is missing.
   4. **Add Airbender's rules to the agents' instructions file**, as a
      separate command: the working rules the panel's buttons rely on. The
-     owner either enables it or skips it.
+     owner either enables it or skips it. Where the folder has a
+     separate instructions file for Claude Code, the step **also makes that
+     file point at the same rules**, and counts as done only when both are
+     in place. **It does not create that file.** `[0bk]`
 - **What is missing is offered in the middle of the panel**, not hidden in a
   menu, each with its button and a **Skip**.
 - **After Skip, a step is only in the menu.**
@@ -464,6 +467,12 @@ breaking a requirement above.
   one; ask the issue's open questions first; requirements, then plan, then
   build; record decisions on the issue; do not close the issue; commit when
   the owner has closed it, one commit per issue with its id and title.
+- Setup: for the file Claude Code reads (CLAUDE.md), the rules step writes
+  a short pointer to the agents' instructions file when it holds only the
+  tracker's generated, unfilled text; a file with
+  the owner's own text is kept, with one pointer line added at the top. The
+  confirmation says so. Airbender's rules state that they take precedence
+  over the tracker's own instructions where the two disagree.
 - Setup: nothing is offered for a folder on another machine or when no
   project is chosen.
 - For "all sub-issues are blocked", only open sub-issues count, and it
