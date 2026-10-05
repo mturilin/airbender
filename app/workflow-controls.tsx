@@ -50,9 +50,10 @@ function canAct(actions: IssueActions, issue: Issue): boolean {
  * The step an open issue is at, as a tag. Nothing for a closed issue, whose
  * step no longer matters.
  *
- * A little more prominent than the tags beside it, and no more: the same
- * outlined shape, with darker text in medium weight. (A filled, inverted
- * pill on the title line was tried and the user found it far too loud.)
+ * A little more prominent than the facts beside it, and no more: darker
+ * text in medium weight, with an icon, and no outline. (A filled, inverted
+ * pill on the title line was tried and the user found it far too loud; an
+ * outlined tag was tried and looked like a button.)
  *
  * The icon says whose move it is, which is what the user wants to see at a
  * glance: a person where the step waits for them, a robot where the next
@@ -67,10 +68,11 @@ export function StateTag({ issue }: { issue: Issue }) {
     <Tip
       label={`${human ? "Needs you" : "The agent's work"}: ${state.hint}`}
     >
-      {/* A fixed height and centred contents, the same box as the tags
-          beside it (16px line, 1px padding, 1px border), so it sits on
-          their line whatever the icon's own box is. */}
-      <span className="inline-flex h-5 shrink-0 cursor-default items-center gap-1 whitespace-nowrap rounded border border-foreground/30 px-1.5 text-[11px] font-medium leading-none text-foreground">
+      {/* No box at all: plain text with its icon, at the size and on the
+          line of the id beside it. With a border it sat next to the real
+          dropdowns (priority, type) and read as one more button, and its
+          box was taller than theirs, which threw the line off. */}
+      <span className="inline-flex shrink-0 cursor-default items-center gap-1 whitespace-nowrap text-xs font-medium leading-4 text-foreground">
         {human ? (
           <PersonIcon className="block size-3 shrink-0" />
         ) : (

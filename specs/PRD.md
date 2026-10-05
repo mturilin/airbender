@@ -471,9 +471,9 @@ breaking a requirement above.
   "Approve definition", "Approve plan" and "Accept & commit". "Send back",
   "Skip" and "Mark as done" are inside the opened issue; a move that needs
   a reason shows a small field for it.
-- Workflow: the step tag comes first among an issue's small tags. It has
-  the same outlined shape as the others, with darker, slightly bolder text:
-  a little more prominent, not much.
+- Workflow: the step comes first among an issue's small facts, as plain
+  text with its icon and no outline, in darker, slightly bolder text than
+  the rest: a little more prominent, not much, and not like a button.
 - Workflow: while a conversation has a current issue, the step buttons are
   offered on that issue only.
 - Workflow: the confirmation for cancelling reads "Cancel this issue?" with
