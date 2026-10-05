@@ -16,12 +16,12 @@ issues in a tab beside the conversation, without leaving BB.
 - Sub-issues, drawn under their parent, with a details window for deeper
   levels. Drag an issue onto another to nest it.
 - **Current issue**: the issue a thread is working on, highlighted on top.
-  Press play on an issue to make it current and start the thread's agent on
-  it: requirements first, then a plan you approve, then the work.
-- **Close & commit**: close the current issue and ask the agent to commit
-  its work.
-- **Define**: a background agent that writes up a thin issue (what is
-  wanted, what done means, a design, open questions).
+- **A workflow for every issue**: Define, Review definition, Plan, Review
+  plan, Implement, Agent review, Your review. Each issue shows its step and
+  one button for it: start the agent on its step, or give your approval.
+  You can send a step back with a reason, or skip one.
+- **Accept & commit**: accepting at your review closes the issue and asks
+  the agent to commit its work.
 - In the message box: a pill showing the current issue, and two one-click
   replies, "Go" and "Agree & go".
 - **Setup**: when beads is missing from the computer or the folder, the tab

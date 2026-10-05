@@ -51,7 +51,7 @@ not at the end.
 - **Make the bead you work on the thread's current bead**, by calling the
   `beads_set_current` tool with its id, as soon as you start on it. This
   matters most when the work began from a plain typed request and you
-  created the bead yourself: the play button sets the current bead for you,
+  created the bead yourself: the tab's buttons set the current bead for you,
   a typed request does not. The Airbender tab offers the user "Close &
   commit" only on the current bead, so a bead you work on without making it
   current leaves the user with no button to close it and have it committed.
@@ -68,18 +68,27 @@ not at the end.
   lists an answer you "would assume". Record each answer on the bead as a
   comment.
 
-- **Requirements, then plan, then build.** When you are started on a bead:
-  1. *Requirements.* Make sure it is clear what is wanted, why, and what
-     "done" means; ask the user what is unclear; write the agreed
-     requirements onto the bead.
-  2. *Implementation plan.* Say what you will change and how, and wait for
-     the user's approval before changing anything; write the agreed plan
-     into the bead's design field.
-  3. *Build.*
-  You may skip step 1 or step 2 when it is obvious (clear, complete
-  requirements; a small change with one evident way to do it). When you
-  skip one, say so in one line with the reason, so the user can stop you.
-  If in doubt, do not skip.
+- **Take the bead through its workflow, one step at a time.** Every bead
+  goes through these steps to be closed: Define, Review definition, Plan,
+  Review plan, Implement, Agent review, Your review. When you are started on
+  a bead you are told which step it is at. Do that step only:
+  1. *Define.* Make sure it is clear what is wanted, why, and what "done"
+     means; ask the user what is unclear; write the agreed description and
+     acceptance criteria onto the bead.
+  2. *Plan.* Say what you will change and how, and write the plan into the
+     bead's design field. Change nothing yet.
+  3. *Implement.* Do the work.
+  4. *Agent review.* Review the work against the bead as if someone else had
+     done it; fix what you find.
+  The reviews of the definition, of the plan and of the finished work are
+  the user's: they approve or send back in the Airbender tab.
+  When you finish a step, report it with the `beads_workflow_move` tool,
+  with a one-line note. It tells you what comes next: your next step, or
+  that the bead now waits for the user, in which case say so and stop.
+  You may skip Define or Plan when it is obvious (clear, complete
+  requirements; a small change with one evident way to do it), by reporting
+  the move `skip` with the reason and saying so in one line, so the user
+  can stop you. If in doubt, do not skip.
 
 **While working**
 

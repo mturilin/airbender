@@ -173,8 +173,9 @@ its category.
 - **Priority and type are changed right on the row**, for open issues.
   `[ssf]`
 - **Clicking the issue's id copies it** to the clipboard. `[c58]`
-- Buttons on the row are described under "Starting work", "Define" and
-  "Closing".
+- **It also shows the step of the workflow the issue is at**, and one main
+  button for that step. See "The workflow". `[e2b]`
+- Cancelling is described under "Closing".
 
 ## An opened issue
 
@@ -189,7 +190,8 @@ Opening a row shows:
 - An **Edit** button, for open issues. It turns the title and the description
   into a form with Save and Cancel. Clicking a title does not edit it; it
   opens the issue. `[vve]`
-- The Define button (see "Define").
+- **The owner's other moves at the issue's step**: send back, skip, and
+  marking an agent's step as done (see "The workflow"). `[e2b]`
 - **The buttons inside an opened issue are lean and quiet**: little vertical
   padding, and less prominent than ordinary buttons, with no sharp border,
   so they do not take much space or attract too much attention. `[zty.1]`
@@ -246,8 +248,9 @@ An issue can contain other issues, and those can contain more, to any depth.
   that field. "Add sub-issue" pressed in the panel uses the panel's field.
   Neither sends the owner to the other.
 - **The window can do everything the list can**: open an issue, edit it,
-  change its type and priority, close it, Define it, add a sub-issue, and
-  drag to re-nest. Play closes the window.
+  change its type and priority, cancel it, move it through its workflow,
+  add a sub-issue, and drag to re-nest. Starting the agent closes the
+  window.
 - **Drag and drop.** Every issue has a drag anchor: a grip on its row that
   the issue is dragged by. Dragging an issue onto another makes it a
   sub-issue of that one. Dragging a sub-issue onto a group heading or onto
@@ -273,10 +276,11 @@ An issue can contain other issues, and those can contain more, to any depth.
   - this lean row is for the panel only. **In the details window sub-issues
     are full-size rows**, the same as normal issues in the panel, because
     the window has the room; `[zty.2]`
-  - a sub-issue row has no buttons, not even on hover. Play, Define,
-    close and the way into the details window are inside the opened
+  - a sub-issue row has no buttons, not even on hover. Its step's button,
+    cancel and the way into the details window are inside the opened
     sub-issue. Only the drag anchor appears while the pointer is on the row.
-  - in an opened open sub-issue, **Start work is the first button**. `[uca]`
+  - in an opened open sub-issue, **the button that starts work is the first
+    button**. `[uca]`
 
 ## Creating an issue
 
@@ -301,88 +305,73 @@ An issue can contain other issues, and those can contain more, to any depth.
 One conversation works on at most one issue at a time: its current issue.
 
 - The Current group is first, above everything else. `[pp7]`
-- It has two extra buttons: **Clear** (stop treating this issue as current)
-  and **Define**. `[pp7]`
+- It has one extra button: **Clear** (stop treating this issue as current).
+  `[pp7]`
 - **A closed issue stops being current**, however it was closed: from the
   panel, by the agent, or from a terminal. The panel must show this on its
   own, without the owner pressing refresh. `[p49]` `[m4b]`
 
-## Starting work (play)
+## The workflow
 
-- **While there is no current issue, every open issue can be started with
-  play.** A top-level issue has the play button on its row; a sub-issue has
-  it inside the opened sub-issue. `[pp7]` `[5qt]`
-- Play makes the issue current and directs the conversation's agent to work
-  on it. `[pp7]`
-- The agent then goes through these steps, in this order: `[avf]`
-  1. **Requirements.** Make clear what is wanted, why, and what "done" means.
-     Ask the owner what is unclear. Record the result on the issue.
-  2. **Implementation plan.** Say what will change and how. Wait for the
-     owner's approval. Record the plan on the issue.
-  3. **Build.**
-- **The agent may skip step 1 or step 2 when it is obvious**, at its own
-  judgment, and must say that it skipped it. `[avf]`
+**Every issue goes through a fixed sequence of steps to be closed.** At each
+step it waits either for the agent or for the owner. `[e2b]`
+
+The steps, in order: `[e2b]`
+
+1. **Define** (agent) — write up what is wanted, why, and what "done" means.
+2. **Review definition** (owner) — is the issue properly defined?
+3. **Plan** (agent) — work out how to do it and write the plan down.
+4. **Review plan** (owner) — is the plan good?
+5. **Implement** (agent) — do the work.
+6. **Agent review** (agent) — the agent reviews the work.
+7. **Your review** (owner) — the owner validates the work.
+8. Then the issue is **closed and its work committed**.
+
+Rules:
+
+- **The panel shows which step each open issue is at.** `[e2b]`
+- **Each step has one main button.** At an agent's step it starts the agent
+  on that step. At the owner's step it is the owner's approval. `[e2b]`
+- **Starting never begins again from the first step.** The agent is asked to
+  do the step the issue is at, and only that. `[e2b]`
+- **Define is a step, not a special button.** There is no separate Define
+  action and no separate agent for it. `[e2b]`
+- **Every step runs in the conversation**, with the conversation's own
+  agent. `[e2b]`
+- **At a review, the owner approves or sends it back** to the step before,
+  saying why. `[e2b]`
+- **The agent can move an issue forward, but only as the workflow allows.**
+  It cannot make the owner's moves, and it cannot close an issue. `[e2b]`
+- **A step may be skipped with a stated reason**, which is recorded. `[e2b]`
+- **Accepting at the owner's review closes the issue and tells the
+  conversation's agent to commit that issue's work.** `[e2b]` `[d37]`
+- **Accepting an issue that has sub-issues closes all of them**: the issue
+  and every sub-issue still open inside it, at any depth. The confirmation
+  says how many. `[5qt]`
+- **While there is no current issue, every open issue offers its step's
+  button.** A top-level issue has it on its row; a sub-issue has it inside
+  the opened sub-issue. Starting an issue makes it current. `[pp7]` `[5qt]`
+- **Starting an issue that has sub-issues** directs the agent to work on
+  that issue and all its sub-issues together. `[5qt]`
 - **Open questions come first.** If the issue has open questions for the
-  owner, the agent asks them and waits. Pressing play is not permission to
+  owner, the agent asks them and waits. Being started is not permission to
   assume the answers. `[avf]`
-- The thinking in steps 1 and 2 is done by the conversation's own agent, in
-  the conversation. Play does not hand it to another agent. `[avf]`
-- **Play on an issue that has sub-issues** directs the agent to work on that
-  issue and all its sub-issues together. `[5qt]`
-- **The agent does not close the issue when it finishes.** It records what it
-  did and how it checked it, leaves the issue in progress, and tells the owner
-  it is ready. The owner validates and closes. `[e1d]`
-
-## Define
-
-Define turns a bare request into a clear, buildable issue: what is wanted and
-why, what "done" means, and a proposed approach.
-
-- It is done by an agent **in the background, not in the current
-  conversation**. `[4la]`
-- It must **not appear as a separate conversation** in the app. A background
-  agent is acceptable. `[4la]`
-- It is shut down when it is done. `[4la]`
-- It runs on the Fable model. The model can be changed in the settings.
-  `[4la]`
-- It only writes onto the issue. It does not start the work, change files or
-  close the issue. `[4la]`
-- **A top-level issue with no description shows the Define button on its
-  row**, as an icon-only button of the same kind as the cancel button. Other
-  issues, and all sub-issues, have it inside the opened issue. `[4la]`
-  `[5qt]`
-- The name is **Define** everywhere. `[—]`
+- **The workflow is described in one place in the product**, separate from
+  the panel and from the rest of the backend, so that it can be changed, or
+  another added, without touching them. `[e2b]`
 
 ## Closing
 
-Every open issue can be closed from the panel, and **closing always asks for
-confirmation**. `[pp7]`
-
-There are two different actions, with two different icons: `[0rg]` `[d37]`
-
-- **Close & commit** — the work is validated and should be committed. This is
-  the expected outcome. It exists only for the **current** issue. It closes
-  the issue and tells the conversation's agent to commit that issue's work.
-- **Close without commit** — the issue is not needed; this is a cancel. It is
-  the only way to close a backlog issue.
-
-**Close & commit on an issue with sub-issues closes all of them**: the issue
-and every sub-issue still open inside it, at any depth. The confirmation
-says how many sub-issues will be closed. `[5qt]`
-
-How they are presented: `[d37]`
-
-- On the current issue's row, the only close button is Close & commit. It is
-  an ordinary gray button with an icon and the words "Close & commit". No
-  green.
-- For the current issue, Close without commit is less prominent: it is shown
-  only inside the opened issue.
-- On a top-level backlog row, the close button is a muted icon. A sub-issue
-  is closed from inside the opened sub-issue. `[5qt]`
-- Confirmation for a backlog issue asks only "Are you sure you want to close
-  this issue?", with **Close** and **Cancel**. It does not mention commits,
-  because committing does not apply there.
-- Confirmation for the current issue says whether a commit will follow.
+- **Finishing an issue is the workflow's last step** (see "The workflow").
+- **Cancel** closes an issue that is not needed, without finishing it and
+  without a commit. It is always possible, at any step. `[e2b]` `[0rg]`
+- **Closing always asks for confirmation**, whether finishing or cancelling.
+  `[pp7]`
+- For the current issue, Cancel is less prominent than the main button: it
+  is shown only inside the opened issue. `[d37]`
+- On a top-level backlog row, Cancel is a muted icon. A sub-issue is
+  cancelled from inside the opened sub-issue. `[5qt]`
+- Buttons are ordinary gray. No green. `[d37]`
 
 ## In the main window
 
@@ -418,10 +407,12 @@ These rules apply to any agent working in a repository that uses the product.
 - **Record as much as possible on the issue**: the intent in the owner's
   words, the design, every decision with its reason, and what was tried.
   Chat is lost; the issue is not. `[—]`
-- **Requirements, then plan, then build**, as under "Starting work". `[avf]`
-- **Do not close issues.** The owner validates and closes. `[e1d]`
-- **Commit after the owner closes an issue.** One commit per issue. The
-  commit message carries the issue's id and its description. `[d37]`
+- **Take an issue through its workflow one step at a time**, as under "The
+  workflow", and report each finished step. `[e2b]`
+- **Do not close issues.** The owner validates and accepts, which closes.
+  `[e1d]`
+- **Commit after the owner has accepted an issue.** One commit per issue.
+  The commit message carries the issue's id and its description. `[d37]`
 - **Every commit is pushed** to the project's remote repository as soon as
   it is made, automatically, whoever makes it. `[bfi]`
 - **Update this spec with every change.** The spec and the implementation
@@ -448,6 +439,32 @@ Behaviour the owner did not ask for or decide. It is what the product does
 today, recorded so a rebuild matches. Any of it may be changed without
 breaking a requirement above.
 
+- Workflow: the step is kept on the issue in the tracker as a label,
+  `step:<name>`, and every move is added to the issue's comments with who
+  made it and the reason given. An issue with no step recorded is at Define.
+- Workflow: Define and Plan are the steps that can be skipped; the
+  implementation and the two reviews of it cannot.
+- Workflow: the owner can also report an agent's step as done ("Mark as
+  done", "Mark as reviewed"), for when the agent did the work without
+  reporting it.
+- Workflow: when the owner's move leads to one of the agent's steps, the
+  agent is started on it straight away, and told the reason if it was sent
+  back. When the agent finishes a step and the next one is also its own,
+  it carries on; otherwise it tells the owner and stops.
+- Workflow: the main buttons read "Define", "Plan", "Implement", "Review",
+  "Approve definition", "Approve plan" and "Accept & commit". "Send back",
+  "Skip" and "Mark as done" are inside the opened issue; a move that needs
+  a reason shows a small field for it.
+- Workflow: the step tag is stronger when the issue waits for the owner.
+- Workflow: while a conversation has a current issue, the step buttons are
+  offered on that issue only.
+- Workflow: the confirmation for cancelling reads "Cancel this issue?" with
+  "Cancel issue" and "Keep it"; for finishing, "Close this issue as
+  finished?" with the move's own label and "Not yet".
+- Workflow: a closed issue keeps its last step; reopened, it is at that
+  step again.
+- Workflow: how an issue and its sub-issues move through steps together is
+  not worked out; each has its own step.
 - Setup: every step asks for confirmation first, showing what it will do
   and the exact command. The folder step lists what it adds to the
   repository.
@@ -585,16 +602,10 @@ breaking a requirement above.
   shown is not remembered: they are hidden again each time the panel opens.
 - With no closed issues, the Closed heading shows a count of zero and no
   button.
-- Play is offered only while there is no current issue. To switch, press
-  Clear first.
-- Play and Close & commit reach the agent as a message in the conversation.
-  If the agent is busy, the message waits its turn.
-- While Define runs, the row is marked "defining…" and its button opens the
-  background agent. Define is stopped after 20 minutes if it has not
-  finished. What Define writes is signed as "define agent", not as the owner.
-- Define is asked to keep its write-up short, to stay inside the request, and
-  to raise at most three open questions, each with the answer it would
-  assume.
+- To switch a conversation to another issue, press Clear first.
+- Messages to the agent (the instruction for a step, the request to
+  commit) arrive in the conversation. If the agent is busy, the message
+  waits its turn.
 - An agent can itself declare which issue its conversation is working on.
 - Comments are loaded when their heading is opened, oldest first.
 - The description is edited as plain Markdown text. Saving an empty

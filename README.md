@@ -8,10 +8,10 @@ panel, beside a thread or on the New thread screen.
   each thread's current bead. `server.ts` wires the pieces and maps each
   request to one call. `server/contract.ts` is the typed contract with the
   frontend; `folder.ts` finds the folder and runs `bd`; `store.ts` holds the
-  issue operations; `work.ts` is play and close-with-commit;
+  issue operations; `work.ts` moves an issue through its workflow;
   `current-bead.ts` is the thread's current issue; `issues.ts` turns beads'
-  rows into issues (blocking, links, categories); `watch.ts`, `setup.ts` and
-  `define.ts` are what their names say; `prompts.ts` holds the wording sent
+  rows into issues (blocking, links, categories); `watch.ts` and `setup.ts`
+  are what their names say; `prompts.ts` holds the wording sent
   to agents.
 - `app.tsx` and `app/` — the frontend. `app.tsx` registers the surfaces;
   the **Airbender** tab is `app/panel.tsx` and the files beside it (rows,
@@ -19,7 +19,11 @@ panel, beside a thread or on the New thread screen.
   `app/composer.tsx` holds the message-box controls. Logic without React is
   in `app/issue-model.ts` and `app/quick-tags.ts`.
 - `shared/` — what both halves use: `constants.ts` (the values they must
-  agree on) and `tree.ts` (walking sub-issues). These files have no imports,
+  agree on), `tree.ts` (walking sub-issues), and the workflow:
+  `workflow.ts` says what a workflow is, `standard-workflow.ts` is the one
+  in use (its steps, button labels and wording for agents), and
+  `current-workflow.ts` names which one is followed. To change how issues
+  are worked, change `standard-workflow.ts`; nothing else names a step. These files have no imports,
   so they are safe to bundle on either side.
 - `*.test.ts` — tests for the logic without React or BB; run `npm test`.
 - `PLUGIN_OVERVIEW.md` — the text BB shows on the plugin's detail page.
@@ -37,22 +41,18 @@ opens a small pop-up with its details, and two quick-reply icon buttons, "Go" (a
 From top to bottom the tab shows:
 
 1. **Current** (pinned): the bead this thread is working on, as one row that
-   opens on its chevron, with Define and Clear.
+   opens on its chevron, with Clear.
 2. **Toolbar** (pinned): the folder and a refresh button.
 3. **Every other issue**, grouped by status; this part scrolls. The Ready
    heading carries two menus, both remembered per folder: Group (divides
    Ready into collapsible sub-groups by priority, type or category) and
-   Filter (types, priorities, categories; narrows every group). While the
-   thread has no bead, each open issue has a play button: it makes that issue
-   the thread's bead and sends the agent a message to start on it. The agent
-   is told to clarify the requirements with you first, then agree an
-   implementation plan, then build; it may skip either of the first two when
-   it is obvious, and has to say so. An opened
-   issue also offers Define, which starts a background agent that fills
-   in the issue's description, acceptance criteria and design. It does not
-   appear in the sidebar and the thread you are in is not touched; the row
-   is marked "defining…" until it stops, and the button opens it.
-   An issue with no description shows the Define button on its row.
+   Filter (types, priorities, categories; narrows every group). Every open issue shows
+   the step of its workflow it is at (Define, Review definition, Plan,
+   Review plan, Implement, Agent review, Your review) and one main button
+   for that step: at an agent's step it starts the agent on that step and
+   makes the issue the thread's bead; at one of yours it is your approval.
+   Send back, Skip and Mark as done are inside the opened issue. While the
+   thread has a bead, these buttons are offered on that issue only.
    An opened issue shows its description, then a folded heading for each
    of acceptance criteria, design, notes, close reason and comments that the
    issue has; each opens on its own chevron.
@@ -60,13 +60,12 @@ From top to bottom the tab shows:
    value changes the issue straight away.
    An opened open issue has an Edit button: it turns the title and
    description into a form with Save and Cancel.
-   There are two ways to close, each with its own icon and its own
-   confirmation. The "Close & commit" button, on the thread's current bead, closes the
-   issue and sends the agent a message asking it to commit the work. The
-   cross closes an issue without a commit: use it to drop an issue. On other
-   open issues it is on the row; on the current bead it is only inside the
-   opened issue, so "Close & commit" is the obvious choice there. A closed row has a reopen button instead. Closing the
-   thread's current bead also clears it as current.
+   An issue is finished by "Accept & commit" at its last step: that closes
+   it and sends the agent a message asking it to commit the work. The cross
+   cancels an issue: it closes it without finishing it. On other open
+   issues the cross is on the row; on the thread's bead it is only inside
+   the opened issue. Both ask for confirmation. A closed row has a reopen
+   button instead. Closing the thread's bead also clears it as current.
    The Closed group's heading is always last in the list, with its count
    and a Show/Hide button; closed issues start hidden.
    Issues can sit inside other issues, to any depth. A sub-issue is drawn
@@ -80,8 +79,8 @@ From top to bottom the tab shows:
    parent in the new-issue field at the bottom, and a "Move to" button with a
    search field for moving it into another issue or out to the top level.
    An issue with sub-issues starts opened. A long description is cut to about four lines with
-   "View more", which opens the window. Play on an issue with sub-issues starts
-   the agent on all of them, and "Close & commit" on it closes all of them.
+   "View more", which opens the window. Starting an issue with sub-issues starts
+   the agent on all of them, and accepting it closes all of them.
 4. **New issue field** (pinned at the bottom): type a title and press Enter;
    the chevron adds type, priority and description.
 
@@ -139,8 +138,6 @@ reloads when it ends and shows the last output if it failed.
 
 - `bd command` — name or full path of the `bd` tool. Change it only if BB
   cannot find `bd`.
-- `Define model` — model id the background agent uses for Define
-  (default `claude-fable-5-1`). Empty uses the project's default model.
 
 Reload the plugin after changing a setting.
 
@@ -158,7 +155,7 @@ npm test               # run the tests (node's own test runner)
 The frontend may import only types from `server.ts` and `server/`; values
 both sides need go in `shared/`. Files that the tests load
 (`server/issues.ts`, `server/prompts.ts`, `app/issue-model.ts`,
-`app/quick-tags.ts`) must not import React, the BB SDK or `@/...` paths.
+`app/quick-tags.ts`, everything in `shared/`) must not import React, the BB SDK or `@/...` paths.
 A new source folder must be added to `include` in `tsconfig.json`.
 
 `components/ui/` is vendored source owned by this plugin; edit it freely.
