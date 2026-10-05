@@ -3,7 +3,8 @@
 // What: the states an issue passes through, the moves between them, the
 // button labels, and what the agent is told in each state.
 //
-//   Define -> Review definition -> Plan -> Review plan -> Implement
+//   Not started -> Define -> Review definition -> Plan -> Review plan
+//          -> Implement
 //          -> Agent review -> Your review -> closed (with a commit)
 //
 // Why: this is how the user works an issue (bead-bb-e2b, in their words):
@@ -15,6 +16,12 @@
 // AGENTS.md, which is why play restarted from the beginning every time.
 //
 // Design notes:
+// - A new issue is "Not started", as in every common tracker (Todo, Backlog,
+//   New). It was added after the first version, where a new issue was
+//   already "Define" and that word meant both "nobody has touched it" and
+//   "the agent is defining it". Now a step named after the agent's work
+//   means the work is under way. Only the first step needs this: each later
+//   one is started the moment the one before is approved.
 // - Everything particular to this workflow is in this file. To change a
 //   step, its wording or its buttons, change it here; the tab and the server
 //   only read what this file says (see shared/workflow.ts).
@@ -48,6 +55,12 @@ import type {
 export const MOVE_TOOL = "beads_workflow_move";
 
 const states: WorkflowState[] = [
+  {
+    id: "not-started",
+    label: "Not started",
+    actor: "user",
+    hint: "Nobody has started on this issue yet.",
+  },
   {
     id: "define",
     label: "Define",
@@ -145,6 +158,18 @@ const reviewed = (
 ];
 
 const moves: WorkflowMove[] = [
+  {
+    // The agent may make this move too: work that begins from a typed
+    // request, not from the tab, still has to enter the workflow.
+    id: "start",
+    from: "not-started",
+    to: "define",
+    by: ["user", "agent"],
+    label: "Define",
+    hint: "Start on this issue: the agent defines what is wanted.",
+    primary: true,
+  },
+  skippable("not-started", "plan", "the definition"),
   finished(
     "define",
     "review-definition",
@@ -312,17 +337,17 @@ function describeForAgents(): string {
     )
     .join(", then ");
   const agentMoves = states
-    .filter((state) => state.actor === "agent")
+    .map((state) => ({ state, open: movesFor(standardWorkflow, state.id, "agent") }))
+    .filter(({ open }) => open.length > 0)
     .map(
-      (state) =>
-        `at ${state.label}: ${movesFor(standardWorkflow, state.id, "agent")
-          .map((move) => `\`${move.id}\``)
-          .join(", ")}`,
+      ({ state, open }) =>
+        `at ${state.label}: ${open.map((move) => `\`${move.id}\``).join(", ")}`,
     )
     .join("; ");
   return [
     `Every beads issue in this repository goes through these steps before it is closed: ${steps}.`,
     "You are told which step an issue is at when you are started on it. Do that step only.",
+    `If you begin work on an issue that is still at ${states[0]!.label} (for example from a typed request), move it with \`start\` first.`,
     `When you finish a step, report it with the ${MOVE_TOOL} tool (${agentMoves}), each with a short note. The tool tells you what comes next: either your next step, or that the issue now waits for the user.`,
     "The steps that are the user's are theirs alone: they approve or send back in the Airbender tab. Do not close an issue yourself and do not commit before the user has accepted it.",
   ].join(" ");
@@ -332,7 +357,7 @@ function describeForAgents(): string {
 export const standardWorkflow: Workflow = {
   states,
   moves,
-  initial: "define",
+  initial: "not-started",
   instruction,
   commitRequest,
   describeForAgents,

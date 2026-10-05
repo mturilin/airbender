@@ -318,14 +318,16 @@ step it waits either for the agent or for the owner. `[e2b]`
 
 The steps, in order: `[e2b]`
 
-1. **Define** (agent) — write up what is wanted, why, and what "done" means.
-2. **Review definition** (owner) — is the issue properly defined?
-3. **Plan** (agent) — work out how to do it and write the plan down.
-4. **Review plan** (owner) — is the plan good?
-5. **Implement** (agent) — do the work.
-6. **Agent review** (agent) — the agent reviews the work.
-7. **Your review** (owner) — the owner validates the work.
-8. Then the issue is **closed and its work committed**.
+1. **Not started** (owner) — nobody has started on the issue yet. Every new
+   issue begins here.
+2. **Define** (agent) — write up what is wanted, why, and what "done" means.
+3. **Review definition** (owner) — is the issue properly defined?
+4. **Plan** (agent) — work out how to do it and write the plan down.
+5. **Review plan** (owner) — is the plan good?
+6. **Implement** (agent) — do the work.
+7. **Agent review** (agent) — the agent reviews the work.
+8. **Your review** (owner) — the owner validates the work.
+9. Then the issue is **closed and its work committed**.
 
 Rules:
 
@@ -334,6 +336,9 @@ Rules:
   on that step. At the owner's step it is the owner's approval. `[e2b]`
 - **Starting never begins again from the first step.** The agent is asked to
   do the step the issue is at, and only that. `[e2b]`
+- **A step named after the agent's work means that work is under way.**
+  "Define" on an issue means it is being defined, not that nobody has
+  touched it; that is "Not started". `[e2b]`
 - **Define is a step, not a special button.** There is no separate Define
   action and no separate agent for it. `[e2b]`
 - **Every step runs in the conversation**, with the conversation's own
@@ -441,7 +446,13 @@ breaking a requirement above.
 
 - Workflow: the step is kept on the issue in the tracker as a label,
   `step:<name>`, and every move is added to the issue's comments with who
-  made it and the reason given. An issue with no step recorded is at Define.
+  made it and the reason given. An issue with no step recorded is Not started.
+- Workflow: the main button of a Not started issue reads "Define": it moves
+  the issue to Define and starts the agent on it. The agent can make that
+  move itself when its work began from a typed request.
+- Workflow: only the first step tells "not started" from "under way". A
+  later step whose agent was never started, or has stalled, still shows
+  that step's button, which starts the agent on it again.
 - Workflow: Define and Plan are the steps that can be skipped; the
   implementation and the two reviews of it cannot.
 - Workflow: the owner can also report an agent's step as done ("Mark as

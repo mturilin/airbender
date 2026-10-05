@@ -69,9 +69,11 @@ not at the end.
   comment.
 
 - **Take the bead through its workflow, one step at a time.** Every bead
-  goes through these steps to be closed: Define, Review definition, Plan,
-  Review plan, Implement, Agent review, Your review. When you are started on
-  a bead you are told which step it is at. Do that step only:
+  goes through these steps to be closed: Not started, Define, Review
+  definition, Plan, Review plan, Implement, Agent review, Your review. When
+  you are started on a bead you are told which step it is at. If you begin
+  work on a bead that is still Not started (for example from a typed
+  request), move it with `start` first. Then do that step only:
   1. *Define.* Make sure it is clear what is wanted, why, and what "done"
      means; ask the user what is unclear; write the agreed description and
      acceptance criteria onto the bead.

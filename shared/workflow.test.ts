@@ -26,13 +26,15 @@ test("the workflow hangs together", () => {
 });
 
 test("an issue with no state, or an unknown one, is at the first state", () => {
-  assert.equal(stateOf(flow, null).id, "define");
-  assert.equal(stateOf(flow, "something-old").id, "define");
+  assert.equal(stateOf(flow, null).id, "not-started");
+  assert.equal(stateOf(flow, "something-old").id, "not-started");
+  assert.equal(stateOf(flow, null).actor, "user");
   assert.equal(stateOf(flow, "plan").id, "plan");
 });
 
 test("the whole path, each move made by the one whose move it is", () => {
   const path: [string, string, Actor][] = [
+    ["not-started", "start", "user"],
     ["define", "done", "agent"],
     ["review-definition", "approve", "user"],
     ["plan", "done", "agent"],
@@ -72,6 +74,17 @@ test("a move cannot jump ahead", () => {
   assert.match(go("plan", "accept", "user"), /^refused/u);
   assert.match(go("implement", "skip", "agent"), /^refused/u);
   assert.match(go("agent-review", "skip", "user"), /^refused/u);
+});
+
+test("a new issue is started by the user's main button, or by the agent", () => {
+  const main = movesFor(flow, "not-started", "user")[0]!;
+  assert.equal(main.id, "start");
+  assert.equal(main.label, "Define");
+  assert.equal(go(null, "start", "user", ""), "define");
+  assert.equal(go(null, "start", "agent", ""), "define");
+  // Not started is not the agent's step: it cannot report work from there.
+  assert.match(go(null, "done", "agent"), /^refused: .*no move called "done"/u);
+  assert.equal(go("not-started", "skip", "user", "already clear"), "plan");
 });
 
 test("define and plan can be skipped, with a reason", () => {
