@@ -35,7 +35,7 @@ import {
 import { RowMenu } from "./row-menu.tsx";
 import type { RowAsk } from "./row-menu.tsx";
 import { CurrentToggle } from "./current-toggle.tsx";
-import { ZoomInIcon } from "./epic-band.tsx";
+import { EnterEpicIcon } from "./epic-band.tsx";
 
 /**
  * One issue: a compact line that opens to show its details, with its
@@ -325,7 +325,7 @@ export function IssueRow({
             aria-label={`Show only the sub-issues of ${issue.id} in the list`}
             onClick={() => actions.focus(issue.id)}
           >
-            <ZoomInIcon className="size-4" />
+            <EnterEpicIcon className="size-4" />
           </Button>
         )}
         {/* What the issue's step in its workflow offers: the agent's run

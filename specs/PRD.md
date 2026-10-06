@@ -317,6 +317,8 @@ An issue can contain other issues, and those can contain more, to any depth.
 
 ## Epic mode
 
+It is called "epic mode" everywhere the owner sees it. `[0ai]`
+
 With a large epic, the owner can zoom in on it: the panel then shows only
 that epic's issues, and the current issue is picked from among them. `[ha9]`
 
@@ -679,8 +681,9 @@ breaking a requirement above.
   cancelling "Close"; inside the opened issue it is a labelled button, as
   is Reopen on a closed issue.
 - Epic mode: it is offered on every open issue that has sub-issues,
-  whatever its type: a magnifier button on its row beside the button for
-  the details window, and a "Focus" button inside the opened issue (which
+  whatever its type: a button on its row, with an arrow going down into an
+  open ring, beside the button for
+  the details window, and an "Epic mode" button inside the opened issue (which
   is how a sub-issue is zoomed in on). Where it may not be entered the
   button is greyed out, the mouse pointer over it stays the ordinary arrow,
   and its tooltip reads "You can only enter epic mode when no issue is
@@ -708,7 +711,7 @@ breaking a requirement above.
   with the back arrow and after epic mode ended by itself; not after going
   up one level, which is still epic mode. While the conversation's current
   issue is from outside that epic the line is greyed out, with the same
-  explanation as the magnifier. It goes when the epic is closed or no
+  explanation as the button that enters epic mode. It goes when the epic is closed or no
   longer exists, and entering another epic makes that one the epic to go
   back to. It is remembered per conversation, on this computer.
 - Epic mode: it is remembered on the computer it was chosen on; the same

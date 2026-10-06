@@ -56,7 +56,7 @@ From top to bottom the tab shows:
    issues keep their steps while it is on Simple. The menu also holds the
    setup steps.
 2. **Epic band** (pinned, only in epic mode): an issue with sub-issues has
-   a magnifier button that zooms the list in on it, so only its direct
+   a button (an arrow going into a ring) that zooms the list in on it, so only its direct
    sub-issues are listed, as full rows. The band names the epic and its
    back arrow goes up one level. Once every issue under the epic is
    closed, the band offers "Close epic". After you leave epic mode, a

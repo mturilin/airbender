@@ -8,6 +8,11 @@
 // cosmetically show only the issues inside the epic"), that it belongs to
 // the conversation, and that it is remembered.
 //
+// Naming: the product calls this "epic mode", and that is the only name the
+// user sees. In the code it is "focus" throughout (the focused epic,
+// focusBlock, actions.focus, this file's hook): the same thing, named
+// before the product's word was settled. Read "focus" here as "epic mode".
+//
 // Design notes:
 // - Kept in the browser's local storage under the thread's id, like Group
 //   and Filter (use-filters.ts) are kept per folder. Nothing but the tab

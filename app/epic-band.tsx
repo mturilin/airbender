@@ -12,6 +12,11 @@
 // - EpicReturn, further down, is the same place on the whole list: one line
 //   that goes back into the epic last left.
 //
+// Naming: the product calls this "epic mode", and that is the only name the
+// user sees. In the code it is "focus" throughout (the focused epic,
+// focusBlock, actions.focus, the hook in use-focus.ts): the same thing, named
+// before the product's word was settled. Read "focus" here as "epic mode".
+//
 // Design notes:
 // - The arrow goes up one level: to the issue the epic is inside when there
 //   is one, otherwise to the whole list. Epic mode goes down one level at a
@@ -23,7 +28,7 @@
 //   line above the message box opens for the current issue (the user's
 //   request); a click keeps it open. It opens downwards: the band is near
 //   the top of the tab.
-// - The icons are Tabler Icons' "arrow-back-up" and "zoom-in" (MIT, (c)
+// - The icons are Tabler Icons' "arrow-back-up" and "arrow-down-to-arc" (MIT, (c)
 //   Pawel Kuna), copied in as their paths: BB's icon set has neither, and
 //   the user asked for Tabler or Font Awesome over home-made drawings.
 
@@ -54,16 +59,18 @@ export function BackUpIcon({ className }: { className?: string }) {
 }
 
 /**
- * A magnifier with a plus: zoom in on this epic. Not a target, which is
- * the icon for making an issue current.
+ * An arrow going down into an open ring: go into this epic. The icon for
+ * entering epic mode, everywhere it can be entered (the user's choice,
+ * bead-bb-0ai, after a magnifier with a plus was used first). Tabler Icons'
+ * "arrow-down-to-arc". Not a target, which is the icon for making an issue
+ * current.
  */
-export function ZoomInIcon({ className }: { className?: string }) {
+export function EnterEpicIcon({ className }: { className?: string }) {
   return (
     <svg {...STROKE} className={className}>
-      <path d="M3 10a7 7 0 1 0 14 0a7 7 0 1 0 -14 0" />
-      <path d="M7 10l6 0" />
-      <path d="M10 7l0 6" />
-      <path d="M21 21l-6 -6" />
+      <path d="M12 3v12" />
+      <path d="M16 11l-4 4l-4 -4" />
+      <path d="M3 12a9 9 0 0 0 18 0" />
     </svg>
   );
 }
@@ -219,7 +226,7 @@ export function EpicReturn({
         size="sm"
         // Greyed out by hand, not `disabled`, so the tooltip with the
         // reason still shows; a press then does nothing. The pointer stays
-        // the plain arrow (see the magnifier in IssueRow).
+        // the plain arrow (see the same button in IssueRow).
         className={
           "h-7 min-w-0 flex-1 justify-start gap-1.5 px-2 text-xs font-normal text-muted-foreground" +
           (blocked === null ? "" : " cursor-default opacity-40 hover:bg-transparent")
@@ -230,7 +237,7 @@ export function EpicReturn({
           if (blocked === null) onReturn();
         }}
       >
-        <ZoomInIcon className="size-4 shrink-0" />
+        <EnterEpicIcon className="size-4 shrink-0" />
         {/* The words, the id and the title share one baseline. The id is
             in the monospace font, whose letters sit at a different height
             in their line: centred box against box, as a button lays its

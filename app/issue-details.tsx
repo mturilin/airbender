@@ -40,7 +40,7 @@ import {
   useWorkflow,
 } from "./workflow-controls.tsx";
 import { CurrentToggle } from "./current-toggle.tsx";
-import { ZoomInIcon } from "./epic-band.tsx";
+import { EnterEpicIcon } from "./epic-band.tsx";
 import type { RowAsk } from "./row-menu.tsx";
 
 /**
@@ -370,12 +370,14 @@ export function IssueDetails({
             aria-disabled={focusOffer.blocked !== null}
             tip={
               focusOffer.blocked ??
-              "Epic mode: show only this issue's sub-issues in the list"
+              "Show only this issue's sub-issues in the list"
             }
             onClick={() => actions.focus(issue.id)}
           >
-            <ZoomInIcon className="size-4" />
-            Focus
+            <EnterEpicIcon className="size-4" />
+            {/* "Epic mode", the one name for this that the user sees
+                anywhere; this button used to say "Focus". */}
+            Epic mode
           </Button>
         )}
         {/* A compact sub-issue row has no buttons of its own (see
