@@ -384,6 +384,17 @@ export const rpcContract = defineRpcContract({
     }),
     output: z.object({ message: z.string().nullable() }),
   },
+  issue_request_sizing: {
+    // The user asks for one issue to be sized now by the background agent.
+    // Only for an open issue that has not been started.
+    input: z.object({
+      threadId: z.string().nullable(),
+      projectId: z.string().nullable(),
+      beadId: z.string(),
+    }),
+    // `message` is null when a worker was started or the issue queued.
+    output: z.object({ message: z.string().nullable() }),
+  },
   workflow_set: {
     // Chooses the workflow for the folder's repository. Its work trees
     // follow. Issues keep their steps; on "simple" they are only not shown.

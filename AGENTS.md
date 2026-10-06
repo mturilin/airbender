@@ -63,7 +63,9 @@ not at the end.
   When you switch to another bead, set that one; when the work is committed
   and you are on no bead, clear it.
 - Give the bead a real description: what is wanted and **why**, in the user's
-  own words where possible. Set type and priority.
+  own words where possible. Set type and priority. You may also give a bead
+  you create a size, with the label `size:s`, `size:m` or `size:l`: you know
+  it better than the background agent that sizes unsized beads.
 - Write what "done" means: `bd update <id> --acceptance "..."`.
 
 - **Ask the bead's open questions first.** If the bead records open

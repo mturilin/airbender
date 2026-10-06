@@ -59,7 +59,9 @@ example "\`bd close <id>\` to complete work"), these rules take precedence.
   are started on an issue that has no size, size it first: S (small: done
   in one go, the user sees it once, at the end), M (medium: definition and
   plan together, one review, then the result) or L (large: every step). In
-  doubt, take the larger. The user can set or change the size.
+  doubt, take the larger. The user can set or change the size. When you
+  create an issue yourself you may give it a size, with the label
+  \`size:s\`, \`size:m\` or \`size:l\`.
 - **(standard) Every issue goes through its workflow.** Do the step you are
   started on only, and report it with the \`beads_workflow_move\` tool when
   it is finished. You may move an issue to another step when that is where

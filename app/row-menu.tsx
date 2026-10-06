@@ -38,6 +38,7 @@ import { usePortalScopeProps } from "@/lib/portal-scope";
 import { cn } from "@/lib/utils";
 import type { Issue } from "../server/contract.ts";
 import { CLOSED_STATUS } from "../shared/constants.ts";
+import { stateOf } from "../shared/workflow.ts";
 import { useActions } from "./actions.ts";
 import { LinkIcon } from "./bits.tsx";
 import { CurrentIcon } from "./current-toggle.tsx";
@@ -73,6 +74,34 @@ function Entry({
 }
 
 /**
+ * Arrows along two sides of a box: its measurements. For the size row.
+ * Tabler Icons' "dimensions" (MIT, (c) Pawel Kuna), copied in as its
+ * paths: BB's icon set has nothing for size.
+ */
+function SizeIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      className={className}
+    >
+      <path d="M3 5h11" />
+      <path d="M12 7l2 -2l-2 -2" />
+      <path d="M5 3l-2 2l2 2" />
+      <path d="M19 10v11" />
+      <path d="M17 19l2 2l2 -2" />
+      <path d="M21 12l-2 -2l-2 2" />
+      <path d="M3 12a2 2 0 0 1 2 -2h7a2 2 0 0 1 2 2v7a2 2 0 0 1 -2 2h-7a2 2 0 0 1 -2 -2l0 -7" />
+    </svg>
+  );
+}
+
+/**
  * The three-dots button and its menu, for one issue.
  *
  * @param onAsk Called for Edit, Move to and Link: the row opens the issue
@@ -103,7 +132,11 @@ export function RowMenu({
     style: CSSProperties;
   } | null>(null);
   const closed = issue.status === CLOSED_STATUS;
-  const sizes = useWorkflow()?.sizes;
+  const workflow = useWorkflow();
+  const sizes = workflow?.sizes;
+  const notStarted =
+    workflow !== null &&
+    stateOf(workflow, issue.step).id === workflow.initial;
   const canResize = useCanResize(issue);
   const current = actions.currentBeadId === issue.id;
   /** Runs an entry's action and shuts the menu. */
@@ -205,29 +238,45 @@ export function RowMenu({
                     icon={<Icon name="MoveTo" className="size-4 shrink-0 text-muted-foreground" />}
                     onPick={pick(() => onAsk("move"))}
                   >Move to…</Entry>
-                  {/* Giving an issue a size before the agent does (the
-                      user's option): then the agent follows it. Only
-                      while it has none; after that the size is a dropdown
-                      on the issue itself. */}
-                  {sizes === undefined || issue.size !== null || !canResize ? null : (
-                    <div
-                      className="flex items-center gap-2 px-2 py-1 text-sm"
-                      title="How much of the workflow this issue takes. Left alone, the agent chooses when it starts."
-                    >
-                      <span className="size-4 shrink-0" />
+                  {/* The issue's size, in one row: the sizes to set it by
+                      hand, and "Auto" to have the background agent size
+                      it now. One row with an icon, after the user found a
+                      separate text entry for the second "horrible". Shown
+                      while the size may still change; "Auto" only before
+                      the issue is started, since afterwards its size is
+                      the user's and the agent's. */}
+                  {sizes === undefined || !canResize ? null : (
+                    <div className="flex items-center gap-2 px-2 py-1 text-sm">
+                      <SizeIcon className="size-4 shrink-0 text-muted-foreground" />
                       <span className="flex-1">Size</span>
                       {sizes.map((size) => (
                         <button
                           key={size.id}
                           type="button"
-                          role="menuitem"
+                          role="menuitemradio"
+                          aria-checked={issue.size === size.id}
                           title={size.hint}
                           onClick={pick(() => actions.setSize(issue.id, size.id))}
-                          className="w-7 cursor-pointer rounded border border-border py-px text-center text-xs hover:bg-state-hover"
+                          className={cn(
+                            "w-7 cursor-pointer rounded border border-border py-px text-center text-xs hover:bg-state-hover",
+                            issue.size === size.id &&
+                              "border-foreground/40 bg-foreground/10 font-medium",
+                          )}
                         >
                           {size.label}
                         </button>
                       ))}
+                      {notStarted ? (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          title="Have the background agent size this issue now. It replaces the size the issue has."
+                          onClick={pick(() => actions.requestSizing(issue.id))}
+                          className="cursor-pointer rounded border border-border px-1.5 py-px text-xs hover:bg-state-hover"
+                        >
+                          Auto
+                        </button>
+                      ) : null}
                     </div>
                   )}
                   <Entry

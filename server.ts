@@ -91,6 +91,7 @@ import { rpcContract } from "./server/contract.ts";
 import { createCurrentBead } from "./server/current-bead.ts";
 import { createFolders } from "./server/folder.ts";
 import { createSetup } from "./server/setup.ts";
+import { REPORT_TOOL, createSizing } from "./server/sizing.ts";
 import { createStore } from "./server/store.ts";
 import { createWatcher } from "./server/watch.ts";
 import { createWork } from "./server/work.ts";
@@ -118,6 +119,31 @@ export default async function plugin(bb: BbPluginApi) {
       description:
         "Name or full path of the beads command-line tool. Leave as bd unless BB cannot find it.",
       default: "bd",
+    },
+    // Background sizing (bead-bb-zkc). On BB's own page because a tab
+    // cannot open a settings screen of the plugin's; the tab's menu says
+    // where these are. Read each time a worker is about to start, so a
+    // change here needs no reload.
+    backgroundSizing: {
+      type: "boolean",
+      label: "Size issues in the background",
+      description:
+        "A background agent gives new and changed issues a size (S, M or L) before they are started. Sizes you set yourself are never changed. Standard workflow only.",
+      default: true,
+    },
+    sizingProvider: {
+      type: "string",
+      label: "Sizing provider",
+      description:
+        "The provider the background agent runs on, as listed by `bb provider list`. Empty uses the project's default.",
+      default: "claude-code",
+    },
+    sizingModel: {
+      type: "string",
+      label: "Sizing model",
+      description:
+        "The model for the background agent; it must belong to the provider above. Haiku is cheap and quick; claude-sonnet-5 judges code better. Empty uses the provider's default.",
+      default: "claude-haiku-4-5-20251001",
     },
   });
   const { bdCommand } = await settings.get();
@@ -148,7 +174,28 @@ export default async function plugin(bb: BbPluginApi) {
     watchFolder,
     workflowChoice,
   });
-  const work = createWork({ bb, store, currentBead, workflowChoice });
+  const sizing = await createSizing({
+    bb,
+    readSettings: async () => {
+      const now = await settings.get();
+      return {
+        enabled: now.backgroundSizing,
+        providerId: now.sizingProvider,
+        model: now.sizingModel,
+      };
+    },
+    readIssues: store.readIssues,
+    setSize: store.setSize,
+    addComment: store.addComment,
+    workflowFor: workflowChoice.workflowFor,
+  });
+  const work = createWork({
+    bb,
+    store,
+    currentBead,
+    workflowChoice,
+    onUserSize: sizing.forget,
+  });
   const { setupStatus, runSetup } = createSetup({ bb, folders, store });
 
   // Every handler is one call into a module: what each does, and how it
@@ -156,7 +203,15 @@ export default async function plugin(bb: BbPluginApi) {
   // answer with data (a state or a message in plain words) and none throws
   // for an expected problem, so the tab has one way to show a failure.
   bb.rpc.register(rpcContract, {
-    issues_list: (input) => store.listIssues(input),
+    issues_list: async (input) => {
+      const listed = await store.listIssues(input);
+      // Every list a tab asks for is also the moment to see whether an
+      // issue is new or has changed and wants a size (server/sizing.ts).
+      if (listed.state === "ok" && listed.path !== null) {
+        sizing.consider(listed.path, listed.issues, input);
+      }
+      return listed;
+    },
     issue_comments: (input) => store.listComments(input),
     issue_create: (input) => store.createIssue(input),
     // Cancel: closing without finishing. Finishing is a workflow move. On
@@ -173,6 +228,11 @@ export default async function plugin(bb: BbPluginApi) {
       message: (await work.move(input, "user")).message,
     }),
     issue_set_size: (input) => work.resize(input),
+    issue_request_sizing: async (input) => {
+      const found = await store.issuesIn(input, input.beadId);
+      if ("message" in found) return { message: found.message };
+      return sizing.request(found.path, input.beadId, input);
+    },
     workflow_set: async (input) => {
       const folder = await folders.folderFor(input);
       if ("message" in folder) return { message: folder.message };
@@ -313,6 +373,34 @@ export default async function plugin(bb: BbPluginApi) {
     },
   });
 
+  // How a background sizing worker hands in its sizes (server/sizing.ts).
+  // A native tool because a worker's sandbox cannot write to beads; the
+  // plugin writes the sizes itself, after checking each one.
+  bb.agents.registerTool({
+    name: REPORT_TOOL,
+    description:
+      "Report the sizes chosen for the issues you were given to size. Call it once, with every issue.",
+    instructions:
+      "You are a background sizing worker. Report every issue you were given in one call of beads_report_sizes; it writes the sizes onto the issues. Run no commands and change nothing yourself.",
+    presentation: {
+      label: { pending: "Reporting sizes", completed: "Reported sizes" },
+    },
+    parameters: z.object({
+      sizes: z
+        .array(
+          z.object({
+            id: z.string().describe("Issue id, as given."),
+            size: z.string().describe('The size: "s", "m" or "l".'),
+            reason: z.string().describe("One line saying why."),
+          }),
+        )
+        .describe("One entry per issue."),
+    }),
+    async execute({ sizes }, { threadId }) {
+      return sizing.report(threadId, sizes);
+    },
+  });
+
   // Offer both tools to every thread, whatever its folder holds and
   // whichever workflow its repository is on (bead-bb-8fm). BB settles a
   // thread's tools when its session starts and adds none to a running one,
@@ -321,8 +409,13 @@ export default async function plugin(bb: BbPluginApi) {
   // started before beads was set up, or running across a switch of
   // workflow. Where a tool does not apply it refuses in plain words, and
   // its instructions begin with when it applies (server/agent-tools.ts).
-  bb.agents.configure(() => ({
-    tools: ["beads_set_current", MOVE_TOOL],
+  //
+  // The plugin's own sizing workers are the exception: they get the one
+  // tool they report with and nothing else, and nobody else gets that one.
+  bb.agents.configure((context) => ({
+    tools: sizing.isWorker(context.thread.title)
+      ? [REPORT_TOOL]
+      : ["beads_set_current", MOVE_TOOL],
     skills: [],
   }));
 }

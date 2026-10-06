@@ -164,6 +164,11 @@ export interface Workflow {
    */
   sizes?: readonly WorkflowSize[];
   /**
+   * The sizes described for an agent that has to choose one: one line per
+   * size. The same wording wherever an agent sizes an issue.
+   */
+  sizeGuide?: string;
+  /**
    * Whether an issue's size may still be changed while it is in this state.
    * Only asked of a workflow that has `sizes`.
    */

@@ -96,6 +96,11 @@ From top to bottom the tab shows:
    can change it until the work reaches you; you can also set it yourself
    beforehand from the row's "⋯" menu. A plain question in the chat needs no
    issue.
+   Unless switched off, a background agent sizes new and changed issues
+   before they are started (a hidden worker thread on a small model; see
+   Settings), leaving alone any size you or an agent set and any issue that
+   has started. "Auto" on the Size row of an issue's menu does it on
+   request.
    On the main branch Human review offers "Accept & commit", which goes
    straight to the commit. On another branch "Accept" moves the issue to
    Apply, where you choose "Commit" or "Commit & merge"; the agent does it,
@@ -177,10 +182,17 @@ reloads when it ends and shows the last output if it failed.
 
 ## Settings
 
-- `bd command` — name or full path of the `bd` tool. Change it only if BB
-  cannot find `bd`.
+In BB under Tools, then Airbender (the tab's "⋯" menu says so too; a tab
+cannot open that page itself, see get-bb/bb#5014).
 
-Reload the plugin after changing a setting.
+- `bd command` — name or full path of the `bd` tool. Change it only if BB
+  cannot find `bd`. Reload the plugin after changing it.
+- `Size issues in the background` — on by default. Off stops the automatic
+  sizing; "Auto" on the Size row of an issue's menu still works.
+- `Sizing provider` and `Sizing model` — what the background agent runs on:
+  by default `claude-code` and `claude-haiku-4-5-20251001`. The model must
+  belong to the provider (`bb provider models <provider>` lists them). These
+  three are read each time a sizing starts; no reload is needed.
 
 ## Develop
 

@@ -734,6 +734,7 @@ function describeForAgents(): string {
     `Every beads issue in this repository goes through these steps before it is closed: ${steps}.`,
     "You are told which step an issue is at when you are started on it. Do that step.",
     `Not every issue takes every step. Issues have a size, S, M or L, which you choose when you are started on one that has none, with the move \`size:s\`, \`size:m\` or \`size:l\` at ${states[1]!.label}: S is done in one go and reaches the user once, at the end; M has one review at the front, of definition and plan together; L takes every step. In doubt, take the larger. The user can set or change the size; you are told when they do.`,
+    "When you create an issue yourself you may give it a size, since you know it better than anyone sizing it later: add the label `size:s`, `size:m` or `size:l`.",
     "A plain question or a discussion needs no issue: answer it in the conversation. Create an issue only when something is to be changed; where a discussion ends in a decision worth keeping, offer to record it.",
     `If you begin work on an issue that is still at ${states[0]!.label} (for example from a typed request), move it with \`start\` first.`,
     `When you finish a step, report it with the ${MOVE_TOOL} tool (${agentMoves}), each with a short note. The tool tells you what comes next: either your next step, or that the issue now waits for the user.`,
@@ -751,6 +752,7 @@ export const standardWorkflow: Workflow = {
   instruction,
   describeForAgents,
   sizes,
+  sizeGuide: SIZE_PATHS.join("\n"),
   canResize,
   resizeInstruction,
 };

@@ -434,6 +434,20 @@ The steps, in order: `[e2b]`
 - **The size is shown on the issue as a dropdown once it has one**; an
   issue without a size shows nothing. **The owner changes the size there**,
   and the agent then takes that size's path from where the issue is. `[4mb]`
+- **Issues are sized in the background** when they are created and when
+  they change, by an agent of their own, without the owner's conversation.
+  `[zkc]`
+  - Every change to the issue counts.
+  - A size the owner chose themselves is never overwritten.
+  - An issue that has started is not re-sized; the owner decides.
+  - All issues are sized, whoever created them.
+  - An agent may size an issue when it creates it; it knows more about it
+    than a background agent.
+  - It runs on a small, cheap model to begin with, which can be changed.
+  - It can be turned off. The switch and the model are on the app's own
+    settings page for the product, and the panel tells the owner where
+    that page is.
+  - **Each issue's menu has a command to trigger the sizing by hand.**
 - **A pure question does not need an issue**: asked in the conversation, it
   is answered there and creates none. `[4mb]`
 - **Where there is only one way to apply the work, accepting it goes
@@ -637,8 +651,8 @@ breaking a requirement above.
   says so.
 - Sizes: the size can be changed until the work reaches the owner for
   review; after that "Send back" says what should be redone. The owner can
-  give an issue a size before the agent does, from the row's menu ("Size",
-  with S, M and L) or from "Size…" inside the opened issue, and the agent
+  give an issue a size before the agent does, from the row's menu or from
+  "Size…" inside the opened issue, and the agent
   then follows it without sizing the issue itself. Going down a size is
   allowed: the reviews still ahead of the work are dropped. In doubt
   between two sizes the agent takes the larger, and if its work is sent
@@ -650,6 +664,24 @@ breaking a requirement above.
   the conversation's current issue. The
   sentence at "Review plan" reads "Please review what is planned and give
   feedback", because a medium issue's definition is reviewed there too.
+- Background sizing: on unless switched off. "A change" is a change to the
+  issue's title, description, acceptance criteria, design, notes or type,
+  or a sub-issue added or removed; not its comments, category, priority,
+  status or step, since the sizing itself writes a comment. It happens
+  while a panel on that repository is open; issues made with none open are
+  sized when one next opens. Issues are taken ten at a time, a few seconds
+  after the first needs a size. Each sized issue gets one comment with the
+  reason. An issue that could not be sized is not tried again until it
+  changes or the owner asks.
+- Sizes in an issue's menu: one row, marked with an icon of a box with its
+  measurements, holds "Size", then S, M and L (the present one marked),
+  then "Auto". S, M and L set the size by hand; "Auto" triggers the
+  background sizing for that issue. The row is there while the size may
+  still be changed; "Auto" only on an issue that has not been started. It
+  works also while the automatic sizing is switched off, and replaces the
+  size the issue has, the owner's own included.
+- Background sizing: the settings are an on/off switch, the provider and
+  the model. The panel's "⋯" menu ends with a line saying where they are.
 - Sizes: the dropdown shows S, M or L; its tooltip says what each means. On
   a closed issue no size is shown.
 - Work that changed no files is closed without a commit: the agent says so

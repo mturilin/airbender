@@ -125,6 +125,11 @@ export interface IssueCommands {
    */
   setSize: (beadId: string, size: string) => void;
   /**
+   * Asks the background agent to size an issue now, replacing any size it
+   * has. Only useful on an open issue that has not been started.
+   */
+  requestSizing: (beadId: string) => void;
+  /**
    * Cancel: asks to close an open issue without finishing it (the user
    * confirms in a dialog first). Finishing an issue is a workflow move.
    */
@@ -412,6 +417,11 @@ export function useIssueActions({
       applyMove(beadId, moveId, note);
     },
     reopen: (beadId) => applyOpen(beadId, true),
+    requestSizing: (beadId) => {
+      rpc
+        .call("issue_request_sizing", { threadId, projectId, beadId })
+        .then(settle, reportProblem);
+    },
     setSize: (beadId, size) => {
       rpc
         .call("issue_set_size", { threadId, projectId, beadId, size })

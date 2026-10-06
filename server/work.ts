@@ -77,11 +77,17 @@ export function createWork({
   store,
   currentBead,
   workflowChoice,
+  onUserSize,
 }: {
   bb: BbPluginApi;
   store: Store;
   currentBead: CurrentBead;
   workflowChoice: WorkflowChoice;
+  /**
+   * Told when the user has set an issue's size themselves, so that the
+   * background sizing treats that size as theirs (server/sizing.ts).
+   */
+  onUserSize: (path: string, beadId: string) => void;
 }) {
   const { issuesIn, setIssueOpen, setStep, setSize, addComment, changed } =
     store;
@@ -342,6 +348,7 @@ export function createWork({
     }
     const resized = await setSize(path, threadId, beadId, size, false);
     if (resized.message !== null) return resized;
+    onUserSize(path, beadId);
     const labelOf = (id: string | null) =>
       id === null
         ? "none"

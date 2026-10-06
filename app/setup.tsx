@@ -412,6 +412,14 @@ export function SetupMenu({
               </button>
             ))
           )}
+          {/* Where the plugin's settings are. In words, because a tab has
+              no way to open that page (asked of BB in get-bb/bb#5014); the
+              user asked to be directed there from here. */}
+          <div className="my-1 border-t border-border" />
+          <p className="px-2 py-1 text-xs text-muted-foreground">
+            Settings (background sizing and its model, the bd command): in
+            BB under Tools, then Airbender.
+          </p>
         </MenuPanel>
       ) : null}
     </div>
