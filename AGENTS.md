@@ -48,6 +48,10 @@ not at the end.
 
 - Every piece of work has a bead. If the user asks for something that has no
   bead yet, create one first (`bd create`), then claim it.
+- **A question is not work.** A plain question or a discussion needs no
+  bead: answer it in the conversation. Create a bead only when something is
+  to be changed. Where a discussion ends in a decision worth keeping, offer
+  to record it.
 - **Make the bead you work on the thread's current bead**, by calling the
   `beads_set_current` tool with its id, as soon as you start on it. This
   matters most when the work began from a plain typed request and you
@@ -83,7 +87,15 @@ not at the end.
   Apply. When
   you are started on a bead you are told which step it is at. If you begin
   work on a bead that is still Not started (for example from a typed
-  request), move it with `start` first. Then do that step only:
+  request), move it with `start` first.
+  **A bead takes only the steps its size needs.** When you are started on a
+  bead that has no size, size it first and say which in one line, with the
+  move `size:s`, `size:m` or `size:l`: S, small, is done in one go and
+  reaches the user once, at the end; M, medium, has one review at the front,
+  of definition and plan together; L, large, takes every step. In doubt,
+  take the larger. The user can set or change the size; you are told when
+  they do, and take the new path from where the bead is.
+  Then do the step you are at only:
   1. *Define.* Make sure it is clear what is wanted, why, and what "done"
      means; ask the user what is unclear; write the agreed description and
      acceptance criteria onto the bead.
@@ -93,7 +105,8 @@ not at the end.
   4. *Agent review.* Review the work against the bead as if someone else had
      done it; fix what you find.
   5. *Commit*, or *Commit & merge.* After the user has accepted the work
-     and chosen one of the two at Apply: do that (see "Committing a bead's
+     (on the main branch "Accept & commit" goes straight to Commit; on
+     another branch they choose one of the two at Apply): do that (see "Committing a bead's
      work" below), and report the step done, which closes the bead.
   The reviews of the definition, of the plan and of the finished work are
   the user's. While a bead waits for one of them, read what the user
@@ -106,10 +119,9 @@ not at the end.
   with a one-line note. It tells you what comes next: your next step, or
   that the bead now waits for the user, in which case say so and stop.
   You have the judgment to move a bead to where the work really is, with
-  your reason: `skip` leaves out Define or Plan when it is obvious (clear,
-  complete requirements; a small change with one evident way to do it), and
-  `to:<step>` goes to any step. Say so in one line, so the user can stop
-  you. If in doubt, do not skip. You cannot move a bead to Apply or past it.
+  your reason: the size you choose is the usual way to leave steps out;
+  `skip` leaves out Define or Plan, and `to:<step>` goes to any step. Say so
+  in one line, so the user can stop you. If in doubt, take the fuller path. You cannot move a bead to Apply or past it.
 
 **While working**
 

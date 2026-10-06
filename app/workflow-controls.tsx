@@ -20,6 +20,11 @@
 // - Which workflow is in force comes from the repository's choice, handed
 //   down by WorkflowProvider. On the simple workflow there is none, and
 //   everything in this file draws nothing (bead-bb-8j6).
+// - An issue's size (S, M, L: how many of the steps it takes) is shown
+//   here too, once it has one: a small dropdown beside the step, where the
+//   user corrects the agent's choice (bead-bb-4mb). An issue nobody has
+//   sized shows nothing (the user: "If it's not there, I'm not showing");
+//   it can be given one from the row's menu or inside the opened issue.
 // - A move that needs a reason (send back, skip) is not made on the click:
 //   the opened issue shows a small field for the reason first (NoteForm).
 
@@ -43,7 +48,7 @@ import type {
 } from "../shared/workflow.ts";
 import { useActions } from "./actions.ts";
 import type { IssueActions } from "./actions.ts";
-import { PersonIcon, RobotIcon } from "./bits.tsx";
+import { PersonIcon, RobotIcon, TAG_SELECT_CLASS, Tag } from "./bits.tsx";
 
 /** The workflow of the repository being shown; null when it has none. */
 const WorkflowContext = createContext<Workflow | null>(null);
@@ -134,6 +139,75 @@ export function StateChip({ state }: { state: WorkflowState }) {
       )}
       {state.label}
     </span>
+  );
+}
+
+/**
+ * Whether the user may set or change an issue's size now: the repository's
+ * workflow has sizes, the issue is open, and the workflow still allows it
+ * at the issue's step (until the work reaches the user for review).
+ */
+export function useCanResize(issue: Issue): boolean {
+  const workflow = useWorkflow();
+  return (
+    workflow !== null &&
+    workflow.sizes !== undefined &&
+    issue.status !== CLOSED_STATUS &&
+    workflow.canResize?.(stateOf(workflow, issue.step).id) === true
+  );
+}
+
+/**
+ * An issue's size, beside its step. Nothing for an issue without a size,
+ * for a closed one, and where the workflow has no sizes.
+ *
+ * A dropdown while the size may still be changed and `onChange` is given;
+ * a plain tag otherwise. Changing it tells the agent to take the new
+ * size's path (the backend does that).
+ *
+ * @param onChange Called with the new size id.
+ */
+export function SizeTag({
+  issue,
+  onChange,
+}: {
+  issue: Issue;
+  onChange?: (size: string) => void;
+}) {
+  const workflow = useWorkflow();
+  const canResize = useCanResize(issue);
+  const sizes = workflow?.sizes;
+  if (sizes === undefined || issue.status === CLOSED_STATUS) return null;
+  const current = sizes.find((size) => size.id === issue.size);
+  // No size, or one this workflow does not know (written by hand).
+  if (current === undefined) return null;
+  if (onChange === undefined || !canResize) {
+    return (
+      <Tip label={`Size ${current.label}. ${current.hint}`}>
+        <span className="shrink-0 cursor-default">
+          <Tag>{current.label}</Tag>
+        </span>
+      </Tip>
+    );
+  }
+  return (
+    <select
+      aria-label={`Size of ${issue.id}`}
+      // A plain title, not the app's tooltip: a tooltip over a dropdown
+      // covers its own list.
+      title={`Size: how much of the workflow this issue takes. ${sizes
+        .map((size) => `${size.label}: ${size.hint}`)
+        .join(" ")}`}
+      value={current.id}
+      onChange={(event) => onChange(event.target.value)}
+      className={`${TAG_SELECT_CLASS} font-medium text-muted-foreground`}
+    >
+      {sizes.map((size) => (
+        <option key={size.id} value={size.id}>
+          {size.label}
+        </option>
+      ))}
+    </select>
   );
 }
 

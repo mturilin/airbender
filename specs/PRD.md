@@ -421,6 +421,26 @@ The steps, in order: `[e2b]`
     chosen. `[7h1]`
 11. Then the issue is **closed**.
 
+**An issue takes only as many of these steps as it needs.** `[4mb]`
+
+- **The button on an issue that is not started reads "Start".** `[4mb]`
+- **The agent sizes the issue first**, and says which size in one line.
+  The sizes are T-shirt sizes: `[4mb]`
+  - **S, small**: definition, the work and the agent's own review in one
+    go; the owner sees it once, at the end.
+  - **M, medium**: the definition and the plan come together, for one
+    review by the owner, then the result.
+  - **L, large**: every step, as listed above.
+- **The size is shown on the issue as a dropdown once it has one**; an
+  issue without a size shows nothing. **The owner changes the size there**,
+  and the agent then takes that size's path from where the issue is. `[4mb]`
+- **A pure question does not need an issue**: asked in the conversation, it
+  is answered there and creates none. `[4mb]`
+- **Where there is only one way to apply the work, accepting it goes
+  straight to committing.** On the main branch the owner's review offers
+  "Accept & commit"; on another branch it offers "Accept" and then the two
+  options at Apply. `[4mb]`
+
 Rules:
 
 - **The panel shows which step each open issue is at**, first among the
@@ -453,10 +473,12 @@ Rules:
   `[eg0]`
 - **At Apply the owner is given two options, "Commit" and "Commit &
   merge". Both close the issue** once the agent has done it. `[7h1]`
-  `[lmy]`
+  `[lmy]` Apply is reached only where both options exist (see above).
+  `[4mb]`
 - **A step may be skipped with a stated reason**, which is recorded. `[e2b]`
 - **Accepting at the owner's review does not close the issue. It moves it
-  to Apply**, and from there the agent commits the work as the owner chose.
+  to Apply, or straight to the commit** where there is nothing to choose,
+  and from there the agent commits the work as the owner chose.
   **The issue closes only once its work is in git.** `[0uh]` `[d37]`
 - **Closing an issue that has sub-issues closes all of them**: the issue
   and every sub-issue still open inside it, at any depth. `[5qt]`
@@ -613,6 +635,27 @@ breaking a requirement above.
   dropped on empty space in the list goes directly under the epic, where
   outside epic mode it goes to the top level. An epic with nothing to list
   says so.
+- Sizes: the size can be changed until the work reaches the owner for
+  review; after that "Send back" says what should be redone. The owner can
+  give an issue a size before the agent does, from the row's menu ("Size",
+  with S, M and L) or from "Size…" inside the opened issue, and the agent
+  then follows it without sizing the issue itself. Going down a size is
+  allowed: the reviews still ahead of the work are dropped. In doubt
+  between two sizes the agent takes the larger, and if its work is sent
+  back it takes the next larger path. A small issue that turns out not to
+  be small is re-sized by the agent, which says so.
+- Sizes: a small issue shows "Implement" as soon as it is sized, since that
+  is the step its work is in. A change of size is recorded on the issue,
+  and the agent is told only when the issue is already under way and is
+  the conversation's current issue. The
+  sentence at "Review plan" reads "Please review what is planned and give
+  feedback", because a medium issue's definition is reviewed there too.
+- Sizes: the dropdown shows S, M or L; its tooltip says what each means. On
+  a closed issue no size is shown.
+- Work that changed no files is closed without a commit: the agent says so
+  when it reaches the commit.
+- Where a discussion in the conversation ends in a decision worth keeping,
+  the agent offers to record it.
 - The small step button on a row: lower than the icon buttons beside it,
   small text, no border, a soft grey fill that darkens under the pointer;
   it keeps its icon, label and tooltip. On the current issue it is the

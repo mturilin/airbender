@@ -23,6 +23,11 @@
 //   how it is delivered (today: a message to the thread; later perhaps a
 //   background agent). See server/work.ts.
 //
+// - A workflow may let issues differ in how many of its steps they take: it
+//   names sizes, and its instructions and moves use them (bead-bb-4mb). The
+//   tab and the server only store the size and show it; what a size means
+//   is the workflow's.
+//
 // Gotchas:
 // - Like the other files in shared/, this one has no imports, so it is safe
 //   to bundle on either side and to load in tests.
@@ -99,6 +104,17 @@ export interface WorkflowMove {
    */
   ownBranchOnly?: boolean;
   /**
+   * The counterpart of `ownBranchOnly`: offered only when the work is NOT on
+   * a branch of its own, e.g. a move that commits straight away because
+   * there is nothing to choose.
+   */
+  mainBranchOnly?: boolean;
+  /**
+   * The move also sets the issue's size to this (an id from the workflow's
+   * `sizes`). How the agent records the size it chose.
+   */
+  size?: string;
+  /**
    * Left out when the moves open at a step are listed for someone (in a
    * refusal, in the agent's instructions). For moves that exist at nearly
    * every step and would drown the ones particular to it.
@@ -106,10 +122,22 @@ export interface WorkflowMove {
   unlisted?: boolean;
 }
 
+/** One size an issue can have: how much of the workflow it takes. */
+export interface WorkflowSize {
+  /** Stored on the issue; letters, digits and dashes only. */
+  id: string;
+  /** Shown in the tab's dropdown, e.g. "S". */
+  label: string;
+  /** One line saying what the size means, for the dropdown's tooltip. */
+  hint: string;
+}
+
 /** What a workflow's instruction may say about the issue. */
 export interface WorkflowIssue {
   id: string;
   title: string;
+  /** The issue's size (an id from `sizes`); null when it has none yet. */
+  size: string | null;
   /** Its open sub-issues, at any depth; worked together with it. */
   openSubIssues: readonly { id: string; title: string }[];
 }
@@ -130,6 +158,28 @@ export interface Workflow {
   instruction(state: WorkflowState, issue: WorkflowIssue, note?: string): string;
   /** Standing instructions for agents: how issues move and what they may do. */
   describeForAgents(): string;
+  /**
+   * The sizes an issue can have, smallest first. Left out by a workflow in
+   * which every issue takes every step.
+   */
+  sizes?: readonly WorkflowSize[];
+  /**
+   * Whether an issue's size may still be changed while it is in this state.
+   * Only asked of a workflow that has `sizes`.
+   */
+  canResize?(stateId: string): boolean;
+  /**
+   * What to tell the agent when the user has changed the size of an issue
+   * the agent is working on.
+   *
+   * @param from The size it had; null when it had none.
+   */
+  resizeInstruction?(
+    state: WorkflowState,
+    issue: WorkflowIssue,
+    from: string | null,
+    to: string,
+  ): string;
 }
 
 /**
@@ -158,7 +208,9 @@ export function offeredMoves(
   context: WorkflowContext,
 ): WorkflowMove[] {
   return movesFor(workflow, stateId, by).filter(
-    (move) => move.ownBranchOnly !== true || context.ownBranch,
+    (move) =>
+      (move.ownBranchOnly !== true || context.ownBranch) &&
+      (move.mainBranchOnly !== true || !context.ownBranch),
   );
 }
 
@@ -238,12 +290,28 @@ export function problemsIn(workflow: Workflow): string[] {
     if (state.actor === "agent" && state.runLabel === undefined) {
       problems.push(`Agent state "${state.id}" has no button label.`);
     }
-    const mains = workflow.moves.filter(
-      (move) => move.from === state.id && move.primary === true,
-    );
-    if (mains.length > 1) problems.push(`State "${state.id}" has two main moves.`);
+    // At most one main button at a time: two may exist when they are never
+    // offered together (one on the main branch, one on a branch of its own).
+    for (const ownBranch of [false, true]) {
+      const mains = offeredMoves(workflow, state.id, "user", {
+        ownBranch,
+      }).filter((move) => move.primary === true);
+      if (mains.length > 1) {
+        problems.push(`State "${state.id}" has two main moves.`);
+        break;
+      }
+    }
+  }
+  const sizeIds = new Set((workflow.sizes ?? []).map((size) => size.id));
+  for (const size of sizeIds) {
+    if (!/^[a-z0-9][a-z0-9-]*$/u.test(size)) {
+      problems.push(`Size id "${size}" cannot be stored as a label.`);
+    }
   }
   for (const move of workflow.moves) {
+    if (move.size !== undefined && !sizeIds.has(move.size)) {
+      problems.push(`Move "${move.id}" sets an unknown size.`);
+    }
     if (!ids.has(move.from)) problems.push(`Move "${move.id}" starts at an unknown state.`);
     if (move.to !== CLOSED && !ids.has(move.to)) {
       problems.push(`Move "${move.id}" from "${move.from}" leads to an unknown state.`);

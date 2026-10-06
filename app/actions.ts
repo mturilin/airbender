@@ -119,6 +119,12 @@ export interface IssueCommands {
    */
   move: (beadId: string, moveId: string, note: string) => void;
   /**
+   * Sets or changes an issue's size (S, M, L: how much of the workflow it
+   * takes), straight away. When the agent is already working on the issue
+   * the backend tells it to take the new size's path.
+   */
+  setSize: (beadId: string, size: string) => void;
+  /**
    * Cancel: asks to close an open issue without finishing it (the user
    * confirms in a dialog first). Finishing an issue is a workflow move.
    */
@@ -406,6 +412,11 @@ export function useIssueActions({
       applyMove(beadId, moveId, note);
     },
     reopen: (beadId) => applyOpen(beadId, true),
+    setSize: (beadId, size) => {
+      rpc
+        .call("issue_set_size", { threadId, projectId, beadId, size })
+        .then(settle, reportProblem);
+    },
     categories,
     setCategory: (beadId, category) => {
       rpc

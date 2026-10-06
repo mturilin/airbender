@@ -67,6 +67,12 @@ const issueSchema = z.object({
    * workflow's first state.
    */
   step: z.string().nullable(),
+  /**
+   * The issue's size (a size id from the workflow in shared/): how much of
+   * the workflow it takes. Null when nobody has sized it. Kept in beads as
+   * a label `size:<id>`.
+   */
+  size: z.string().nullable(),
   status: z.string(),
   /** 0 (most urgent) to 4; null when bd reported none. */
   priority: z.number().nullable(),
@@ -363,6 +369,18 @@ export const rpcContract = defineRpcContract({
       moveId: z.string(),
       /** Why: required by some moves, optional for the rest. */
       note: z.string().max(2000),
+    }),
+    output: z.object({ message: z.string().nullable() }),
+  },
+  issue_set_size: {
+    // The user sets or changes an issue's size. Allowed until the work
+    // reaches them for review. When the agent is already on the issue it is
+    // told to take the new size's path.
+    input: z.object({
+      threadId: z.string().nullable(),
+      projectId: z.string().nullable(),
+      beadId: z.string(),
+      size: z.string(),
     }),
     output: z.object({ message: z.string().nullable() }),
   },

@@ -45,6 +45,7 @@ import type { Folders } from "./folder.ts";
 import {
   CATEGORY_PREFIX,
   RELATES_TO,
+  SIZE_PREFIX,
   STEP_PREFIX,
   bdIssueSchema,
   cleanCategory,
@@ -85,7 +86,7 @@ const notInList = (id: string) => `Issue ${id} is no longer in the list.`;
  * @param watchFolder Starts watching a folder for outside changes
  *   (server/watch.ts).
  * @returns The operations named in this file's header, plus `readIssues`,
- *   `issuesIn`, `setStep` and `addComment`.
+ *   `issuesIn`, `setStep`, `setSize` and `addComment`.
  * Side effects: none until an operation is called.
  */
 export function createStore({
@@ -570,6 +571,30 @@ export function createStore({
   }
 
   /**
+   * Records an issue's size: how much of the workflow it takes.
+   *
+   * Pre-condition: `size` is a size id of the workflow, and the issue is
+   *   known to be in the folder.
+   */
+  function setSize(
+    path: string,
+    threadId: string | null,
+    beadId: string,
+    size: string,
+    publish = true,
+  ): Promise<Outcome> {
+    return setPrefixedLabel(
+      path,
+      threadId,
+      beadId,
+      SIZE_PREFIX,
+      size,
+      "bd update (size)",
+      publish,
+    );
+  }
+
+  /**
    * Adds a comment to an issue. Used for the record of workflow moves, which
    * is where the tab already shows an issue's history.
    *
@@ -717,6 +742,7 @@ export function createStore({
     unlink,
     listComments,
     setStep,
+    setSize,
     addComment,
     changed,
   };

@@ -17,7 +17,7 @@ import { ISSUE_TYPES } from "../shared/constants.ts";
 import type { IssueType } from "../shared/constants.ts";
 import type { IssueActions } from "./actions.ts";
 import { StatusTag, TAG_SELECT_CLASS, Tag } from "./bits.tsx";
-import { StateTag } from "./workflow-controls.tsx";
+import { SizeTag, StateTag } from "./workflow-controls.tsx";
 
 /** Value of the dropdown entry that switches CategorySelect to typing. */
 const NEW_CATEGORY = "\u0000new";
@@ -117,10 +117,13 @@ export function CategorySelect({
 export function IssueFacts({
   issue,
   onEdit,
+  onSize,
   category,
   showStatus = false,
 }: {
   issue: Issue;
+  /** When given, the issue's size, where it has one, can be changed. */
+  onSize?: IssueActions["setSize"];
   /** When given, priority and type become small dropdowns that call this. */
   onEdit?: IssueActions["edit"];
   /**
@@ -151,6 +154,13 @@ export function IssueFacts({
     <span className="mt-1 flex flex-wrap items-baseline gap-1.5">
       {/* The step comes first: it is the first thing to know. */}
       <StateTag issue={issue} />
+      {/* Its size, once it has one: how much of the workflow it takes. */}
+      <SizeTag
+        issue={issue}
+        onChange={
+          onSize === undefined ? undefined : (size) => onSize(issue.id, size)
+        }
+      />
       {/* Clicking the id copies it (bead-bb-c58): ids are what you type
           to an agent or into bd, and they are awkward to select by hand
           between the tags. */}

@@ -82,6 +82,22 @@ export function stepOf(labels: string[]): string | null {
   return step === "" ? null : step;
 }
 
+/** The label prefix an issue's size is stored under, e.g. "size:m". */
+export const SIZE_PREFIX = "size:";
+
+/**
+ * The size stored on an issue: how much of the workflow it takes.
+ *
+ * @returns The size id, or null when the issue has none. What the id means
+ *   is the workflow's (shared/workflow.ts); an id the workflow does not
+ *   know is simply not offered or shown.
+ */
+export function sizeOf(labels: string[]): string | null {
+  const label = labels.find((candidate) => candidate.startsWith(SIZE_PREFIX));
+  const size = label?.slice(SIZE_PREFIX.length).trim() ?? "";
+  return size === "" ? null : size;
+}
+
 /** Longest category name accepted. */
 const CATEGORY_MAX_LENGTH = 40;
 
@@ -253,6 +269,7 @@ export function toIssues(rows: BdIssue[]): Issue[] {
     commentCount: row.comment_count ?? 0,
     parentId: row.parent ?? null,
     step: stepOf(row.labels ?? []),
+    size: sizeOf(row.labels ?? []),
     status: row.status,
     priority: row.priority ?? null,
     type: row.issue_type ?? null,
@@ -260,7 +277,9 @@ export function toIssues(rows: BdIssue[]): Issue[] {
     category: categoryOf(row.labels ?? []),
     labels: (row.labels ?? []).filter(
       (label) =>
-        !label.startsWith(CATEGORY_PREFIX) && !label.startsWith(STEP_PREFIX),
+        !label.startsWith(CATEGORY_PREFIX) &&
+        !label.startsWith(STEP_PREFIX) &&
+        !label.startsWith(SIZE_PREFIX),
     ),
     updatedAt: row.updated_at ?? row.created_at ?? null,
     blockedBy: blockedBy.get(row.id) ?? [],

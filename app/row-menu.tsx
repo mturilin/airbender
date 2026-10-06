@@ -42,6 +42,7 @@ import { useActions } from "./actions.ts";
 import { LinkIcon } from "./bits.tsx";
 import { CurrentIcon } from "./current-toggle.tsx";
 import { useMenu } from "./menus.tsx";
+import { useCanResize, useWorkflow } from "./workflow-controls.tsx";
 
 /** What the menu can ask the opened issue to show. */
 export type RowAsk = "edit" | "move" | "link";
@@ -102,6 +103,8 @@ export function RowMenu({
     style: CSSProperties;
   } | null>(null);
   const closed = issue.status === CLOSED_STATUS;
+  const sizes = useWorkflow()?.sizes;
+  const canResize = useCanResize(issue);
   const current = actions.currentBeadId === issue.id;
   /** Runs an entry's action and shuts the menu. */
   const pick = (action: () => void) => () => {
@@ -202,6 +205,31 @@ export function RowMenu({
                     icon={<Icon name="MoveTo" className="size-4 shrink-0 text-muted-foreground" />}
                     onPick={pick(() => onAsk("move"))}
                   >Move to…</Entry>
+                  {/* Giving an issue a size before the agent does (the
+                      user's option): then the agent follows it. Only
+                      while it has none; after that the size is a dropdown
+                      on the issue itself. */}
+                  {sizes === undefined || issue.size !== null || !canResize ? null : (
+                    <div
+                      className="flex items-center gap-2 px-2 py-1 text-sm"
+                      title="How much of the workflow this issue takes. Left alone, the agent chooses when it starts."
+                    >
+                      <span className="size-4 shrink-0" />
+                      <span className="flex-1">Size</span>
+                      {sizes.map((size) => (
+                        <button
+                          key={size.id}
+                          type="button"
+                          role="menuitem"
+                          title={size.hint}
+                          onClick={pick(() => actions.setSize(issue.id, size.id))}
+                          className="w-7 cursor-pointer rounded border border-border py-px text-center text-xs hover:bg-state-hover"
+                        >
+                          {size.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   <Entry
                     icon={<LinkIcon />}
                     onPick={pick(() => onAsk("link"))}

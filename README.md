@@ -89,9 +89,17 @@ From top to bottom the tab shows:
    value changes the issue straight away.
    An opened open issue has an Edit button: it turns the title and
    description into a form with Save and Cancel.
-   "Accept" at Human review moves an issue to Apply, where you choose
-   "Commit" or "Commit & merge" (the second only when the work is on its
-   own branch); the agent does it, and reporting it done closes the issue.
+   An issue takes only the steps its size needs. Pressing "Start" has the
+   agent size it first: S (done in one go, you see it once, at the end), M
+   (definition and plan together, one review, then the result) or L (every
+   step). The size then shows as a small dropdown beside the step, where you
+   can change it until the work reaches you; you can also set it yourself
+   beforehand from the row's "⋯" menu. A plain question in the chat needs no
+   issue.
+   On the main branch Human review offers "Accept & commit", which goes
+   straight to the commit. On another branch "Accept" moves the issue to
+   Apply, where you choose "Commit" or "Commit & merge"; the agent does it,
+   and reporting it done closes the issue.
    Close, in the menu and inside the opened issue, cancels an issue: it
    closes it without finishing it, after asking for confirmation. A closed
    issue has Reopen there instead. Closing the thread's bead also clears it as current.

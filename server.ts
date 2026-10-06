@@ -172,6 +172,7 @@ export default async function plugin(bb: BbPluginApi) {
     workflow_move: async (input) => ({
       message: (await work.move(input, "user")).message,
     }),
+    issue_set_size: (input) => work.resize(input),
     workflow_set: async (input) => {
       const folder = await folders.folderFor(input);
       if ("message" in folder) return { message: folder.message };

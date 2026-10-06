@@ -40,6 +40,23 @@
 //   it is reported done. Before, the issue was closed first and the commit
 //   asked for afterwards, so a commit or merge that failed left a closed
 //   issue whose work was not in git, with nothing showing it.
+// - Issues differ in size, and the workflow is only as long as an issue
+//   needs (bead-bb-4mb). The user found the full sequence "very clunky" for
+//   a question with two clarifications: "like a 15 button presses for three
+//   questions". So the agent first sizes an issue, S, M or L (the user's
+//   T-shirt sizes), and takes that path: S is done in one go and reaches
+//   the user once, at the end; M has one review at the front, of definition
+//   and plan together; L is every step. The size is stored on the issue,
+//   and the user can change it, or set it before the agent does. The paths
+//   are instructions over the same steps and moves, not separate sets of
+//   steps: the agent could already jump an issue to where its work is.
+//   Rejected: the user choosing the size every time (one more decision per
+//   issue), a third "light" workflow per repository (issues in one
+//   repository differ), and a size XS for pure questions (the user: "Pure
+//   question doesn't need an issue").
+// - Where there is only one way to apply accepted work, the user is not
+//   stopped to choose it: on the main branch "Accept & commit" goes
+//   straight to the commit. Apply remains for work on a branch of its own.
 // - Dropping an issue (Cancel) is not a move here. It is always possible and
 //   is the tab's own action, outside the workflow.
 //
@@ -53,6 +70,7 @@ import type {
   Workflow,
   WorkflowIssue,
   WorkflowMove,
+  WorkflowSize,
   WorkflowState,
 } from "./workflow.ts";
 
@@ -67,8 +85,8 @@ const states: WorkflowState[] = [
     // It waits for the user only to say "go"; the work that follows, looking
     // at what was written and defining it, is the agent's (the user's view).
     nextWork: "agent",
-    hint: "Nobody has started on this issue yet; the agent defines it next.",
-    ask: "Not started yet. Press Define when you want the agent to begin.",
+    hint: "Nobody has started on this issue yet; the agent sizes it and begins.",
+    ask: "Not started yet. Press Start when you want the agent to begin.",
   },
   {
     id: "define",
@@ -98,7 +116,9 @@ const states: WorkflowState[] = [
     label: "Review plan",
     actor: "user",
     hint: "You check that the plan is good.",
-    ask: "Please review the plan and give feedback.",
+    // Worded to fit a medium issue too, where the definition and the plan
+    // arrive here together and this is the first review of either.
+    ask: "Please review what is planned and give feedback.",
   },
   {
     id: "implement",
@@ -219,10 +239,51 @@ const moves: WorkflowMove[] = [
     from: "not-started",
     to: "define",
     by: ["user", "agent"],
-    label: "Define",
-    hint: "Start on this issue: the agent defines what is wanted.",
+    // "Start", not "Define" (the user: "Define is weird"): what happens
+    // first is the agent sizing the issue, and a small one has no separate
+    // definition step at all.
+    label: "Start",
+    hint: "Start on this issue: the agent sizes it and begins.",
     primary: true,
   },
+  // How the agent records the size it chose (see the design notes). A small
+  // issue goes straight to Implement, so the step shown is the one the work
+  // is really in; a medium or large one stays at Define.
+  ...(
+    [
+      ["s", "implement"],
+      ["m", "define"],
+      ["l", "define"],
+    ] as const
+  ).map(
+    ([size, to]): WorkflowMove => ({
+      id: `size:${size}`,
+      from: "define",
+      to,
+      by: ["agent"],
+      label: `Size ${size.toUpperCase()}`,
+      hint: `This issue is size ${size.toUpperCase()}; say why in one line.`,
+      needsNote: true,
+      size,
+    }),
+  ),
+  // A small issue that turns out not to be small: the agent says so from
+  // the work step, and goes back to define it at the larger size.
+  ...(["m", "l"] as const).map(
+    (size): WorkflowMove => ({
+      id: `size:${size}`,
+      from: "implement",
+      to: "define",
+      by: ["agent"],
+      label: `Size ${size.toUpperCase()}`,
+      hint: `This issue is size ${size.toUpperCase()} after all; say why in one line.`,
+      needsNote: true,
+      size,
+      // Not among the usual moves at Implement: it is for the rare case
+      // the Implement instructions name.
+      unlisted: true,
+    }),
+  ),
   skippable("not-started", "plan", "the definition"),
   finished(
     "define",
@@ -264,6 +325,29 @@ const moves: WorkflowMove[] = [
     label: "Accept",
     hint: "The work is good. Next you choose how it goes into git.",
     primary: true,
+    // Only where there is a choice to make (see "Accept & commit" below).
+    ownBranchOnly: true,
+  },
+  {
+    id: "accept-commit",
+    from: "user-review",
+    to: "commit",
+    by: ["user"],
+    label: "Accept & commit",
+    hint: "The work is good: the agent commits it and the issue closes.",
+    primary: true,
+    // On the main branch committing is the only way to apply the work, so
+    // the Apply step would be a stop with nothing to choose.
+    mainBranchOnly: true,
+  },
+  {
+    id: "approved:commit",
+    from: "user-review",
+    to: "commit",
+    by: ["agent"],
+    label: "Accepted by the user, to commit",
+    hint: "The user has accepted the work and said to commit it, in the conversation; quote what they said.",
+    needsNote: true,
   },
   {
     id: "send-back",
@@ -411,24 +495,93 @@ moves.push(...jumps);
 const report = (issueId: string, moveId: string) =>
   `call the \`${MOVE_TOOL}\` tool with id \`${issueId}\`, move \`${moveId}\` and a one-line note`;
 
-/** What the agent does in each of its states. */
-function stepText(stateId: string, id: string): string[] {
-  switch (stateId) {
-    case "define":
-      return [
-        "Your job now is to define the issue: turn it from a request into something clear enough to build. Do not plan or build yet.",
-        "",
+/** The sizes, smallest first (the user's T-shirt sizes). */
+const sizes: WorkflowSize[] = [
+  {
+    id: "s",
+    label: "S",
+    hint: "Small: done in one go, with one stop for you, at the end.",
+  },
+  {
+    id: "m",
+    label: "M",
+    hint: "Medium: you review the definition and the plan together, once, then the result.",
+  },
+  {
+    id: "l",
+    label: "L",
+    hint: "Large: you review the definition, then the plan, then the result.",
+  },
+];
+
+/** What each size means, as the agent is told it. */
+const SIZE_PATHS = [
+  "- S, small: one evident way to do it, little to get wrong. No separate definition or plan: you write a short description and acceptance criteria, do the work and review it yourself, and the user sees it once, at the end.",
+  "- M, medium: worth agreeing on before building. You write the definition and the plan together and the user reviews both once, then the result.",
+  "- L, large, risky or unclear: every step. The user reviews the definition, then the plan, then the result.",
+];
+
+/** The four things a definition is made of; shared by the paths that write one. */
+const DEFINE_POINTS = [
         "- Make sure it is clear what is wanted, why, and what \"done\" means. Read the code it touches.",
         "- If the issue records open questions for the user, or you have your own, ask them and wait for the answers. Being started on an issue is not permission to assume them. Ask at most a few, only ones whose answer changes what gets built.",
         "- Then write onto the issue, with `bd update`: a description (what is wanted and why, in the user's words where possible, how things work today, what is out of scope) and acceptance criteria (short checks a person can verify). Set its type and priority if they are missing.",
         "- Be proportionate: a one-line request gets a short write-up. Stay inside the request. Format with Markdown. Check every claim about the code against the code.",
+];
+
+/**
+ * What the agent does at Define. It depends on the issue's size: with none
+ * yet, the job is to size it; with one, to take that size's path from here.
+ */
+function defineText(id: string, size: string | null): string[] {
+  switch (size) {
+    case "s":
+      return [
+        "This issue is sized S, small: it has no separate definition or plan.",
+        "",
+        `Move it to Implement: ${report(id, "to:implement")} saying it is small, and do the work there.`,
+      ];
+    case "m":
+      return [
+        "This issue is sized M, medium: define it and plan it together, for one review by the user. Do not build yet.",
+        "",
+        ...DEFINE_POINTS,
+        "- Then work out how to do it and write the plan into the issue's design field (`bd update --design`): the files, the order, anything risky, how you will check it, and what you rejected and why. Do not repeat the definition in the plan.",
+        "- Present both to the user in plain words, briefly.",
+        "",
+        `When both are on the issue, ${report(id, "to:review-plan")} saying that definition and plan are ready together, and wait: the user approves them or sends them back from the Airbender tab.`,
+      ];
+    case "l":
+      return [
+        "This issue is sized L, large: every step. Your job now is to define it: turn it from a request into something clear enough to build. Do not plan or build yet.",
+        "",
+        ...DEFINE_POINTS,
         "",
         `When the definition is on the issue, ${report(id, "done")}, and tell the user it is ready for them to review. They approve it or send it back from the Airbender tab.`,
-        `If the issue is already clear and complete, ${report(id, "skip")} giving the reason, and say so to the user in one line.`,
       ];
+    default:
+      return [
+        "Your first job is to size the issue, so that it takes only the steps it needs. Read it and the code it touches, then choose:",
+        "",
+        ...SIZE_PATHS,
+        "",
+        "- In doubt between two sizes, take the larger. The user can change the size until the work reaches them for review, and if they send your work back, take the next larger path.",
+        "- Tell the user the size and why in one line.",
+        "- Whatever the size: if the issue records open questions for the user, or you have your own, ask them and wait for the answers before anything else. Being started on an issue is not permission to assume them.",
+        "",
+        `Then record the size: ${report(id, "size:s")} (or \`size:m\`, \`size:l\`), the note saying why. The answer tells you what to do next on that path.`,
+      ];
+  }
+}
+
+/** What the agent does in each of its states. */
+function stepText(stateId: string, id: string, size: string | null): string[] {
+  switch (stateId) {
+    case "define":
+      return defineText(id, size);
     case "plan":
       return [
-        "Your job now is to plan the work. The definition is agreed; do not change any file yet.",
+        "Your job now is to plan the work. The definition is agreed; do not change any file yet, and do not repeat the definition in the plan.",
         "",
         "- Say what you will change and how: the files, the order, anything risky, and how you will check it.",
         "- Write the plan into the issue's design field (`bd update --design`), with what you rejected and why.",
@@ -439,8 +592,14 @@ function stepText(stateId: string, id: string): string[] {
       ];
     case "implement":
       return [
-        "Your job now is to do the work. The plan is agreed.",
-        "",
+        ...(size === "s"
+          ? [
+              "This issue is sized S, small: there was no separate definition or plan, and this step is the whole job. The user sees it once, at the end.",
+              "",
+              "- First make sure the issue itself says what is wanted: if its description or acceptance criteria are missing or thin, write a short version of each onto it with `bd update`. A few lines; no plan document.",
+              "- If it turns out not to be small after all, stop and say so to the user, and record the larger size with the move `size:m` or `size:l` and a note; that takes the issue back to Define on that path.",
+            ]
+          : ["Your job now is to do the work. The plan is agreed.", ""]),
         "- Mark the issue in progress (`bd update --status in_progress`) and build what the plan says.",
         "- Record decisions, surprises and anything that did not work as comments on the issue as you go. Follow-up work becomes its own issue.",
         "- Check your work: run what can be run.",
@@ -464,9 +623,9 @@ function stepText(stateId: string, id: string): string[] {
         "- Commit the changes that belong to this issue, following the commit rules in AGENTS.md if it has any: only this issue's files, with the issue's id and title in the subject line. With sub-issues: one commit per issue where its changes can be told apart, otherwise one commit whose body lists each issue as id and title.",
         "- Commit only. Do not merge: the user chose to leave the work on the branch it is on.",
         "- If this repository pushes commits by itself, tell the user if that push fails. Do not push by hand unless the repository's rules say to.",
-        "- If everything was already committed, say so.",
+        "- If everything was already committed, say so. If the work changed no files at all (the issue was a question or a decision), say so: there is nothing to commit.",
         "",
-        `When the work is committed, ${report(id, "done")} naming the commit. That closes the issue.`,
+        `When the work is committed, or there was nothing to commit, ${report(id, "done")} naming the commit or saying there was none. That closes the issue.`,
         `If it cannot be done as it is, ${report(id, "send-back")} saying why.`,
       ];
     case "commit-merge":
@@ -513,7 +672,41 @@ function instruction(
     ...epic,
     ...back,
     "",
-    ...stepText(state.id, issue.id),
+    ...stepText(state.id, issue.id, issue.size),
+  ].join("\n");
+}
+
+/** A size's label, for sentences; the id itself for one this file does not know. */
+const sizeLabel = (id: string) =>
+  sizes.find((size) => size.id === id)?.label ?? id;
+
+/**
+ * The size may be changed until the work reaches the user for their
+ * review. After that the work exists, and "Send back" with a sentence says
+ * what is to be redone; a new size then would not say whether to keep it.
+ */
+const REVIEW_FROM = states.findIndex((state) => state.id === "user-review");
+function canResize(stateId: string): boolean {
+  const index = states.findIndex((state) => state.id === stateId);
+  return index >= 0 && index < REVIEW_FROM;
+}
+
+/** What the agent is told when the user changes an issue's size under it. */
+function resizeInstruction(
+  state: WorkflowState,
+  issue: WorkflowIssue,
+  from: string | null,
+  to: string,
+): string {
+  return [
+    `The user changed the size of beads issue ${issue.id} (${JSON.stringify(issue.title)}) ${from === null ? "" : `from ${sizeLabel(from)} `}to ${sizeLabel(to)}. It is at the "${state.label}" step. Take the ${sizeLabel(to)} path from here.`,
+    "",
+    "The paths:",
+    ...SIZE_PATHS,
+    "",
+    "- A larger size means the user wants to see more before you go on: stop what you are doing, keep what is useful, and bring them what that size has them review first (for M, definition and plan together at Review plan; for L, the definition at Review definition).",
+    "- A smaller size means the remaining reviews before the work are dropped: go on to the work.",
+    `- Move the issue to the step the new path needs now with ${report(issue.id, "to:<step id>")}, saying why, and carry on from there. If it is already at the right step, say so to the user in one line and carry on.`,
   ].join("\n");
 }
 
@@ -540,10 +733,12 @@ function describeForAgents(): string {
   return [
     `Every beads issue in this repository goes through these steps before it is closed: ${steps}.`,
     "You are told which step an issue is at when you are started on it. Do that step.",
+    `Not every issue takes every step. Issues have a size, S, M or L, which you choose when you are started on one that has none, with the move \`size:s\`, \`size:m\` or \`size:l\` at ${states[1]!.label}: S is done in one go and reaches the user once, at the end; M has one review at the front, of definition and plan together; L takes every step. In doubt, take the larger. The user can set or change the size; you are told when they do.`,
+    "A plain question or a discussion needs no issue: answer it in the conversation. Create an issue only when something is to be changed; where a discussion ends in a decision worth keeping, offer to record it.",
     `If you begin work on an issue that is still at ${states[0]!.label} (for example from a typed request), move it with \`start\` first.`,
     `When you finish a step, report it with the ${MOVE_TOOL} tool (${agentMoves}), each with a short note. The tool tells you what comes next: either your next step, or that the issue now waits for the user.`,
     "You have the judgment to move an issue to where the work really is: the move `to:<step id>` (the ids are in square brackets above) takes it to any step, with your reason, for example to leave out steps that are not needed. Two limits: while an issue waits for the user's review you may only move it back, not on; and you can never move an issue to Apply or past it.",
-    "While an issue waits for the user's review, read what they reply. If they ask for changes, move it back with `send-back`, giving their words as the reason, and redo the work; a long rework belongs in the work step, a quick question does not need a move at all. If they approve in the conversation, record it with `approved`, quoting what they said, and carry on. At Apply the user chooses between committing and committing with a merge; if they say which in the conversation, record it with `approved:commit` or `approved:commit-merge`, quoting them. Never record an approval the user has not given.",
+    "While an issue waits for the user's review, read what they reply. If they ask for changes, move it back with `send-back`, giving their words as the reason, and redo the work; a long rework belongs in the work step, a quick question does not need a move at all. If they approve in the conversation, record it with `approved`, quoting what they said, and carry on. At Human review, if they accept the work and say to commit it, record that with `approved:commit` instead, which goes straight to the commit. At Apply the user chooses between committing and committing with a merge; if they say which in the conversation, record it with `approved:commit` or `approved:commit-merge`, quoting them. Never record an approval the user has not given.",
     "Do not commit before the user has accepted an issue; an issue is closed by reporting its last step, never with bd close.",
   ].join(" ");
 }
@@ -555,4 +750,7 @@ export const standardWorkflow: Workflow = {
   initial: "not-started",
   instruction,
   describeForAgents,
+  sizes,
+  canResize,
+  resizeInstruction,
 };

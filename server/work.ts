@@ -69,7 +69,7 @@ export interface MoveOutcome extends Outcome {
  * Builds the workflow operations for this plugin instance.
  *
  * @param workflowChoice Answers which workflow a folder's issues follow.
- * @returns `run`, `move`, `close` and `setCurrent`.
+ * @returns `run`, `move`, `resize`, `close` and `setCurrent`.
  * Side effects: none until one of them is called.
  */
 export function createWork({
@@ -83,7 +83,8 @@ export function createWork({
   currentBead: CurrentBead;
   workflowChoice: WorkflowChoice;
 }) {
-  const { issuesIn, setIssueOpen, setStep, addComment, changed } = store;
+  const { issuesIn, setIssueOpen, setStep, setSize, addComment, changed } =
+    store;
 
   /**
    * Puts the thread's agent to work: the one place that decides how a step
@@ -103,6 +104,7 @@ export function createWork({
   const describe = (issue: Issue, issues: Issue[]) => ({
     id: issue.id,
     title: issue.title,
+    size: issue.size,
     openSubIssues: descendantsOf(issue.id, issues).filter(
       (candidate) => candidate.status !== CLOSED_STATUS,
     ),
@@ -221,6 +223,14 @@ export function createWork({
     // tabs should reload once, on the finished move.
     const stepped = await setStep(path, threadId, beadId, to.id, false);
     if (stepped.message !== null) return fail(stepped.message);
+    // A move may also record the issue's size: that is how the agent says
+    // which path it chose. What follows is then told for that size.
+    let sized = issue;
+    if (checked.size !== undefined) {
+      const resized = await setSize(path, threadId, beadId, checked.size, false);
+      if (resized.message !== null) return fail(resized.message);
+      sized = { ...issue, size: checked.size };
+    }
     await record(to.label);
     // The note is passed on to the agent only when the issue was sent back
     // to an earlier step: then it says what to redo. The note of a move
@@ -231,8 +241,12 @@ export function createWork({
       to.actor === "agent"
         ? workflow.instruction(
             to,
-            describe(issue, issues),
-            order(to) < order(from) ? note : undefined,
+            describe(sized, issues),
+            // A note is passed on only with a move back; a move that sets
+            // the size is the agent's own and its note is for the record.
+            order(to) < order(from) && checked.size === undefined
+              ? note
+              : undefined,
           )
         : null;
     let message: string | null = null;
@@ -289,6 +303,81 @@ export function createWork({
     const outcome = await setIssueOpen("close", input, false);
     changed(threadId);
     return outcome;
+  }
+
+  /**
+   * The user sets or changes an issue's size.
+   *
+   * Allowed while the workflow says the size may still change (until the
+   * work reaches the user for review). When the issue is already under way
+   * and is the thread's current issue, the agent is told to take the new
+   * size's path. Otherwise the size is only recorded: an issue nobody has
+   * started is read when it is started, and one that another thread is on
+   * is not this thread's to redirect.
+   *
+   * @returns `message` null on success. When the size was recorded but the
+   *   agent could not be told, the message says so; the size stands.
+   * Side effects: a label and a comment on the issue; possibly one message
+   *   to the thread.
+   */
+  async function resize(
+    input: FolderRef & { beadId: string; size: string },
+  ): Promise<Outcome> {
+    const { beadId, threadId, size } = input;
+    const found = await openIssue(input, beadId);
+    if ("message" in found) return found;
+    const { issue, issues, path } = found;
+    const workflow = workflowChoice.workflowFor(path);
+    if (workflow === null) return { message: NO_STEPS_MESSAGE };
+    const known = workflow.sizes?.find((candidate) => candidate.id === size);
+    if (known === undefined) {
+      return { message: `"${size}" is not a size this workflow has.` };
+    }
+    if (issue.size === size) return { message: null };
+    const state = stateOf(workflow, issue.step);
+    if (workflow.canResize?.(state.id) !== true) {
+      return {
+        message: `Issue ${beadId} is at "${state.label}": its size can no longer be changed. Use "Send back" and say what should be redone.`,
+      };
+    }
+    const resized = await setSize(path, threadId, beadId, size, false);
+    if (resized.message !== null) return resized;
+    const labelOf = (id: string | null) =>
+      id === null
+        ? "none"
+        : (workflow.sizes?.find((candidate) => candidate.id === id)?.label ?? id);
+    await addComment(
+      path,
+      beadId,
+      `Workflow: size ${labelOf(issue.size)} → ${known.label} (by the user).`,
+    );
+    let message: string | null = null;
+    // Told only when work is under way: before that there is nothing to
+    // redirect, and the size is read when the issue is started.
+    const started = state.id !== workflow.initial;
+    const text = workflow.resizeInstruction?.(
+      state,
+      describe({ ...issue, size }, issues),
+      issue.size,
+      size,
+    );
+    // And only the thread that is on this issue: a size changed from the
+    // tab of a thread working on something else must not pull that thread's
+    // agent over to this issue.
+    if (
+      started &&
+      threadId !== null &&
+      text !== undefined &&
+      (await currentBead.read(threadId).catch(() => null)) === beadId
+    ) {
+      try {
+        await deliver(threadId, text);
+      } catch (cause) {
+        message = `The size is now ${known.label}, but the agent could not be told: ${reason(cause)}`;
+      }
+    }
+    changed(threadId);
+    return { message };
   }
 
   /**
@@ -361,5 +450,5 @@ export function createWork({
     return { message: null };
   }
 
-  return { run, move, close, setCurrent };
+  return { run, move, resize, close, setCurrent };
 }

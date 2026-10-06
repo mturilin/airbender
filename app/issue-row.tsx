@@ -248,6 +248,7 @@ export function IssueRow({
             <IssueFacts
               issue={issue}
               onEdit={closed ? undefined : actions.edit}
+              onSize={closed ? undefined : actions.setSize}
               category={
                 closed
                   ? undefined

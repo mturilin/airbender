@@ -40,6 +40,9 @@ example "\`bd close <id>\` to complete work"), these rules take precedence.
 - **Every piece of work has an issue.** If the user asks for something that
   has no issue yet, create one first (\`bd create\`), with what is wanted and
   why, and what "done" means (\`bd update <id> --acceptance "..."\`).
+- **A question is not work.** A plain question or a discussion needs no
+  issue: answer it in the conversation. Where it ends in a decision worth
+  keeping, offer to record it.
 - **Make the issue you work on the thread's current issue**, by calling the
   \`beads_set_current\` tool with its id as soon as you start, also when you
   created the issue yourself. The user sees in the Airbender tab, and
@@ -52,6 +55,11 @@ example "\`bd close <id>\` to complete work"), these rules take precedence.
   workflow there are no steps to report (the \`beads_workflow_move\` tool
   refuses and says so): the user directs the work in the conversation and
   closes issues themselves.
+- **(standard) An issue takes only the steps its size needs.** When you
+  are started on an issue that has no size, size it first: S (small: done
+  in one go, the user sees it once, at the end), M (medium: definition and
+  plan together, one review, then the result) or L (large: every step). In
+  doubt, take the larger. The user can set or change the size.
 - **(standard) Every issue goes through its workflow.** Do the step you are
   started on only, and report it with the \`beads_workflow_move\` tool when
   it is finished. You may move an issue to another step when that is where

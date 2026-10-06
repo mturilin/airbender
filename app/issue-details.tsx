@@ -36,6 +36,8 @@ import {
   NoteForm,
   WorkflowButton,
   WorkflowMoves,
+  useCanResize,
+  useWorkflow,
 } from "./workflow-controls.tsx";
 import { CurrentToggle } from "./current-toggle.tsx";
 import { ZoomInIcon } from "./epic-band.tsx";
@@ -176,6 +178,8 @@ export function IssueDetails({
   // none is. Its field shows under the buttons.
   const [noting, setNoting] = useState<WorkflowMove | null>(null);
   const focusOffer = actions.focusOffer(issue.id);
+  const sizes = useWorkflow()?.sizes;
+  const canResize = useCanResize(issue);
   useEffect(() => {
     if (asked === null) return;
     if (!closed) {
@@ -195,6 +199,7 @@ export function IssueDetails({
           <IssueFacts
             issue={issue}
             onEdit={closed ? undefined : actions.edit}
+              onSize={closed ? undefined : actions.setSize}
             category={
               closed
                 ? undefined
@@ -323,6 +328,29 @@ export function IssueDetails({
             <LinkIcon className="size-4" />
             Link
           </Button>
+        )}
+        {/* Giving the issue a size before the agent does, also here (a
+            sub-issue's row has no menu). Only while it has none: after
+            that the size is a dropdown among the issue's facts. */}
+        {sizes === undefined || issue.size !== null || !canResize ? null : (
+          <select
+            aria-label={`Set the size of ${issue.id}`}
+            title="How much of the workflow this issue takes. Left alone, the agent chooses when it starts."
+            value=""
+            onChange={(event) => {
+              if (event.target.value !== "") {
+                actions.setSize(issue.id, event.target.value);
+              }
+            }}
+            className="h-6 cursor-pointer rounded border-0 bg-foreground/[0.06] px-1.5 text-xs text-muted-foreground hover:bg-foreground/[0.12] hover:text-foreground"
+          >
+            <option value="">Size…</option>
+            {sizes.map((size) => (
+              <option key={size.id} value={size.id} title={size.hint}>
+                {size.label}
+              </option>
+            ))}
+          </select>
         )}
         {/* Epic mode, also here: a compact sub-issue row has no buttons,
             and this is how a sub-issue with sub-issues of its own is

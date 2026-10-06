@@ -79,15 +79,29 @@ test("the agent cannot press the user's approval buttons", () => {
   }
 });
 
-test("an issue closes only once its work is in git, which needs the user twice", () => {
+test("an issue closes only once its work is in git, which needs the user's acceptance", () => {
   // Closing happens only from the two steps where the agent commits.
   const closing = flow.moves.filter((move) => move.to === CLOSED);
   assert.deepEqual(closing.map((move) => move.from).sort(), ["commit", "commit-merge"]);
-  // Those are reached only from Apply, by the user's choice (their button,
-  // or their words recorded by the agent).
-  for (const step of ["commit", "commit-merge"]) {
-    const into = flow.moves.filter((move) => move.to === step);
-    assert.deepEqual([...new Set(into.map((move) => move.from))], ["apply"], step);
+  // Merging is reached only from Apply, by the user's choice (their button,
+  // or their words recorded by the agent). Committing is reached from Apply
+  // too, and straight from the user's review, where accepting is the choice
+  // when there is nothing else to choose.
+  const from = (step: string) => [
+    ...new Set(
+      flow.moves.filter((move) => move.to === step).map((move) => move.from),
+    ),
+  ];
+  assert.deepEqual(from("commit-merge"), ["apply"]);
+  assert.deepEqual(from("commit").sort(), ["apply", "user-review"]);
+  // Either way it is the user's doing: their button, or their words quoted.
+  for (const move of flow.moves.filter(
+    (candidate) => candidate.to === "commit" || candidate.to === "commit-merge",
+  )) {
+    assert.ok(
+      move.by.every((by) => by === "user") || move.needsNote === true,
+      `${move.from}: ${move.id}`,
+    );
   }
   // And Apply only from the user's review.
   const intoApply = flow.moves.filter((move) => move.to === "apply");
@@ -145,7 +159,7 @@ test("a move cannot jump ahead", () => {
 test("a new issue is started by the user's main button, or by the agent", () => {
   const main = movesFor(flow, "not-started", "user")[0]!;
   assert.equal(main.id, "start");
-  assert.equal(main.label, "Define");
+  assert.equal(main.label, "Start");
   assert.equal(go(null, "start", "user", ""), "define");
   assert.equal(go(null, "start", "agent", ""), "define");
   // Not started is not the agent's step: it cannot report work from there.
@@ -190,13 +204,21 @@ test("the user's main button comes first, and agent states have none", () => {
 });
 
 test("the agent is told its step, how to report it, and about sub-issues", () => {
-  const issue = { id: "x-1", title: 'Fix "it"', openSubIssues: [] };
+  const issue = {
+    id: "x-1",
+    title: 'Fix "it"',
+    size: null,
+    openSubIssues: [],
+  };
   for (const state of flow.states.filter((s) => s.actor === "agent")) {
     const text = flow.instruction(state, issue);
     assert.match(text, /Work on beads issue x-1: "Fix \\"it\\""/u);
     assert.ok(text.includes(`"${state.label}" step`));
     assert.ok(text.includes(MOVE_TOOL), state.id);
     // Every move the agent may make in this state is named in its text.
+    // Define is checked on its own below: what it names depends on the
+    // issue's size.
+    if (state.id === "define") continue;
     for (const move of movesFor(flow, state.id, "agent").filter(
       (candidate) => candidate.unlisted !== true,
     )) {
@@ -282,4 +304,102 @@ test("every step has a friendly sentence for the user, and the reviews ask for f
     stateOf(flow, "user-review").ask,
     "Please review the results and give feedback.",
   );
+});
+
+test("the agent sizes an issue first, and a small one goes straight to the work", () => {
+  assert.deepEqual(
+    flow.sizes?.map((size) => size.label),
+    ["S", "M", "L"],
+  );
+  // The moves that record the size, and where each leaves the issue.
+  assert.equal(go("define", "size:s", "agent", "one line fix"), "implement");
+  assert.equal(go("define", "size:m", "agent", "worth agreeing on"), "define");
+  assert.equal(go("define", "size:l", "agent", "touches everything"), "define");
+  assert.match(go("define", "size:s", "agent", ""), /^refused: .*needs a reason/u);
+  // Sizing through these moves is the agent's; the user has the dropdown.
+  assert.match(go("define", "size:s", "user"), /^refused/u);
+  for (const size of ["s", "m", "l"]) {
+    const move = checkMove(flow, "define", `size:${size}`, "agent", "why");
+    assert.ok(!("message" in move) && move.size === size);
+  }
+  // A small issue that is not small after all is re-sized from the work.
+  assert.equal(go("implement", "size:m", "agent", "bigger than it looked"), "define");
+  assert.match(go("implement", "size:s", "agent", "x"), /^refused/u);
+});
+
+test("what the agent is told at Define depends on the size", () => {
+  const issue = { id: "x-1", title: "T", openSubIssues: [] };
+  const define = stateOf(flow, "define");
+  const unsized = flow.instruction(define, { ...issue, size: null });
+  assert.match(unsized, /size the issue/u);
+  for (const size of ["size:s", "size:m", "size:l"]) {
+    assert.ok(unsized.includes(`\`${size}\``), size);
+  }
+  assert.match(unsized, /In doubt between two sizes, take the larger/u);
+  // Small: nothing to define here, on to the work.
+  assert.match(
+    flow.instruction(define, { ...issue, size: "s" }),
+    /move `to:implement`/u,
+  );
+  // Medium: definition and plan together, one review.
+  const medium = flow.instruction(define, { ...issue, size: "m" });
+  assert.match(medium, /define it and plan it together/u);
+  assert.match(medium, /move `to:review-plan`/u);
+  assert.equal(go("define", "to:review-plan", "agent", "both ready"), "review-plan");
+  // Large: the definition alone, for its own review.
+  const large = flow.instruction(define, { ...issue, size: "l" });
+  assert.match(large, /move `done`/u);
+  assert.doesNotMatch(large, /plan it together/u);
+  // A small issue's work step says it is the whole job.
+  assert.match(
+    flow.instruction(stateOf(flow, "implement"), { ...issue, size: "s" }),
+    /this step is the whole job/u,
+  );
+  assert.doesNotMatch(
+    flow.instruction(stateOf(flow, "implement"), { ...issue, size: "l" }),
+    /whole job/u,
+  );
+});
+
+test("the size can be changed until the work reaches the user, and the agent is told how", () => {
+  for (const step of ["not-started", "define", "review-plan", "implement", "agent-review"]) {
+    assert.equal(flow.canResize?.(step), true, step);
+  }
+  for (const step of ["user-review", "apply", "commit", "commit-merge", "nowhere"]) {
+    assert.equal(flow.canResize?.(step), false, step);
+  }
+  const text = flow.resizeInstruction?.(
+    stateOf(flow, "implement"),
+    { id: "x-1", title: "T", size: "m", openSubIssues: [] },
+    "s",
+    "m",
+  );
+  assert.match(text ?? "", /changed the size of beads issue x-1 \("T"\) from S to M/u);
+  assert.match(text ?? "", /"Implement" step/u);
+  assert.match(text ?? "", /move `to:<step id>`/u);
+  // An issue that had no size yet.
+  assert.match(
+    flow.resizeInstruction?.(stateOf(flow, "define"), { id: "x-1", title: "T", size: "l", openSubIssues: [] }, null, "l") ?? "",
+    /\("T"\) to L\./u,
+  );
+});
+
+test("on the main branch accepting commits at once; on a branch of its own it leads to the choice", () => {
+  const labels = (ownBranch: boolean) =>
+    offeredMoves(flow, "user-review", "user", { ownBranch }).map((move) => move.label);
+  assert.deepEqual(labels(false), ["Accept & commit", "Send back"]);
+  assert.deepEqual(labels(true), ["Accept", "Send back"]);
+  assert.equal(go("user-review", "accept-commit", "user"), "commit");
+  assert.equal(go("user-review", "accept", "user"), "apply");
+  // The agent cannot accept for the user, but records their words.
+  assert.match(go("user-review", "accept-commit", "agent"), /^refused/u);
+  assert.equal(go("user-review", "approved:commit", "agent", "user: looks good, commit it"), "commit");
+  assert.match(go("user-review", "approved:commit", "agent", ""), /^refused: .*needs a reason/u);
+});
+
+test("the standing instructions tell the agent about sizes and that a question needs no issue", () => {
+  const text = flow.describeForAgents();
+  for (const size of ["`size:s`", "`size:m`", "`size:l`"]) assert.ok(text.includes(size));
+  assert.match(text, /A plain question or a discussion needs no issue/u);
+  assert.match(text, /`approved:commit`/u);
 });
