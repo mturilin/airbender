@@ -28,6 +28,7 @@ import type { IssueType, LinkKind } from "../shared/constants.ts";
 import { CLOSED, movesFor, stateOf } from "../shared/workflow.ts";
 import { DEFAULT_WORKFLOW_ID, workflowFor } from "../shared/workflows.ts";
 import type { PendingClose } from "./close-dialog.tsx";
+import { focusBlock } from "./issue-model.ts";
 import type { IssueTree } from "./issue-model.ts";
 import type { Scope, useIssues } from "./use-issues.ts";
 
@@ -43,6 +44,16 @@ export interface IssueLookups {
   ownBranch: boolean;
   /** Id of the bead this thread works on; null when none. */
   currentBeadId: string | null;
+  /** The epic the tab is zoomed in on (epic mode); null for the whole list. */
+  focusId: string | null;
+  /**
+   * Whether an issue offers epic mode, and whether it may be entered now.
+   *
+   * @returns Null when it is not offered: the issue has no sub-issues, is
+   *   closed, or is the epic already zoomed in on. Otherwise `blocked` is
+   *   null when it may be entered, else the reason in plain words.
+   */
+  focusOffer: (beadId: string) => { blocked: string | null } | null;
   /**
    * Fetches one issue's comments, oldest first. Resolves to the comments, or
    * rejects with a plain-language reason.
@@ -86,6 +97,13 @@ export interface IssueCommands {
    * there is no thread.
    */
   makeCurrent: ((beadId: string) => void) | null;
+  /**
+   * Epic mode: zooms the tab in on an issue's sub-issues; null goes back to
+   * the whole list. Entering while that issue is the thread's current one
+   * releases it first (the user's rule), so a sub-issue can be picked.
+   * Does nothing when entering is not allowed (see focusOffer).
+   */
+  focus: (beadId: string | null) => void;
   /**
    * Play: makes an issue this thread's current one and gets the agent going
    * on the step of the workflow the issue is at. Null when there is no
@@ -236,6 +254,7 @@ export interface IssueActionsView {
  *   the conversation, which the window would cover).
  * @param addSubIssue Readies the new-issue field for a sub-issue of the
  *   given issue.
+ * @param focusId The epic the tab is zoomed in on; `setFocus` changes it.
  */
 export function useIssueActions({
   scope,
@@ -250,6 +269,8 @@ export function useIssueActions({
   openDetails,
   closeDetails,
   addSubIssue,
+  focusId,
+  setFocus,
 }: {
   scope: Scope;
   rpc: ReturnType<typeof useIssues>["rpc"];
@@ -263,6 +284,8 @@ export function useIssueActions({
   openDetails: (beadId: string) => void;
   closeDetails: () => void;
   addSubIssue: (parentId: string) => void;
+  focusId: string | null;
+  setFocus: (beadId: string | null) => void;
 }): IssueActionsView {
   const { threadId, projectId } = scope;
   // The repository's workflow; null on the simple one, which has no moves.
@@ -307,8 +330,49 @@ export function useIssueActions({
     pending.moveId === null
       ? applyOpen(pending.issue.id, false)
       : applyMove(pending.issue.id, pending.moveId, "");
+  const currentBeadId = result?.currentBeadId ?? null;
+  /** Sets or releases the thread's current issue; nothing without a thread. */
+  const setCurrentTo = (beadId: string | null) => {
+    if (threadId === null) return;
+    rpc.call("current_set", { threadId, beadId }).then(settle, reportProblem);
+  };
+  // Every issue that has at least one sub-issue. Asked of the whole list,
+  // not of the tree: the tree leaves out the current issue, and an epic
+  // whose only sub-issue is the current one must still offer epic mode.
+  const parentIds = new Set(
+    (result?.issues ?? []).flatMap((issue) =>
+      issue.parentId === null ? [] : [issue.parentId],
+    ),
+  );
+  const focusOffer = (beadId: string) => {
+    const issue = tree.byId.get(beadId);
+    if (
+      issue === undefined ||
+      issue.status === CLOSED_STATUS ||
+      beadId === focusId ||
+      !parentIds.has(beadId)
+    ) {
+      return null;
+    }
+    return { blocked: focusBlock(tree.byId, beadId, currentBeadId) };
+  };
   const actions: IssueActions = {
-    currentBeadId: result?.currentBeadId ?? null,
+    currentBeadId,
+    focusId,
+    focusOffer,
+    focus: (beadId) => {
+      if (beadId === null) {
+        setFocus(null);
+        return;
+      }
+      if (focusBlock(tree.byId, beadId, currentBeadId) !== null) return;
+      // The window would cover the list that is about to change.
+      closeDetails();
+      // "It deselects epic from the current ... and you can select the
+      // next": an ordinary release, so the agent gets its usual note.
+      if (currentBeadId === beadId) setCurrentTo(null);
+      setFocus(beadId);
+    },
     ownBranch: result?.ownBranch ?? false,
     loadComments,
     close: (beadId) => {

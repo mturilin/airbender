@@ -47,15 +47,17 @@ is a view of that tracker, not a second tracker.
 
 ## Layout
 
-Four bands, top to bottom. `[pp7]`
+Bands, top to bottom. `[pp7]`
 
 1. **Toolbar** — the repository folder, a refresh button and, at the right
    end, a "⋯" menu for the choice of workflow (see "Choosing the workflow")
    and for setup (see "Getting a folder ready"). Stays in place. `[8j6]`
-2. **Current** — the issue this conversation is working on. Stays in place
+2. **Current epic** — only in epic mode (see "Epic mode"): the epic the
+   list is zoomed in on, with a back arrow. Stays in place. `[ha9]`
+3. **Current** — the issue this conversation is working on. Stays in place
    when the list scrolls.
-3. **Groups** — all other issues. The only part that scrolls.
-4. **New issue** — an entry field that is always there, fixed at the bottom.
+4. **Groups** — all other issues. The only part that scrolls.
+5. **New issue** — an entry field that is always there, fixed at the bottom.
 
 Rules for the layout:
 
@@ -298,6 +300,36 @@ An issue can contain other issues, and those can contain more, to any depth.
     sub-issue. Only the drag anchor appears while the pointer is on the row.
   - in an opened open sub-issue, **the button that starts work is the first
     button**. `[uca]`
+
+## Epic mode
+
+With a large epic, the owner can zoom in on it: the panel then shows only
+that epic's issues, and the current issue is picked from among them. `[ha9]`
+
+- **A band names the current epic**, between the toolbar and Current. Beside
+  the epic is **an arrow back**, which leaves it, like getting out of a
+  folder. `[ha9]`
+- **Resting the pointer on the epic's id shows the same card** as the
+  current issue's id shows in the main window. `[ha9]`
+- **One level at a time.** The list shows the epic's direct sub-issues; a
+  sub-issue that has sub-issues of its own shows them under it as usual and
+  can be zoomed in on in turn. `[ha9]`
+- **It is only a way of looking**: the panel shows just the issues inside
+  the epic. Nothing about any issue changes. `[ha9]`
+- **It belongs to the conversation and is remembered.** Another conversation
+  can go into the same epic, or a different one, as it wants. `[ha9]`
+- **Only an issue from the epic can be current in epic mode.** The epic
+  itself counts. `[ha9]`
+  - If the current issue is not from the epic, epic mode cannot be entered.
+  - If, in epic mode, a different issue from outside becomes current, the
+    panel leaves epic mode when it notices.
+  - **Entering while the epic itself is current deselects it**: nothing is
+    current then, and the owner picks the next issue from the epic.
+  - Going out of epic mode keeps the current issue; the owner can go back
+    in. There is no limit on going in and out while these conditions hold.
+- **The current issue is the sub-issue**, not the epic. `[ha9]`
+- A new issue created in epic mode goes into the epic unless the owner
+  chooses otherwise. The details window stays as it is. `[ha9]`
 
 ## Creating an issue
 
@@ -556,6 +588,29 @@ breaking a requirement above.
   action has as a button inside the opened issue. The menu and the opened issue call
   cancelling "Close"; inside the opened issue it is a labelled button, as
   is Reopen on a closed issue.
+- Epic mode: it is offered on every open issue that has sub-issues,
+  whatever its type: a magnifier button on its row beside the button for
+  the details window, and a "Focus" button inside the opened issue (which
+  is how a sub-issue is zoomed in on). Where it may not be entered the
+  button is greyed out, the mouse pointer over it stays the ordinary arrow,
+  and its tooltip reads "You can only enter epic mode when no issue is
+  selected, or an issue from this epic is selected."
+- Epic mode: the band reads "Epic", then the titles of the issues the epic
+  is inside, as a path that can be clicked, then the epic's id and title.
+  The arrow goes up one level: to the issue the epic is inside when there
+  is one, otherwise to the whole list.
+- Epic mode: with no current issue it can be entered. "From the epic" means
+  at any depth. The panel also leaves epic mode by itself when the epic is
+  closed or no longer exists. Leaving by itself is silent.
+- Epic mode: the deselecting on entry is an ordinary release, so the agent
+  gets the same short message as for any release. Nothing else about epic
+  mode is told to the agent.
+- Epic mode: it is remembered on the computer it was chosen on; the same
+  conversation opened on another computer starts on the whole list.
+- Epic mode: the list keeps its groups, Group and Filter. A dragged issue
+  dropped on empty space in the list goes directly under the epic, where
+  outside epic mode it goes to the top level. An epic with nothing to list
+  says so.
 - Choosing the workflow: the menu lists Standard and Simple above the setup
   steps, each with a line saying what it means and a tick on the one in
   use. It is offered only where the folder has issues to show. The choice
@@ -744,6 +799,9 @@ breaking a requirement above.
   description as formatted text; what "done" means, when the issue says;
   and the sub-issues with a progress bar, closed ones struck through. Long
   text scrolls inside the card. The card is read-only and opens upwards.
+- The card is about a quarter wider than it first was, at the owner's
+  request, and never wider than most of the window. The epic's card is the
+  same card, headed "Epic", and opens downwards from the epic band.
 - A card opened by a click stays until a click outside it or Escape. A
   card opened by hovering goes away shortly after the pointer leaves both
   the line and the card; clicking the line meanwhile keeps it.

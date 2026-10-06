@@ -2,7 +2,8 @@
 //
 // What: checks the status groups (toSections), the blocked rule (isBlocked),
 // the sub-groups of Ready (toSubGroups), the order of rows (byUrgency), the
-// pickers' search ranking (fuzzyScore) and a few small helpers.
+// pickers' search ranking (fuzzyScore), when epic mode may be entered or
+// kept (focusBlock) and a few small helpers.
 //
 // Why: these decide where every issue appears. They are pure, so they are
 // tested here without BB or a browser.
@@ -15,6 +16,7 @@ import {
   buildTree,
   byUrgency,
   descendantIdsOf,
+  focusBlock,
   fuzzyScore,
   isBlocked,
   isLongDescription,
@@ -252,4 +254,42 @@ test("the filter lets everything through until something is ticked", () => {
   // "" among the categories stands for "no category".
   assert.equal(matchesFilters(bug, { ...NO_FILTERS, categories: [""] }), true);
   assert.equal(matchesFilters(bug, { ...NO_FILTERS, categories: ["ux"] }), false);
+});
+
+// An epic two levels deep, another epic beside it, and a closed one.
+const EPICS = new Map(
+  [
+    issue("epic"),
+    issue("child", { parentId: "epic" }),
+    issue("grandchild", { parentId: "child" }),
+    issue("other"),
+    issue("other-child", { parentId: "other" }),
+    issue("done", { status: "closed" }),
+  ].map((entry) => [entry.id, entry]),
+);
+
+test("epic mode may be entered with no current issue, the epic, or one from inside it", () => {
+  assert.equal(focusBlock(EPICS, "epic", null), null);
+  assert.equal(focusBlock(EPICS, "epic", "epic"), null);
+  assert.equal(focusBlock(EPICS, "epic", "child"), null);
+  // At any depth.
+  assert.equal(focusBlock(EPICS, "epic", "grandchild"), null);
+  // One level at a time: a sub-issue with sub-issues is an epic too.
+  assert.equal(focusBlock(EPICS, "child", "grandchild"), null);
+});
+
+test("epic mode is refused, with the reason, while the current issue is from outside", () => {
+  for (const outside of ["other", "other-child"]) {
+    const reason = focusBlock(EPICS, "epic", outside);
+    assert.match(reason ?? "", /^You can only enter epic mode when/u);
+  }
+  // The epic's own parent is outside the deeper epic.
+  assert.match(focusBlock(EPICS, "child", "epic") ?? "", /only enter epic mode/u);
+  // An id that is not in the list at all is outside as well.
+  assert.match(focusBlock(EPICS, "epic", "gone") ?? "", /only enter epic mode/u);
+});
+
+test("a closed or missing epic cannot be zoomed in on, whatever is current", () => {
+  assert.match(focusBlock(EPICS, "done", null) ?? "", /is closed/u);
+  assert.match(focusBlock(EPICS, "nowhere", null) ?? "", /no longer in the list/u);
 });

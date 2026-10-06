@@ -12,7 +12,7 @@
 //   would compete with an agent writing issues.
 
 import { useRealtime, useRpc } from "@get-bb/plugin-sdk/app";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { IssuesResult, rpcContract } from "../server/contract.ts";
 import { CHANGED_CHANNEL } from "../shared/constants.ts";
 
@@ -36,20 +36,31 @@ export function useIssues(scope: Scope) {
   const [result, setResult] = useState<IssuesResult | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  // Counts the requests, so that only the answer to the latest one is used.
+  // Without it an answer that arrives late could replace a newer one, and,
+  // when the tab is handed another conversation, the old conversation's
+  // list could be shown, and acted on, as the new one's (epic mode drops a
+  // focus that the list says no longer holds).
+  const latest = useRef(0);
   const refresh = useCallback(() => {
+    const mine = ++latest.current;
     setLoading(true);
     rpc
       .call("issues_list", { threadId, projectId })
       .then(
         (next) => {
+          if (mine !== latest.current) return;
           setResult(next);
           setFailure(null);
         },
         (cause: unknown) => {
+          if (mine !== latest.current) return;
           setFailure(cause instanceof Error ? cause.message : String(cause));
         },
       )
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (mine === latest.current) setLoading(false);
+      });
   }, [rpc, threadId, projectId]);
   useEffect(() => {
     refresh();

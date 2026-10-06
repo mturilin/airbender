@@ -18,30 +18,22 @@
 //   thread (useIssues), as the tab does. Three loads per change is more than
 //   needed; sharing one would mean a store outside React, not worth it yet.
 //
-// Gotchas:
-// - Anything that must show outside the message box (the card) has to be drawn
-//   at the top level of the page with usePortalScopeProps: BB cuts off what
-//   sticks out of the box.
+// - The card itself, and how it opens on hover, are in app/issue-card.tsx:
+//   the tab's epic band shows the same card.
 
 import {
-  Markdown,
   useComposer,
   useComposerView,
   useRpc,
 } from "@get-bb/plugin-sdk/app";
-import { useEffect, useRef, useState } from "react";
-import type { CSSProperties } from "react";
-import { createPortal } from "react-dom";
+import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
-import { usePortalScopeProps } from "@/lib/portal-scope";
 import { cn } from "@/lib/utils";
-import type { Issue, rpcContract } from "../server/contract.ts";
-import { CLOSED_STATUS, QUICK_REPLIES } from "../shared/constants.ts";
-import { IssueFacts } from "./issue-facts.tsx";
-import { formatWhen } from "./issue-model.ts";
-import { useMenu } from "./menus.tsx";
+import type { rpcContract } from "../server/contract.ts";
+import { QUICK_REPLIES } from "../shared/constants.ts";
+import { IssueCard, useHoverCard } from "./issue-card.tsx";
 import { useIssues } from "./use-issues.ts";
 import {
   CLOSED,
@@ -51,12 +43,6 @@ import {
 } from "../shared/workflow.ts";
 import { DEFAULT_WORKFLOW_ID, workflowFor } from "../shared/workflows.ts";
 import { StateChip, WorkflowProvider } from "./workflow-controls.tsx";
-
-/** How long the pointer must rest on the status line before its card opens. */
-const HOVER_OPEN_MS = 100;
-
-/** How long a hover-opened card stays after the pointer leaves it. */
-const HOVER_CLOSE_MS = 300;
 
 /**
  * The thread a message-box control belongs to, or null when the message box
@@ -140,7 +126,7 @@ export function QuickReplyButton({
  * results and give feedback."), stronger when it is the user's turn.
  *
  * Hovering anywhere on the line opens a card with the issue's details
- * almost at once (CurrentIssueCard); so does a click.
+ * almost at once (IssueCard, in issue-card.tsx); so does a click.
  *
  * How it got here, so the same ground is not covered again: a pill with the
  * title inside the box; a line above the box with the title; two lines
@@ -162,60 +148,8 @@ export function QuickReplyButton({
  */
 function StatusLine({ threadId }: { threadId: string }) {
   const { result } = useIssues({ threadId, projectId: null });
-  const { open, setOpen, root, panel } = useMenu();
-  // Where the card goes, in window coordinates, worked out from the line
-  // when it is clicked. See CurrentIssueCard for why it is not simply
-  // positioned against the line.
-  const [place, setPlace] = useState<CSSProperties>({});
-  const line = useRef<HTMLButtonElement>(null);
-  // True while the card is open only because of hovering; a click clears it.
-  const hoverOpened = useRef(false);
-  // The pending "open after 2 s" and "close shortly after leaving" timers.
-  const openTimer = useRef<number | undefined>(undefined);
-  const closeTimer = useRef<number | undefined>(undefined);
-  /** Works out where the card goes from where the line is right now. */
-  const placeCard = () => {
-    const box = line.current?.getBoundingClientRect();
-    if (box === undefined) return;
-    // Above the line, left edges together, but never off the right edge of
-    // the window (the card is at most 24rem wide).
-    const width = Math.min(384, window.innerWidth * 0.85);
-    setPlace({
-      left: Math.max(8, Math.min(box.left, window.innerWidth - width - 8)),
-      bottom: window.innerHeight - box.top + 8,
-      // Never taller than the room above the line; it scrolls inside.
-      maxHeight: Math.max(160, box.top - 16),
-    });
-  };
-  /** The pointer came onto the line or the card. */
-  const onEnter = () => {
-    window.clearTimeout(closeTimer.current);
-    if (open) return;
-    window.clearTimeout(openTimer.current);
-    openTimer.current = window.setTimeout(() => {
-      hoverOpened.current = true;
-      placeCard();
-      setOpen(true);
-    }, HOVER_OPEN_MS);
-  };
-  /** The pointer left the line or the card. */
-  const onLeave = () => {
-    window.clearTimeout(openTimer.current);
-    if (!hoverOpened.current) return;
-    window.clearTimeout(closeTimer.current);
-    closeTimer.current = window.setTimeout(() => {
-      hoverOpened.current = false;
-      setOpen(false);
-    }, HOVER_CLOSE_MS);
-  };
-  // No timer may fire after the line is gone.
-  useEffect(
-    () => () => {
-      window.clearTimeout(openTimer.current);
-      window.clearTimeout(closeTimer.current);
-    },
-    [],
-  );
+  // Opens upwards: the message box is at the bottom of the window.
+  const card = useHoverCard("above");
   const issue =
     result?.state === "ok" && result.currentBeadId !== null
       ? (result.issues.find(
@@ -231,16 +165,16 @@ function StatusLine({ threadId }: { threadId: string }) {
   return (
     <WorkflowProvider value={workflow}>
     <div
-      ref={root}
+      ref={card.root}
       className="relative min-w-0"
-      onMouseEnter={onEnter}
-      onMouseLeave={onLeave}
+      onMouseEnter={card.onEnter}
+      onMouseLeave={card.onLeave}
     >
       <Button
-        ref={line}
+        ref={card.trigger}
         variant="ghost"
         size="sm"
-        aria-expanded={open}
+        aria-expanded={card.open}
         // No tooltip: the card opens almost at once on hover and says more.
         aria-label={`Current issue ${issue.id}: ${issue.title}`}
         // The whole line is the trigger: hovering anywhere on it opens the
@@ -249,18 +183,7 @@ function StatusLine({ threadId }: { threadId: string }) {
         // is in the monospace font, whose letters sit at a different height
         // in their line, and centred it rode visibly above the sentence.
         className="h-auto w-full items-baseline justify-start gap-1.5 px-2 py-1 text-left text-xs font-normal"
-        onClick={() => {
-          window.clearTimeout(openTimer.current);
-          window.clearTimeout(closeTimer.current);
-          if (open && hoverOpened.current) {
-            // Already showing because of hovering: the click keeps it.
-            hoverOpened.current = false;
-            return;
-          }
-          hoverOpened.current = false;
-          placeCard();
-          setOpen((current) => !current);
-        }}
+        onClick={card.onClick}
       >
         {state === null ? null : <StateChip state={state} />}
         <span className="shrink-0 font-mono text-muted-foreground">
@@ -278,12 +201,10 @@ function StatusLine({ threadId }: { threadId: string }) {
           {state === null ? issue.title : state.ask}
         </span>
       </Button>
-      {open ? (
-        <CurrentIssueCard
-          panel={panel}
-          place={place}
-          onMouseEnter={onEnter}
-          onMouseLeave={onLeave}
+      {card.open ? (
+        <IssueCard
+          card={card}
+          heading="Current issue"
           issue={issue}
           parent={
             issue.parentId === null
@@ -295,134 +216,6 @@ function StatusLine({ threadId }: { threadId: string }) {
       ) : null}
     </div>
     </WorkflowProvider>
-  );
-}
-
-/**
- * The card the status line opens: what this thread is working on, at
- * a glance, without opening the Airbender tab.
- *
- * Top to bottom: a "Current issue" line with when it last changed; the
- * parent, when it is a sub-issue; the title; the id (click to copy) with
- * status, priority, type and category tags, drawn by the same IssueFacts
- * the tab uses so the two never disagree; the description as formatted
- * text; what "done" means, when the issue says; and its sub-issues with a
- * progress bar, closed ones struck through as in the tab.
- *
- * Read-only: changing the issue is the tab's job. Long text scrolls inside
- * its own block so the card keeps a bounded height above the message box.
- * It opens upwards because the message box sits at the bottom of the window.
- *
- * Drawn at the top level of the page (a portal), at a fixed place in the
- * window. The first version was positioned against its trigger, inside the
- * message box, and the user saw nothing happen on a click: BB's message box
- * cuts off whatever sticks out of it. Content moved out like this loses the
- * plugin's styles unless it carries usePortalScopeProps().
- *
- * @param panel Ref for the card's element, so useMenu knows a press inside
- *   the card is not a press "outside".
- * @param place Fixed position and height limit, from the line's position.
- * @param parent The issue this one is a sub-issue of, if any.
- * @param subIssues Direct sub-issues only, in the order the list gave them.
- */
-function CurrentIssueCard({
-  panel,
-  place,
-  onMouseEnter,
-  onMouseLeave,
-  issue,
-  parent,
-  subIssues,
-}: {
-  panel: React.RefObject<HTMLDivElement | null>;
-  place: CSSProperties;
-  /** Tell the line the pointer is on / off the card (hover-opened cards). */
-  onMouseEnter: () => void;
-  onMouseLeave: () => void;
-  issue: Issue;
-  parent: Issue | null;
-  subIssues: Issue[];
-}) {
-  const closed = subIssues.filter((sub) => sub.status === CLOSED_STATUS).length;
-  const scopeProps = usePortalScopeProps();
-  return createPortal(
-    <div
-      {...scopeProps}
-      ref={panel}
-      role="dialog"
-      aria-label={`Current issue ${issue.id}`}
-      style={place}
-      onMouseEnter={onMouseEnter}
-      onMouseLeave={onMouseLeave}
-      className="fixed z-50 w-96 max-w-[85vw] overflow-y-auto rounded-xl border border-border bg-popover text-left text-popover-foreground shadow-lg"
-    >
-      {/* A thin green line on top: the same colour the tab gives Current. */}
-      <div className="h-0.5 bg-success/60" />
-      <div className="space-y-2 p-4">
-        <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-          <span className="flex items-center gap-1.5 font-medium">
-            <span className="size-1.5 rounded-full bg-success" />
-            Current issue
-          </span>
-          {issue.updatedAt === null ? null : (
-            <span>Changed {formatWhen(issue.updatedAt)}</span>
-          )}
-        </div>
-        {parent === null ? null : (
-          <p className="truncate text-xs text-muted-foreground">
-            Part of {parent.title}
-          </p>
-        )}
-        <h4 className="text-base font-semibold leading-snug">{issue.title}</h4>
-        <IssueFacts issue={issue} showStatus />
-      </div>
-      <div className="max-h-48 overflow-y-auto border-t border-border px-4 py-3">
-        {issue.description.trim() === "" ? (
-          <p className="text-sm text-muted-foreground">No description yet.</p>
-        ) : (
-          <Markdown content={issue.description} className="text-sm" />
-        )}
-      </div>
-      {issue.acceptance.trim() === "" ? null : (
-        <div className="max-h-32 overflow-y-auto border-t border-border px-4 py-3">
-          <div className="mb-1 text-xs font-medium text-muted-foreground">
-            Done means
-          </div>
-          <Markdown content={issue.acceptance} className="text-sm" />
-        </div>
-      )}
-      {subIssues.length === 0 ? null : (
-        <div className="border-t border-border px-4 py-3">
-          <div className="mb-1.5 flex items-center justify-between text-xs font-medium text-muted-foreground">
-            <span>Sub-issues</span>
-            <span>
-              {closed} of {subIssues.length} closed
-            </span>
-          </div>
-          <div className="mb-2 h-1 overflow-hidden rounded-full bg-muted">
-            <div
-              className="h-full bg-success/70"
-              style={{ width: `${(closed / subIssues.length) * 100}%` }}
-            />
-          </div>
-          <ul className="max-h-32 space-y-1 overflow-y-auto text-sm">
-            {subIssues.map((sub) => (
-              <li
-                key={sub.id}
-                className={cn(
-                  "truncate",
-                  sub.status === CLOSED_STATUS &&
-                    "text-muted-foreground line-through",
-                )}
-              >
-                {sub.title}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-    </div>,
-    document.body,
   );
 }
 

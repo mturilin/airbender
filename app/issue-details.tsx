@@ -38,6 +38,7 @@ import {
   WorkflowMoves,
 } from "./workflow-controls.tsx";
 import { CurrentToggle } from "./current-toggle.tsx";
+import { ZoomInIcon } from "./epic-band.tsx";
 import type { RowAsk } from "./row-menu.tsx";
 
 /**
@@ -174,6 +175,7 @@ export function IssueDetails({
   // The workflow move waiting for its reason (send back, skip); null when
   // none is. Its field shows under the buttons.
   const [noting, setNoting] = useState<WorkflowMove | null>(null);
+  const focusOffer = actions.focusOffer(issue.id);
   useEffect(() => {
     if (asked === null) return;
     if (!closed) {
@@ -320,6 +322,32 @@ export function IssueDetails({
           >
             <LinkIcon className="size-4" />
             Link
+          </Button>
+        )}
+        {/* Epic mode, also here: a compact sub-issue row has no buttons,
+            and this is how a sub-issue with sub-issues of its own is
+            zoomed in on, one level at a time. Disabled with the reason
+            while the current issue is not from this epic. */}
+        {focusOffer === null ? null : (
+          <Button
+            variant="outline"
+            size="sm"
+            // Greyed out by hand, not `disabled`, so the tooltip with the
+            // reason still shows (see the same button in IssueRow).
+            className={
+              focusOffer.blocked === null
+                ? undefined
+                : "cursor-default opacity-40"
+            }
+            aria-disabled={focusOffer.blocked !== null}
+            tip={
+              focusOffer.blocked ??
+              "Epic mode: show only this issue's sub-issues in the list"
+            }
+            onClick={() => actions.focus(issue.id)}
+          >
+            <ZoomInIcon className="size-4" />
+            Focus
           </Button>
         )}
         {/* A compact sub-issue row has no buttons of its own (see

@@ -16,7 +16,9 @@ panel, beside a thread or on the New thread screen.
 - `app.tsx` and `app/` — the frontend. `app.tsx` registers the surfaces;
   the **Airbender** tab is `app/panel.tsx` and the files beside it (rows,
   opened issue, groups, new-issue field, menus, setup), and
-  `app/composer.tsx` holds the message-box controls. Logic without React is
+  `app/composer.tsx` holds the message-box controls; `app/issue-card.tsx`
+  is the card an issue shows on hover; `app/epic-band.tsx`
+  and `app/use-focus.ts` are epic mode. Logic without React is
   in `app/issue-model.ts` and `app/quick-tags.ts`.
 - `shared/` — what both halves use: `constants.ts` (the values they must
   agree on), `tree.ts` (walking sub-issues), and the workflow:
@@ -53,9 +55,16 @@ From top to bottom the tab shows:
    The choice is remembered per repository, its work trees follow it, and
    issues keep their steps while it is on Simple. The menu also holds the
    setup steps.
-2. **Current** (pinned): the bead this thread is working on, as one row that
+2. **Epic band** (pinned, only in epic mode): an issue with sub-issues has
+   a magnifier button that zooms the list in on it, so only its direct
+   sub-issues are listed, as full rows. The band names the epic and its
+   back arrow goes up one level. Epic mode is only a way of looking, is
+   remembered per thread, and can be entered while the thread's bead is
+   none, the epic (which is then released) or something inside it; it ends
+   by itself when an outside issue becomes the thread's bead.
+3. **Current** (pinned): the bead this thread is working on, as one row that
    opens on its chevron.
-3. **Every other issue**, grouped by status; this part scrolls. The Ready
+4. **Every other issue**, grouped by status; this part scrolls. The Ready
    heading carries two menus, both remembered per folder: Group (divides
    Ready into collapsible sub-groups by priority, type or category) and
    Filter (types, priorities, categories; narrows every group). Every open issue shows
@@ -101,7 +110,7 @@ From top to bottom the tab shows:
    An issue with sub-issues starts opened. A long description is cut to about four lines with
    "View more", which opens the window. Starting an issue with sub-issues starts
    the agent on all of them, and closing it closes all of them.
-4. **New issue field** (pinned at the bottom): type a title and press Enter;
+5. **New issue field** (pinned at the bottom): type a title and press Enter;
    the chevron adds type, priority and description.
 
 The agent can set the thread's bead itself with the `beads_set_current` tool

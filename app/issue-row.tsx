@@ -35,6 +35,7 @@ import {
 import { RowMenu } from "./row-menu.tsx";
 import type { RowAsk } from "./row-menu.tsx";
 import { CurrentToggle } from "./current-toggle.tsx";
+import { ZoomInIcon } from "./epic-band.tsx";
 
 /**
  * One issue: a compact line that opens to show its details, with its
@@ -99,6 +100,8 @@ export function IssueRow({
   // What the "more" menu has asked the opened issue to show (its edit form,
   // or the Move to or Link box); null once the opened issue has taken it.
   const [asked, setAsked] = useState<RowAsk | null>(null);
+  // Whether this issue offers epic mode, and whether it may be entered.
+  const focusOffer = actions.focusOffer(issue.id);
   // The repository is on the simple workflow, which has no steps.
   const simple = useWorkflow() === null;
   // An issue that gains its first sub-issue while on screen opens too;
@@ -286,6 +289,36 @@ export function IssueRow({
             onClick={() => actions.openDetails(issue.id)}
           >
             <Icon name="Maximize2" className="size-4" />
+          </Button>
+        )}
+        {/* Epic mode: zoom the tab in on this issue's sub-issues. Beside
+            the details-window button because the two are the ways into an
+            issue with sub-issues: a look in a window, or the list itself.
+            Shown disabled, with the reason, while the thread's current
+            issue is not from this epic (the user's rule, bead-bb-ha9). */}
+        {focusOffer === null || isDetailsRoot ? null : (
+          <Button
+            variant="ghost"
+            size="icon"
+            // Greyed out by hand instead of `disabled`: a disabled button
+            // takes no pointer at all, so its tooltip, which is where the
+            // reason is, would never show. A press then does nothing. The
+            // pointer stays the plain arrow: a "forbidden" cursor was tried
+            // and the user found it far too much.
+            className={cn(
+              "m-1 size-7 shrink-0 text-muted-foreground",
+              focusOffer.blocked !== null &&
+                "cursor-default opacity-40 hover:bg-transparent",
+            )}
+            aria-disabled={focusOffer.blocked !== null}
+            tip={
+              focusOffer.blocked ??
+              "Epic mode: show only this issue's sub-issues in the list"
+            }
+            aria-label={`Show only the sub-issues of ${issue.id} in the list`}
+            onClick={() => actions.focus(issue.id)}
+          >
+            <ZoomInIcon className="size-4" />
           </Button>
         )}
         {/* What the issue's step in its workflow offers: the agent's run

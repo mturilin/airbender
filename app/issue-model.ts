@@ -364,6 +364,35 @@ export function descendantIdsOf(
 }
 
 /**
+ * Why epic mode may not be entered, or may not stay, on an issue; null when
+ * it may.
+ *
+ * The user's rule (bead-bb-ha9): "Only issue from the epic can be current
+ * ... if the current issue selected is not from the epic, then you cannot
+ * enter epic mode." The epic itself counts, and so does no current issue at
+ * all. "From the epic" is at any depth.
+ *
+ * @param epicId The issue to zoom in on. One that is not in the list, or is
+ *   closed, cannot be zoomed in on either.
+ * @param currentId The thread's current issue; null when it has none.
+ * @returns The reason in plain words, for a tooltip; null when allowed.
+ */
+export function focusBlock(
+  byId: Map<string, Issue>,
+  epicId: string,
+  currentId: string | null,
+): string | null {
+  const epic = byId.get(epicId);
+  if (epic === undefined) return `${epicId} is no longer in the list.`;
+  if (epic.status === CLOSED_STATUS) return `${epicId} is closed.`;
+  if (currentId === null || currentId === epicId) return null;
+  if (descendantIdsOf(byId, epicId).has(currentId)) return null;
+  // The user's wording, kept short on purpose: an earlier version named the
+  // issues and said what to do about it, and read as fussy in a tooltip.
+  return "You can only enter epic mode when no issue is selected, or an issue from this epic is selected.";
+}
+
+/**
  * The chain of issues from the top level down to `issue`, itself last; empty
  * for null. Stops at a parent that is not in the list, and at a loop.
  */

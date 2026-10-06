@@ -23,7 +23,9 @@ import { SwitchDialog } from "./current-toggle.tsx";
 import { IssueDetailsWindow } from "./details-window.tsx";
 import { getDragged, setDragged } from "./drag.ts";
 import {
+  focusBlock,
   matchesFilters,
+  pathTo,
   toSections,
   toSubGroups,
   toggled,
@@ -38,6 +40,8 @@ import { useIssues } from "./use-issues.ts";
 import type { Scope } from "./use-issues.ts";
 import { DEFAULT_WORKFLOW_ID, workflowFor } from "../shared/workflows.ts";
 import { WorkflowProvider } from "./workflow-controls.tsx";
+import { EpicBand } from "./epic-band.tsx";
+import { useFocus } from "./use-focus.ts";
 
 /**
  * The tab body: current bead, create line, then the grouped issues or a
@@ -58,7 +62,45 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
   const { threadId, projectId } = scope;
   const { currentIssue, tree, descendantIds, types, categories } =
     useIssueTree(result);
-  const others = tree.topLevel;
+  // Epic mode (bead-bb-ha9): the conversation's tab can be zoomed in on one
+  // issue, and then lists that issue's direct sub-issues in place of the
+  // top-level issues. Everything below (groups, Group, Filter, Closed, the
+  // rows) is the same code fed a different list.
+  const [focusId, setFocus] = useFocus(scope);
+  const currentBeadId = result?.currentBeadId ?? null;
+  const listed = result?.state === "ok";
+  // The focus stands only while the user's rule holds: the epic is there
+  // and open, and the current issue is none, the epic, or one from inside
+  // it. When it stops holding (the agent or anything else made an outside
+  // issue current, or the epic was closed or deleted) the tab goes back to
+  // the whole list by itself. Checked only against a list that was really
+  // read, so a failed or pending load does not throw the focus away.
+  const focusHolds =
+    focusId !== null &&
+    listed &&
+    focusBlock(tree.byId, focusId, currentBeadId) === null;
+  // Decided only when a list arrives, never on a mere re-draw: when the tab
+  // is handed another conversation, the list still on screen is the old
+  // conversation's until the new one answers, and must not be used to
+  // judge the new conversation's focus.
+  const judge = useRef({ focusId, focusHolds, setFocus });
+  judge.current = { focusId, focusHolds, setFocus };
+  useEffect(() => {
+    const now = judge.current;
+    if (result?.state === "ok" && now.focusId !== null && !now.focusHolds) {
+      now.setFocus(null);
+    }
+  }, [result]);
+  const focused = focusHolds ? (tree.byId.get(focusId) ?? null) : null;
+  const others =
+    focused === null ? tree.topLevel : (tree.children.get(focused.id) ?? []);
+  // While zoomed in, a new issue belongs in the epic unless the user says
+  // otherwise in the field; on the way out the field goes back to the top
+  // level.
+  const focusedId = focused?.id ?? null;
+  useEffect(() => {
+    setNewIssueParentId(focusedId);
+  }, [focusedId]);
   // The issue the details window is showing; null when it is closed.
   const [detailsId, setDetailsId] = useState<string | null>(null);
   // The parent selected in the new-issue field at the bottom, and a counter
@@ -128,6 +170,8 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
       setDetailsId(null);
       setFocusNewIssue((count) => count + 1);
     },
+    focusId: focusedId,
+    setFocus,
   });
   const ok = result?.state === "ok";
   // Null on the simple workflow: no steps are drawn anywhere below.
@@ -140,6 +184,14 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
   // cannot simply reserve a gutter of their own with CSS: that needs
   // overflow clipping, which would cut off the filter menu that drops down
   // out of the top band.
+  // A drop that misses every row moves the dragged issue out to the level
+  // the list is showing: the top level, or, in epic mode, directly under
+  // the epic. There, "out" must not mean out of the epic: the issue would
+  // leave the list the user is looking at.
+  const canDropOut = (dragged: string) =>
+    focusedId === null
+      ? tree.byId.get(dragged)?.parentId != null
+      : actions.canNest(dragged, focusedId);
   const scroller = useRef<HTMLDivElement>(null);
   const [scrollbarWidth, setScrollbarWidth] = useState(0);
   useEffect(() => {
@@ -209,6 +261,20 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
               }}
             />
           </div>
+          {/* Epic mode's band, between the toolbar and Current (the user's
+              layout): which epic the list is zoomed in on, and the way
+              back out. */}
+          {focused === null ? null : (
+            <EpicBand
+              path={pathTo(tree.byId, focused)}
+              // Every direct sub-issue, the current one included: the
+              // card counts them all.
+              subIssues={(result?.issues ?? []).filter(
+                (issue) => issue.parentId === focused.id,
+              )}
+              onGo={actions.focus}
+            />
+          )}
           {ok ? <CurrentSection issue={currentIssue} /> : null}
           {actionProblem === null ? null : (
             <p role="alert" className="text-sm text-destructive">
@@ -225,20 +291,16 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
           ref={scroller}
           onDragOver={(event) => {
             const dragged = getDragged();
-            if (dragged === null || tree.byId.get(dragged)?.parentId == null) {
-              return;
-            }
+            if (dragged === null || !canDropOut(dragged)) return;
             event.preventDefault();
             event.dataTransfer.dropEffect = "move";
           }}
           onDrop={(event) => {
             const dragged = getDragged();
             setDragged(null);
-            if (dragged === null || tree.byId.get(dragged)?.parentId == null) {
-              return;
-            }
+            if (dragged === null || !canDropOut(dragged)) return;
             event.preventDefault();
-            actions.setParent(dragged, null);
+            actions.setParent(dragged, focusedId);
           }}
           className="min-h-0 flex-1 space-y-4 overflow-y-auto p-3 [scrollbar-gutter:stable]"
         >
@@ -265,6 +327,12 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
             <Notice>{result.message}</Notice>
           ) : result.issues.length === 0 ? (
             <Notice>No issues yet. Create the first one below.</Notice>
+          ) : focused !== null && others.length === 0 ? (
+            <Notice>
+              {currentIssue === null
+                ? "No issues in this epic yet. Create the first one below."
+                : "Nothing else in this epic."}
+            </Notice>
           ) : (
             <>
               {openSections.map((section) => (
