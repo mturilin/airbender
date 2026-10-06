@@ -16,6 +16,7 @@
 // - Delivered by React context, so adding an action touches this file and
 //   the component that uses it, and nothing in between.
 
+import { experimental_useSidebarThreads } from "@get-bb/plugin-sdk/app";
 import { createContext, useCallback, useContext, useState } from "react";
 import type {
   Issue,
@@ -44,6 +45,11 @@ export interface IssueLookups {
   ownBranch: boolean;
   /** Id of the bead this thread works on; null when none. */
   currentBeadId: string | null;
+  /**
+   * Whether this thread's agent is at work now: a turn is starting, running
+   * or stopping. False without a thread, and while that cannot be told.
+   */
+  agentBusy: boolean;
   /** The epic the tab is zoomed in on (epic mode); null for the whole list. */
   focusId: string | null;
   /**
@@ -190,6 +196,16 @@ export interface IssueCommands {
 /** Everything a row can ask and do: the lookups and the commands together. */
 export type IssueActions = IssueLookups & IssueCommands;
 
+/**
+ * The thread statuses in which the agent is at work. Anything else, also a
+ * status this does not know, counts as idle (as BB's own list does).
+ */
+const BUSY_STATUSES: ReadonlySet<string> = new Set([
+  "starting",
+  "active",
+  "stopping",
+]);
+
 const ActionsContext = createContext<IssueActions | null>(null);
 
 /**
@@ -303,6 +319,17 @@ export function useIssueActions({
   setFocus: (beadId: string | null) => void;
 }): IssueActionsView {
   const { threadId, projectId } = scope;
+  // Whether the thread's agent is at work (bead-bb-dtf), read from the app's
+  // own live list of threads: it costs no request and changes the moment a
+  // turn starts or ends. The tab has no hook for "this thread's run" as the
+  // message box has (useComposerView), and asking the backend would only
+  // say how things stood at the last reload of the issues. A thread that is
+  // not in the list (archived, or the list not loaded yet) counts as idle:
+  // better a button too many than a stalled step with no way to restart it.
+  const threadStatus = experimental_useSidebarThreads().threads.find(
+    (thread) => thread.id === threadId,
+  )?.status;
+  const agentBusy = BUSY_STATUSES.has(threadStatus ?? "");
   // The repository's workflow; null on the simple one, which has no moves.
   const workflow = workflowFor(result?.workflow ?? DEFAULT_WORKFLOW_ID);
   const [actionProblem, setActionProblem] = useState<string | null>(null);
@@ -383,6 +410,7 @@ export function useIssueActions({
   };
   const actions: IssueActions = {
     currentBeadId,
+    agentBusy,
     focusId,
     focusOffer,
     focus: (beadId) => {

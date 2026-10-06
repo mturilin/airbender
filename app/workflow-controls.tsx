@@ -306,7 +306,8 @@ export function SizeTag({
  *
  * Draws nothing when the buttons are not offered on this issue (see
  * canAct), when the step is the agent's and there is no thread to run it
- * in, or when the user's step has no main move.
+ * in or the agent is already at work on this issue, or when the user's
+ * step has no main move.
  *
  * Where the step's moves have icons and `icons` is set, they are drawn as
  * a group of icon buttons instead: at a step that has not started, the two
@@ -337,6 +338,11 @@ export function WorkflowButton({
   if (state.actor === "agent") {
     const { run } = actions;
     if (run === null) return null;
+    // Not on the thread's current issue while its agent is at work
+    // (bead-bb-dtf): the agent is then doing this very step, and "Implement"
+    // beside it asked for what was already happening. Once the agent is
+    // idle the button is back, so a step that stalled can be started again.
+    if (actions.agentBusy && actions.currentBeadId === issue.id) return null;
     const { runLabel, runIcon } = state;
     return (
       <Button

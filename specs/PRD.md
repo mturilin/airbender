@@ -480,6 +480,8 @@ Rules:
   to look at what was written. `[e2b]`
 - **Each step has one main button.** At an agent's step it starts the agent
   on that step. At the owner's step it is the owner's approval. `[e2b]`
+- **While the agent is working on an issue, the button that starts its
+  step is not shown on it.** `[dtf]`
 - **The Define button has an icon of its own**, different from the play
   triangle on the buttons of the other steps. `[0xy]`
 - **Starting never begins again from the first step.** The agent is asked to
@@ -780,6 +782,11 @@ breaking a requirement above.
 - Workflow: only the first step tells "not started" from "under way". A
   later step whose agent was never started, or has stalled, still shows
   that step's button, which starts the agent on it again.
+- Workflow: "the agent is working on an issue" means the issue is the
+  conversation's current one and the conversation's agent is busy
+  (starting, running or stopping a turn). The button is hidden on the
+  issue's row and inside the opened issue, and is back as soon as the agent
+  is idle. The owner's own buttons are not affected.
 - Workflow: Define and Plan are the steps that can be skipped; the
   implementation and the two reviews of it cannot.
 - Workflow: the owner can also report an agent's step as done ("Mark as
