@@ -43,7 +43,12 @@ import { useActions } from "./actions.ts";
 import { LinkIcon } from "./bits.tsx";
 import { CurrentIcon } from "./current-toggle.tsx";
 import { useMenu } from "./menus.tsx";
-import { useCanResize, useWorkflow } from "./workflow-controls.tsx";
+import {
+  MoveIcon,
+  useCanResize,
+  useMenuMoves,
+  useWorkflow,
+} from "./workflow-controls.tsx";
 
 /** What the menu can ask the opened issue to show. */
 export type RowAsk = "edit" | "move" | "link";
@@ -144,6 +149,7 @@ export function RowMenu({
     workflow !== null &&
     stateOf(workflow, issue.step).id === workflow.initial;
   const canResize = useCanResize(issue);
+  const menuMovesHere = useMenuMoves(issue);
   const current = actions.currentBeadId === issue.id;
   /** Runs an entry's action and shuts the menu. */
   const pick = (action: () => void) => () => {
@@ -223,6 +229,22 @@ export function RowMenu({
                   Open in window
                 </Entry>
               ) : null}
+              {/* Workflow moves the workflow itself wants here, whatever
+                  branch the folder is on: "Start in a new branch". */}
+              {menuMovesHere.map((move) => (
+                <Entry
+                  key={move.id}
+                  icon={
+                    <MoveIcon
+                      name={move.icon ?? "play"}
+                      className="size-4 shrink-0 text-muted-foreground"
+                    />
+                  }
+                  onPick={pick(() => actions.move(issue.id, move.id, ""))}
+                >
+                  {move.label}
+                </Entry>
+              ))}
               {closed ? (
                 <Entry
                   icon={<Icon name="RotateCcw" className="size-4 shrink-0 text-muted-foreground" />}

@@ -42,6 +42,14 @@ import { DEFAULT_WORKFLOW_ID, workflowFor } from "../shared/workflows.ts";
 import { WorkflowProvider } from "./workflow-controls.tsx";
 import { EpicBand } from "./epic-band.tsx";
 import { useFocus } from "./use-focus.ts";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 /**
  * The tab body: current bead, create line, then the grouped issues or a
@@ -59,6 +67,8 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
   // The issue waiting for the user's "yes, switch to it", when making it
   // current would replace another current issue; null when none is.
   const [switching, setSwitching] = useState<Issue | null>(null);
+  // A warning waiting to be read in its message box; null when none is.
+  const [warning, setWarning] = useState<string | null>(null);
   const { threadId, projectId } = scope;
   const { currentIssue, tree, descendantIds, types, categories } =
     useIssueTree(result);
@@ -162,6 +172,7 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
     // close, and let CloseDialog call confirmClose when the user agrees.
     askClose: setClosing,
     askSwitch: setSwitching,
+    askWarn: setWarning,
     openDetails: setDetailsId,
     closeDetails: () => setDetailsId(null),
     addSubIssue: (parentId) => {
@@ -426,6 +437,25 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
               }, reportProblem);
           }}
         />
+        {/* A move that was not made because of something the user can put
+            right (uncommitted changes before a branch): a message box, as
+            the user asked, not the red line of a failed action. */}
+        <Dialog
+          open={warning !== null}
+          onOpenChange={(open) => {
+            if (!open) setWarning(null);
+          }}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Not yet</DialogTitle>
+              <DialogDescription>{warning}</DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button onClick={() => setWarning(null)}>OK</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
         <SwitchDialog
           from={currentIssue}
           to={switching}

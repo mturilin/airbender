@@ -335,6 +335,9 @@ export function IssueRow({
         {compact ? null : (
           <WorkflowButton
             issue={issue}
+            // The two ways to start an issue are icons on a row.
+            icons
+            groupClassName="mx-1 mt-1.5"
             // Full size on the thread's current issue, where it is the one
             // thing to press. Everywhere else it is small and quiet (the
             // user's request, bead-bb-q9v): when the thread has no current

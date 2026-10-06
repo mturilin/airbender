@@ -90,7 +90,14 @@ From top to bottom the tab shows:
    value changes the issue straight away.
    An opened open issue has an Edit button: it turns the title and
    description into a form with Save and Cancel.
-   An issue takes only the steps its size needs. Pressing "Start" has the
+   An issue that is not started shows two icons: a play triangle (start),
+   and, while the folder is on the main branch, a play triangle with a
+   small branch (start in a new branch; always in the "⋯" menu too). The
+   second has the agent create a branch named from the issue's id and
+   title before anything else; it is refused, with a message box, while
+   the folder has uncommitted changes. "Commit & merge" then merges,
+   pushes the main branch and deletes that branch.
+   An issue takes only the steps its size needs. Starting one has the
    agent size it first: S (done in one go, you see it once, at the end), M
    (definition and plan together, one review, then the result) or L (every
    step). The size then shows as a small dropdown beside the step, where you

@@ -89,7 +89,10 @@ not at the end.
   Apply. When
   you are started on a bead you are told which step it is at. If you begin
   work on a bead that is still Not started (for example from a typed
-  request), move it with `start` first.
+  request), move it with `start` first, or with `start-branch` if the user
+  asked for it to be done in a branch of its own: that move tells you the
+  branch to create, and is refused while the folder has uncommitted
+  changes.
   **A bead takes only the steps its size needs.** When you are started on a
   bead that has no size, size it first and say which in one line, with the
   move `size:s`, `size:m` or `size:l`: S, small, is done in one go and
@@ -165,8 +168,12 @@ not at the end.
   becomes worth keeping in git. Do not commit a bead's work before that,
   unless the user has told you to commit as you go on a branch.
 - At Commit, commit only; leave the work on the branch it is on. At Commit
-  & merge, also merge that branch into the main branch: the user chose
-  this, which is their approval of that merge.
+  & merge, also merge that branch into the main branch, push the main
+  branch, and then delete the bead's branch, locally and on the remote: the
+  user chose this, which is their approval of the merge, of that push and
+  of the deletion. Push first, delete after: a merge that makes no commit
+  does not set off the hook below, and until the main branch is pushed the
+  branch on the remote is the only copy there.
 - When the work is in git, report the step done with the
   `beads_workflow_move` tool, naming the commit. That closes the bead.
 - One commit per bead. Stage only the files that belong to it; never

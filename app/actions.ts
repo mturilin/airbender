@@ -258,6 +258,8 @@ export interface IssueActionsView {
  * @param askClose Called when a row asks to close an issue, by cancelling
  *   it or by a closing move; the panel confirms and then calls
  *   `confirmClose`.
+ * @param askWarn Called with a warning to show in a message box (a move
+ *   that was not made because of something the user can put right).
  * @param askSwitch Called when making an issue current would replace
  *   another current issue; the panel confirms and then sets it.
  * @param openDetails Opens the details window on an issue.
@@ -277,6 +279,7 @@ export function useIssueActions({
   refresh,
   askClose,
   askSwitch,
+  askWarn,
   openDetails,
   closeDetails,
   addSubIssue,
@@ -292,6 +295,7 @@ export function useIssueActions({
   refresh: () => void;
   askClose: (pending: PendingClose) => void;
   askSwitch: (to: Issue) => void;
+  askWarn: (warning: string) => void;
   openDetails: (beadId: string) => void;
   closeDetails: () => void;
   addSubIssue: (parentId: string) => void;
@@ -335,7 +339,17 @@ export function useIssueActions({
   const applyMove = (beadId: string, moveId: string, note: string) => {
     rpc
       .call("workflow_move", { threadId, projectId, beadId, moveId, note })
-      .then(settle, reportProblem);
+      .then((outcome) => {
+        // A warning is something the user can put right (uncommitted
+        // changes before a branch): it gets a message box, not the line
+        // for a failed action. Nothing was moved.
+        if (outcome.warning && outcome.message !== null) {
+          setActionProblem(null);
+          askWarn(outcome.message);
+          return;
+        }
+        settle(outcome);
+      }, reportProblem);
   };
   const confirmClose = (pending: PendingClose) =>
     pending.moveId === null

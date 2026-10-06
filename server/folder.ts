@@ -202,8 +202,27 @@ export function createFolders({
     return main !== null && main !== "" && main !== current;
   }
 
+  /**
+   * Whether the folder has uncommitted changes to files git tracks, staged
+   * or not. Files git does not track at all are not counted: they belong
+   * to no branch, and a repository with a few of them (editor settings,
+   * local agent settings) would otherwise never count as clean.
+   *
+   * @returns False also when it cannot be told (not a git folder).
+   * Side effects: one read-only git command.
+   */
+  async function hasUncommittedChanges(path: string): Promise<boolean> {
+    const status = await readGit(path, [
+      "status",
+      "--porcelain",
+      "--untracked-files=no",
+    ]);
+    return status !== null && status !== "";
+  }
+
   return {
     onOwnBranch,
+    hasUncommittedChanges,
     BD_NOT_FOUND_MESSAGE,
     resolveFolder,
     folderFor,

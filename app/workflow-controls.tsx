@@ -34,9 +34,11 @@ import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { Tip } from "@/components/ui/tip";
+import { cn } from "@/lib/utils";
 import type { Issue } from "../server/contract.ts";
 import { CLOSED_STATUS } from "../shared/constants.ts";
 import {
+  menuMoves,
   nextWorkOf,
   offeredMoves,
   stateOf,
@@ -142,6 +144,79 @@ export function StateChip({ state }: { state: WorkflowState }) {
   );
 }
 
+/** The offered moves, plus any the workflow wants reachable regardless. */
+function withMenuMoves(
+  offered: WorkflowMove[],
+  always: WorkflowMove[],
+): WorkflowMove[] {
+  return [
+    ...offered,
+    ...always.filter((move) => !offered.some((other) => other.id === move.id)),
+  ];
+}
+
+/**
+ * The moves an issue's menu lists: the ones its workflow marks for the
+ * menu, at the step it is at. None where the step's buttons are not offered
+ * on this issue (see canAct), on a closed issue, or without a workflow.
+ */
+export function useMenuMoves(issue: Issue): WorkflowMove[] {
+  const actions = useActions();
+  const workflow = useWorkflow();
+  if (workflow === null || !canAct(actions, issue)) return [];
+  return menuMoves(workflow, stateOf(workflow, issue.step).id, "user");
+}
+
+/**
+ * The icon a move is drawn with on a row, by the name the workflow gives.
+ *
+ * Both are drawn here, from one triangle, so that the pair matches: "play"
+ * is Tabler Icons' "player-play" outline (MIT, (c) Pawel Kuna), and
+ * "play-branch" is that same triangle at three quarters of its size with,
+ * beside it, two dots joined by a line and a small arrow going off. The
+ * second is the drawing the user chose (of three) for "start in a new
+ * branch": "both icons should have a play button, but the one with branch
+ * will have also two dots and small arrow". No icon set has it.
+ *
+ * The first version took "play" from BB's own icons and drew only the
+ * second; the user saw at once that the two triangles were in different
+ * hands. A name this does not know gets the plain triangle.
+ */
+export function MoveIcon({
+  name,
+  className,
+}: {
+  name: string;
+  className?: string;
+}) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      className={className}
+    >
+      {name === "play-branch" ? (
+        <>
+          {/* The triangle below, scaled by 0.75 and moved to the left. */}
+          <path d="M2.5 6v12l9.75 -6l-9.75 -6" />
+          <circle cx="16" cy="19" r="1.7" />
+          <circle cx="16" cy="5" r="1.7" />
+          <path d="M16 6.7v10.6" />
+          <path d="M17.7 19h1.3a2 2 0 0 0 2 -2v-5" />
+          <path d="M18.8 13.6l2.2 -2.2l2.2 2.2" />
+        </>
+      ) : (
+        <path d="M7 4v16l13 -8l-13 -8" />
+      )}
+    </svg>
+  );
+}
+
 /**
  * Whether the user may set or change an issue's size now: the repository's
  * workflow has sizes, the issue is open, and the workflow still allows it
@@ -220,14 +295,27 @@ export function SizeTag({
  * canAct), when the step is the agent's and there is no thread to run it
  * in, or when the user's step has no main move.
  *
+ * Where the step's moves have icons and `icons` is set, they are drawn as
+ * a group of icon buttons instead: at a step that has not started, the two
+ * ways to start (bead-bb-jqn.1).
+ *
  * @param className Extra classes, for the row's spacing.
  */
 export function WorkflowButton({
   issue,
   className,
+  icons = false,
+  groupClassName,
 }: {
   issue: Issue;
   className?: string;
+  /**
+   * Draw moves that have an icon as icon buttons, without words. For a
+   * row; the opened issue keeps words on its buttons.
+   */
+  icons?: boolean;
+  /** Extra classes for that group of icon buttons: its place on the row. */
+  groupClassName?: string;
 }) {
   const actions = useActions();
   const workflow = useWorkflow();
@@ -251,11 +339,41 @@ export function WorkflowButton({
       </Button>
     );
   }
-  const main = offeredMoves(workflow, state.id, "user", {
+  const offered = offeredMoves(workflow, state.id, "user", {
     ownBranch: actions.ownBranch,
-  }).find(
-    (move) => move.primary === true,
-  );
+  });
+  // Moves the workflow wants drawn without words (the two ways to start an
+  // issue): on a row they are a small group of icon buttons, set apart by a
+  // soft fill from the row's other icons, each with its hint as a tooltip.
+  const drawn = icons ? offered.filter((move) => move.icon !== undefined) : [];
+  if (drawn.length > 0) {
+    return (
+      <span
+        className={cn(
+          "inline-flex shrink-0 overflow-hidden rounded-md bg-foreground/[0.06]",
+          groupClassName,
+        )}
+      >
+        {drawn.map((move, index) => (
+          <Button
+            key={move.id}
+            variant="ghost"
+            size="icon"
+            className={cn(
+              "h-6 w-7 rounded-none text-muted-foreground hover:bg-foreground/[0.12] hover:text-foreground",
+              index > 0 && "border-l border-border/60",
+            )}
+            tip={`${move.label}. ${move.hint}`}
+            aria-label={`${move.label}: ${issue.id} ${issue.title}`}
+            onClick={() => actions.move(issue.id, move.id, "")}
+          >
+            <MoveIcon name={move.icon!} className="size-4" />
+          </Button>
+        ))}
+      </span>
+    );
+  }
+  const main = offered.find((move) => move.primary === true);
   if (main === undefined) return null;
   return (
     <Button
@@ -300,9 +418,12 @@ export function WorkflowMoves({
   const state = stateOf(workflow, issue.step);
   return (
     <>
-      {offeredMoves(workflow, state.id, "user", {
-    ownBranch: actions.ownBranch,
-  })
+      {withMenuMoves(
+        offeredMoves(workflow, state.id, "user", {
+          ownBranch: actions.ownBranch,
+        }),
+        menuMoves(workflow, state.id, "user"),
+      )
         .filter((move) => move.primary !== true)
         .map((move) => (
           <Button

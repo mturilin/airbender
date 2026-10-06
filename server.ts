@@ -195,6 +195,7 @@ export default async function plugin(bb: BbPluginApi) {
     currentBead,
     workflowChoice,
     onUserSize: sizing.forget,
+    hasUncommittedChanges: folders.hasUncommittedChanges,
   });
   const { setupStatus, runSetup } = createSetup({ bb, folders, store });
 
@@ -224,9 +225,10 @@ export default async function plugin(bb: BbPluginApi) {
     issue_link: (input) => store.link(input),
     issue_unlink: (input) => store.unlink(input),
     workflow_run: (input) => work.run(input),
-    workflow_move: async (input) => ({
-      message: (await work.move(input, "user")).message,
-    }),
+    workflow_move: async (input) => {
+      const outcome = await work.move(input, "user");
+      return { message: outcome.message, warning: outcome.warning === true };
+    },
     issue_set_size: (input) => work.resize(input),
     issue_request_sizing: async (input) => {
       const found = await store.issuesIn(input, input.beadId);

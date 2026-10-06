@@ -11,10 +11,15 @@
 // Run with `npm test`.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { MOVE_TOOL, standardWorkflow as flow } from "./standard-workflow.ts";
+import {
+  MOVE_TOOL,
+  branchName,
+  standardWorkflow as flow,
+} from "./standard-workflow.ts";
 import {
   CLOSED,
   checkMove,
+  menuMoves,
   movesFor,
   nextWorkOf,
   problemsIn,
@@ -402,4 +407,99 @@ test("the standing instructions tell the agent about sizes and that a question n
   for (const size of ["`size:s`", "`size:m`", "`size:l`"]) assert.ok(text.includes(size));
   assert.match(text, /A plain question or a discussion needs no issue/u);
   assert.match(text, /`approved:commit`/u);
+});
+
+test("an issue can be started in a branch of its own, by the user or the agent", () => {
+  assert.equal(go("not-started", "start-branch", "user", ""), "define");
+  assert.equal(go(null, "start-branch", "agent", ""), "define");
+  const move = checkMove(flow, null, "start-branch", "user", "");
+  assert.ok(!("message" in move));
+  if ("message" in move) return;
+  assert.equal(move.label, "Start in a new branch");
+  // It may not be started over uncommitted changes, and says what to do.
+  assert.match(move.needsCleanFolder ?? "", /uncommitted changes.*Commit them before starting a branch/u);
+  // Plain start has no such condition.
+  const plain = checkMove(flow, null, "start", "user", "");
+  assert.ok(!("message" in plain) && plain.needsCleanFolder === undefined);
+});
+
+test("on a row the two starts are icons; the branch one only on the main branch, but always in the menu", () => {
+  const icons = (ownBranch: boolean) =>
+    offeredMoves(flow, "not-started", "user", { ownBranch })
+      .filter((move) => move.icon !== undefined)
+      .map((move) => move.icon);
+  assert.deepEqual(icons(false), ["play", "play-branch"]);
+  assert.deepEqual(icons(true), ["play"]);
+  assert.deepEqual(
+    menuMoves(flow, "not-started", "user").map((move) => move.id),
+    ["start-branch"],
+  );
+  // Nothing else is put in the menu, and no later step draws icons.
+  for (const state of flow.states.filter((s) => s.id !== "not-started")) {
+    assert.deepEqual(menuMoves(flow, state.id, "user"), [], state.id);
+    assert.ok(
+      movesFor(flow, state.id, "user").every((move) => move.icon === undefined),
+      state.id,
+    );
+  }
+});
+
+test("the branch is named from the issue's id and a short form of its title", () => {
+  assert.equal(
+    branchName({ id: "bead-bb-2oy", title: "have maximize button on all issues" }),
+    "bead-bb-2oy-have-maximize-button-on-all-issues",
+  );
+  // Odd characters go; accents are flattened; case is lowered.
+  assert.equal(
+    branchName({ id: "x-1", title: 'Fix "it": crème brûlée / A&B!' }),
+    "x-1-fix-it-creme-brulee-a-b",
+  );
+  // A long title is cut at a word, not in the middle of one.
+  const long = branchName({
+    id: "x-1",
+    title: "Size issues in the background when they are created or changed by anyone",
+  });
+  assert.equal(long, "x-1-size-issues-in-the-background-when-they");
+  assert.ok(long.length <= "x-1-".length + 40);
+  // Nothing usable in the title: the id alone.
+  assert.equal(branchName({ id: "x-1", title: "?!" }), "x-1");
+  assert.equal(branchName({ id: "x-1.2", title: "" }), "x-1.2");
+});
+
+test("the agent is told to make the branch first, and what to do when it cannot", () => {
+  const move = checkMove(flow, null, "start-branch", "user", "");
+  assert.ok(!("message" in move));
+  if ("message" in move) return;
+  const lines = move.opening?.({
+    id: "x-1",
+    title: "Add a thing",
+    size: null,
+    openSubIssues: [],
+  });
+  const text = (lines ?? []).join("\n");
+  assert.match(text, /Before anything else, create and switch to a new branch named `x-1-add-a-thing`/u);
+  assert.match(text, /git switch -c x-1-add-a-thing/u);
+  assert.match(text, /already exists.*stop and tell the user/u);
+  // Plain start says nothing first.
+  const plain = checkMove(flow, null, "start", "user", "");
+  assert.ok(!("message" in plain) && plain.opening === undefined);
+});
+
+test("Commit & merge pushes the main branch before it deletes the issue's branch", () => {
+  const text = flow.instruction(stateOf(flow, "commit-merge"), {
+    id: "x-1",
+    title: "T",
+    size: null,
+    openSubIssues: [],
+  });
+  const merge = text.indexOf("merge the branch the work is on");
+  const push = text.indexOf("push the main branch");
+  const remove = text.indexOf("delete the branch the work was on");
+  assert.ok(merge >= 0 && push > merge && remove > push);
+  assert.match(text, /Never delete the main branch, and never force a deletion/u);
+  // Committing alone leaves the branch.
+  assert.doesNotMatch(
+    flow.instruction(stateOf(flow, "commit"), { id: "x-1", title: "T", size: null, openSubIssues: [] }),
+    /delete the branch/u,
+  );
 });

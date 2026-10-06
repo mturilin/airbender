@@ -370,7 +370,10 @@ export const rpcContract = defineRpcContract({
       /** Why: required by some moves, optional for the rest. */
       note: z.string().max(2000),
     }),
-    output: z.object({ message: z.string().nullable() }),
+    // `warning` true: the message is a warning the user can act on (the
+    // folder has uncommitted changes), to be shown in a message box, and
+    // nothing was moved.
+    output: z.object({ message: z.string().nullable(), warning: z.boolean() }),
   },
   issue_set_size: {
     // The user sets or changes an issue's size. Allowed until the work

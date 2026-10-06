@@ -85,7 +85,10 @@ example "\`bd close <id>\` to complete work"), these rules take precedence.
 - **(standard) Commit when the user has accepted the issue and chosen
   how**, not before. That is the workflow's last step: one commit per
   issue, only that issue's files, with the issue's id and title as the
-  subject line; and a merge only when the user chose "Commit & merge".
+  subject line. A merge only when the user chose "Commit & merge": then
+  also push the main branch and, after that, delete the issue's branch
+  locally and on the remote. An issue the user starts "in a new branch"
+  tells you the branch to create first.
 - **On the simple workflow, commit only when the user asks.**
 ${RULES_END}
 `;

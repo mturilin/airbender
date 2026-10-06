@@ -110,6 +110,30 @@ export interface WorkflowMove {
    */
   mainBranchOnly?: boolean;
   /**
+   * Drawn as an icon with a tooltip, without words, on an issue's row: the
+   * name of the icon ("play", "play-branch"; the tab knows how to draw
+   * them). For a move whose label would say nothing the step does not.
+   */
+  icon?: string;
+  /**
+   * Also listed in the issue's menu, and among the opened issue's buttons,
+   * whatever `ownBranchOnly` / `mainBranchOnly` say: those then govern the
+   * row only. For a move that is out of the way by default but must stay
+   * reachable.
+   */
+  alsoInMenu?: boolean;
+  /**
+   * The move is refused while the folder has uncommitted changes to
+   * tracked files; this is the warning shown instead.
+   */
+  needsCleanFolder?: string;
+  /**
+   * Lines put in front of what the agent is told after this move: something
+   * to do first, once, that belongs to the move and not to the step it
+   * leads to.
+   */
+  opening?(issue: WorkflowIssue): string[];
+  /**
    * The move also sets the issue's size to this (an id from the workflow's
    * `sizes`). How the agent records the size it chose.
    */
@@ -216,6 +240,20 @@ export function offeredMoves(
     (move) =>
       (move.ownBranchOnly !== true || context.ownBranch) &&
       (move.mainBranchOnly !== true || !context.ownBranch),
+  );
+}
+
+/**
+ * The moves out of a state that `by` may make and that the workflow wants
+ * in the issue's menu regardless of where the work lives (`alsoInMenu`).
+ */
+export function menuMoves(
+  workflow: Workflow,
+  stateId: string,
+  by: Actor,
+): WorkflowMove[] {
+  return movesFor(workflow, stateId, by).filter(
+    (move) => move.alsoInMenu === true,
   );
 }
 

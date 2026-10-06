@@ -57,6 +57,16 @@
 // - Where there is only one way to apply accepted work, the user is not
 //   stopped to choose it: on the main branch "Accept & commit" goes
 //   straight to the commit. Apply remains for work on a branch of its own.
+// - An issue can be started in a branch of its own (bead-bb-jqn.1): a
+//   second move out of Not started. It is not a step: the agent makes the
+//   branch as the first thing it does, then sizes and works as usual, and
+//   "Commit & merge" ends the branch. The user's decisions: the branch is
+//   in the folder the conversation is in (work trees are another issue);
+//   it is named from the issue's id and title; it cannot be started over
+//   uncommitted changes; on the row it is offered only on the main branch,
+//   in the menu always; after the merge the main branch is pushed and the
+//   branch deleted, locally and on the remote. Rejected: the plugin making
+//   the branch (it never changes git), and a step of its own for it.
 // - Dropping an issue (Cancel) is not a move here. It is always possible and
 //   is the tab's own action, outside the workflow.
 //
@@ -245,6 +255,31 @@ const moves: WorkflowMove[] = [
     label: "Start",
     hint: "Start on this issue: the agent sizes it and begins.",
     primary: true,
+    // Without words on a row (the user's choice): the step already reads
+    // "Not started", and a play triangle needs no label.
+    icon: "play",
+  },
+  {
+    id: "start-branch",
+    from: "not-started",
+    to: "define",
+    by: ["user", "agent"],
+    label: "Start in a new branch",
+    hint: "Start on this issue in a branch of its own: the agent creates the branch, then sizes the issue and begins. Commit & merge at the end brings it back.",
+    icon: "play-branch",
+    // From another branch the new one would be cut from that branch and
+    // merge back into it, rarely what is wanted: so not on the row there,
+    // but still in the menu for someone who means it.
+    mainBranchOnly: true,
+    alsoInMenu: true,
+    needsCleanFolder:
+      "There are uncommitted changes in this folder. Commit them before starting a branch.",
+    opening: (issue) => [
+      `The user started this issue in a branch of its own. Before anything else, create and switch to a new branch named \`${branchName(issue)}\` from where the folder is now (\`git switch -c ${branchName(issue)}\`), and tell the user in one line that the work is on that branch.`,
+      "If a branch of that name already exists, or the branch cannot be created, stop and tell the user: do not reuse or overwrite a branch, and do not go on in the branch you were in.",
+      "All of this issue's work is done on that branch. At the end the user chooses whether it is merged.",
+      "",
+    ],
   },
   // How the agent records the size it chose (see the design notes). A small
   // issue goes straight to Implement, so the step shown is the one the work
@@ -491,6 +526,32 @@ const jumps: WorkflowMove[] = states.flatMap((from, fromIndex) =>
 );
 moves.push(...jumps);
 
+/**
+ * The branch an issue is worked in when it is started in one: its id, then
+ * a short form of its title, so that the branch says what it is in git.
+ * Lower case, words joined by dashes, nothing git would refuse; the title's
+ * part is cut at a word where it runs long, and left out when the title has
+ * nothing usable in it.
+ */
+export function branchName(issue: { id: string; title: string }): string {
+  const words = issue.title
+    .normalize("NFKD")
+    // The accents NFKD split off their letters go, the letters stay.
+    .replace(/\p{M}+/gu, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/gu, " ")
+    .trim()
+    .split(" ")
+    .filter((word) => word !== "");
+  let slug = "";
+  for (const word of words) {
+    const next = slug === "" ? word : `${slug}-${word}`;
+    if (next.length > 40) break;
+    slug = next;
+  }
+  return slug === "" ? issue.id : `${issue.id}-${slug}`;
+}
+
 /** How the agent is told to report a move. */
 const report = (issueId: string, moveId: string) =>
   `call the \`${MOVE_TOOL}\` tool with id \`${issueId}\`, move \`${moveId}\` and a one-line note`;
@@ -633,8 +694,10 @@ function stepText(stateId: string, id: string, size: string | null): string[] {
         "The user has accepted this work and chosen to commit it and merge it. Your job now is to get it into git and onto the main branch.",
         "",
         "- Commit the changes that belong to this issue, following the commit rules in AGENTS.md if it has any: only this issue's files, with the issue's id and title in the subject line. With sub-issues: one commit per issue where its changes can be told apart, otherwise one commit whose body lists each issue as id and title.",
-        "- Then merge the branch the work is on into the repository's main branch. The user chose this in the Airbender tab: that is their approval of this merge, so do not ask again.",
-        "- If this repository pushes commits by itself, tell the user if that push fails, and tell them if the merge left the main branch ahead of its remote. Do not push by hand unless the repository's rules say to.",
+        "- Then merge the branch the work is on into the repository's main branch, leaving the folder on the main branch. The user chose this in the Airbender tab: that is their approval of this merge, so do not ask again.",
+        "- Then push the main branch to its remote, if it has one: the user's choice of Commit & merge is their approval of that push too. A merge that makes no commit of its own does not set off a hook that pushes on commit, so do not rely on one.",
+        "- Only when the main branch is on the remote, delete the branch the work was on: locally (`git branch -d`), and on the remote if it is there (`git push origin --delete <branch>`). Never delete the main branch, and never force a deletion: if git refuses, leave the branch and say why.",
+        "- Tell the user plainly if any push or deletion fails; the commit and the merge are safe locally.",
         "- If everything was already committed, say so and merge. If the work is already on the main branch, say so: there is nothing to merge.",
         "",
         `When the work is committed and merged, ${report(id, "done")} naming the commit. That closes the issue.`,
@@ -736,7 +799,7 @@ function describeForAgents(): string {
     `Not every issue takes every step. Issues have a size, S, M or L, which you choose when you are started on one that has none, with the move \`size:s\`, \`size:m\` or \`size:l\` at ${states[1]!.label}: S is done in one go and reaches the user once, at the end; M has one review at the front, of definition and plan together; L takes every step. In doubt, take the larger. The user can set or change the size; you are told when they do.`,
     "When you create an issue yourself you may give it a size, since you know it better than anyone sizing it later: add the label `size:s`, `size:m` or `size:l`.",
     "A plain question or a discussion needs no issue: answer it in the conversation. Create an issue only when something is to be changed; where a discussion ends in a decision worth keeping, offer to record it.",
-    `If you begin work on an issue that is still at ${states[0]!.label} (for example from a typed request), move it with \`start\` first.`,
+    `If you begin work on an issue that is still at ${states[0]!.label} (for example from a typed request), move it with \`start\` first; if the user asked for it to be done in a branch of its own, with \`start-branch\` instead, which tells you the branch to create and is refused while the folder has uncommitted changes.`,
     `When you finish a step, report it with the ${MOVE_TOOL} tool (${agentMoves}), each with a short note. The tool tells you what comes next: either your next step, or that the issue now waits for the user.`,
     "You have the judgment to move an issue to where the work really is: the move `to:<step id>` (the ids are in square brackets above) takes it to any step, with your reason, for example to leave out steps that are not needed. Two limits: while an issue waits for the user's review you may only move it back, not on; and you can never move an issue to Apply or past it.",
     "While an issue waits for the user's review, read what they reply. If they ask for changes, move it back with `send-back`, giving their words as the reason, and redo the work; a long rework belongs in the work step, a quick question does not need a move at all. If they approve in the conversation, record it with `approved`, quoting what they said, and carry on. At Human review, if they accept the work and say to commit it, record that with `approved:commit` instead, which goes straight to the commit. At Apply the user chooses between committing and committing with a merge; if they say which in the conversation, record it with `approved:commit` or `approved:commit-merge`, quoting them. Never record an approval the user has not given.",

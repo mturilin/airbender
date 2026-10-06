@@ -276,7 +276,12 @@ function StepButton({ threadId }: { threadId: string }) {
     asked
       .then(
         (outcome) => {
-          if (outcome.message !== null) toast.error(outcome.message);
+          if (outcome.message !== null) {
+            // A warning the user can act on reads as one, not as an error.
+            if ("warning" in outcome && outcome.warning === true) {
+              toast.warning(outcome.message);
+            } else toast.error(outcome.message);
+          }
           refresh();
         },
         (cause: unknown) =>

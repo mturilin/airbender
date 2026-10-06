@@ -59,6 +59,12 @@ export interface MoveOutcome extends Outcome {
   /** The state the issue is in now; null when it was closed or the move failed. */
   state: WorkflowState | null;
   /**
+   * The message is a warning about something the user can put right (the
+   * folder has uncommitted changes), not a failure: the tab shows it in a
+   * message box. Left out otherwise.
+   */
+  warning?: boolean;
+  /**
    * For the agent: what to do next, when the new state is the agent's.
    * Null when the issue now waits for the user, or was closed.
    */
@@ -78,6 +84,7 @@ export function createWork({
   currentBead,
   workflowChoice,
   onUserSize,
+  hasUncommittedChanges,
 }: {
   bb: BbPluginApi;
   store: Store;
@@ -88,6 +95,8 @@ export function createWork({
    * background sizing treats that size as theirs (server/sizing.ts).
    */
   onUserSize: (path: string, beadId: string) => void;
+  /** Whether a folder has uncommitted changes to tracked files. */
+  hasUncommittedChanges: (path: string) => Promise<boolean>;
 }) {
   const { issuesIn, setIssueOpen, setStep, setSize, addComment, changed } =
     store;
@@ -209,6 +218,14 @@ export function createWork({
     const from = stateOf(workflow, issue.step);
     const checked = checkMove(workflow, issue.step, input.moveId, by, input.note);
     if ("message" in checked) return fail(checked.message);
+    // A move may need the folder to be clean (starting in a new branch):
+    // refused with the move's own warning, and nothing is changed.
+    if (
+      checked.needsCleanFolder !== undefined &&
+      (await hasUncommittedChanges(path))
+    ) {
+      return { ...fail(checked.needsCleanFolder), warning: true };
+    }
     const note = input.note.trim();
     const record = (to: string) =>
       addComment(
@@ -243,7 +260,7 @@ export function createWork({
     // forward (what was done, why a step was skipped) is for the record,
     // not an instruction.
     const order = (state: WorkflowState) => workflow.states.indexOf(state);
-    const text =
+    const told =
       to.actor === "agent"
         ? workflow.instruction(
             to,
@@ -255,6 +272,12 @@ export function createWork({
               : undefined,
           )
         : null;
+    // What the move itself has the agent do first (make a branch) goes in
+    // front of the step's instructions.
+    const text =
+      told === null || checked.opening === undefined
+        ? told
+        : [...checked.opening(describe(sized, issues)), told].join("\n");
     let message: string | null = null;
     if (text !== null && by === "user" && threadId !== null) {
       try {

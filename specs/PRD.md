@@ -424,7 +424,21 @@ The steps, in order: `[e2b]`
 
 **An issue takes only as many of these steps as it needs.** `[4mb]`
 
-- **The button on an issue that is not started reads "Start".** `[4mb]`
+- **An issue that is not started is started with an icon, without text**,
+  a play button. `[4mb]` `[jqn.1]`
+- **Beside it is a second icon, for starting the issue in a new branch**:
+  also a play button, with two dots and a small arrow. `[jqn.1]`
+  - Started that way, the issue's work is done on a branch of its own, in
+    the same folder and conversation, and merged at the end.
+  - The branch is named from the issue's id and a short form of its title.
+  - **That icon is shown only while the folder is on the main branch; the
+    same command is always in the issue's menu.**
+  - **A branch cannot be started over uncommitted changes.** Pressing it
+    then starts nothing and shows a message box saying there are
+    uncommitted changes and they must be committed before starting a
+    branch.
+  - After "Commit & merge" the main branch is pushed and the issue's branch
+    is deleted, here and on the remote.
 - **The agent sizes the issue first**, and says which size in one line.
   The sizes are T-shirt sizes: `[4mb]`
   - **S, small**: definition, the work and the agent's own review in one
@@ -694,6 +708,21 @@ breaking a requirement above.
   and closed issues. A sub-issue's row has no buttons, so inside an opened
   sub-issue the button reads "Open in window", or "Open with sub-issues"
   when it has some. The issue the window is showing offers neither.
+- Starting in a new branch: the two start icons are drawn as one small
+  group with a soft fill, apart from the row's other icons. Their play
+  triangles are the same shape, the second one smaller to make room for
+  the branch beside it. The menu entry
+  reads "Start in a new branch", as does the button inside an opened issue
+  and, in the message box of the conversation, the button beside "Start".
+  Later steps keep their buttons with words.
+- Starting in a new branch: the agent makes the branch as the first thing
+  it does and says so; the product itself changes nothing in git. If the
+  name is taken or the branch cannot be made, the agent stops and says so.
+  "Uncommitted changes" are changes to files git tracks; files it does not
+  track do not count. The message box reads "Not yet", with the warning
+  and an OK button. The title's part of the name is cut at a word after
+  about forty characters. Committing without merging leaves the branch.
+  The branch on the remote is deleted only once the main branch is there.
 - The small step button on a row: lower than the icon buttons beside it,
   small text, no border, a soft grey fill that darkens under the pointer;
   it keeps its icon, label and tooltip. On the current issue it is the
