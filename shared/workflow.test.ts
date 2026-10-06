@@ -422,7 +422,7 @@ test("an issue can be started in a branch of its own, by the user or the agent",
   const move = checkMove(flow, null, "start-branch", "user", "");
   assert.ok(!("message" in move));
   if ("message" in move) return;
-  assert.equal(move.label, "Start in a new branch");
+  assert.equal(move.label, "Start in branch");
   // It may not be started over uncommitted changes, and says what to do.
   assert.match(move.needsCleanFolder ?? "", /uncommitted changes.*Commit them before starting a branch/u);
   // Plain start has no such condition.
@@ -516,7 +516,7 @@ test("an issue can be started in a work tree: from the menu only, by the user on
   assert.ok(!("message" in move));
   if ("message" in move) return;
   assert.equal(move.to, "define");
-  assert.equal(move.label, "Start in a work tree");
+  assert.equal(move.label, "Start in worktree");
   assert.equal(move.icon, "play-tree");
   assert.equal(move.ownConversation, true);
   // The agent does not open conversations for other issues by itself.

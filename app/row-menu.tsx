@@ -230,7 +230,7 @@ export function RowMenu({
                 </Entry>
               ) : null}
               {/* Workflow moves the workflow itself wants here, whatever
-                  branch the folder is on: "Start in a new branch". */}
+                  branch the folder is on: "Start in branch", "Start in worktree". */}
               {menuMovesHere.map((move) => (
                 <Entry
                   key={move.id}

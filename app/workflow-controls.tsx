@@ -483,6 +483,13 @@ export function WorkflowMoves({
                 : actions.move(issue.id, move.id, "")
             }
           >
+            {/* A move that has an icon shows it here too, before its
+                words, like the buttons beside it (the user's request,
+                bead-bb-o3d). A little smaller than on a row, to match the
+                size this row of buttons gives BB's own icons. */}
+            {move.icon === undefined ? null : (
+              <MoveIcon name={move.icon} className="size-3.5" />
+            )}
             {move.label}
           </Button>
         ))}

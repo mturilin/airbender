@@ -278,7 +278,8 @@ const moves: WorkflowMove[] = [
     from: "not-started",
     to: "define",
     by: ["user", "agent"],
-    label: "Start in a new branch",
+    // Short, as the user worded it for the buttons (bead-bb-o3d).
+    label: "Start in branch",
     hint: "Start on this issue in a branch of its own: the agent creates the branch, then sizes the issue and begins. Commit & merge at the end brings it back.",
     icon: "play-branch",
     // From another branch the new one would be cut from that branch and
@@ -302,7 +303,7 @@ const moves: WorkflowMove[] = [
     // The user's only: an agent does not open conversations for other
     // issues by its own judgment.
     by: ["user"],
-    label: "Start in a work tree",
+    label: "Start in worktree",
     hint: "Start on this issue in a conversation and a work tree of its own, so it can be worked alongside others. Commit & merge at the end brings it to the main branch and closes that conversation.",
     icon: "play-tree",
     alsoInMenu: true,

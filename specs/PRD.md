@@ -474,6 +474,8 @@ The steps, in order: `[e2b]`
   - **Then everything is closed**: the conversation is archived, the work
     tree removed, the branch deleted. To keep chatting, the owner opens
     another conversation themselves.
+- **Inside an opened issue, the two buttons have their icon and the text
+  "Start in branch" and "Start in worktree".** `[o3d]`
 - **The agent sizes the issue first**, and says which size in one line.
   The sizes are T-shirt sizes: `[4mb]`
   - **S, small**: definition, the work and the agent's own review in one
@@ -767,8 +769,8 @@ breaking a requirement above.
   group with a soft fill, apart from the row's other icons. Their play
   triangles are the same shape, the second one smaller to make room for
   the branch beside it. The menu entry
-  reads "Start in a new branch", as does the button inside an opened issue
-  and, in the message box of the conversation, the button beside "Start".
+  reads "Start in branch", as does, in the message box of the conversation,
+  the button beside "Start".
   Later steps keep their buttons with words.
 - Starting in a new branch: the agent makes the branch as the first thing
   it does and says so; the product itself changes nothing in git. If the
@@ -778,7 +780,7 @@ breaking a requirement above.
   and an OK button. The title's part of the name is cut at a word after
   about forty characters. Committing without merging leaves the branch.
   The branch on the remote is deleted only once the main branch is there.
-- Starting in a work tree: the entry reads "Start in a work tree", in the
+- Starting in a work tree: the entry reads "Start in worktree", in the
   menu and among the buttons of an opened issue, on every issue that is
   not started, also while the conversation has another current issue. The
   work tree is cut from the main branch as it is on this computer,
