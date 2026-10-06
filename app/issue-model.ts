@@ -393,6 +393,29 @@ export function focusBlock(
 }
 
 /**
+ * How many issues a finished epic has under it; 0 when it is not finished.
+ *
+ * An epic is finished when it is still open itself, has at least one issue
+ * under it, and every issue under it, at any depth, is closed. That is when
+ * epic mode offers to close the epic (the user: "when all tasks are done
+ * for epic in the epic mode it should have close button"). An issue with
+ * nothing under it is not an epic that is finished, only an issue.
+ *
+ * @returns The number of issues under it (all closed), or 0.
+ */
+export function finishedEpicSize(
+  byId: Map<string, Issue>,
+  epicId: string,
+): number {
+  const epic = byId.get(epicId);
+  if (epic === undefined || epic.status === CLOSED_STATUS) return 0;
+  const under = [...descendantIdsOf(byId, epicId)];
+  return under.every((id) => byId.get(id)?.status === CLOSED_STATUS)
+    ? under.length
+    : 0;
+}
+
+/**
  * The chain of issues from the top level down to `issue`, itself last; empty
  * for null. Stops at a parent that is not in the list, and at a loop.
  */

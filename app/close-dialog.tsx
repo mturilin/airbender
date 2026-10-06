@@ -13,6 +13,11 @@
 //   the "Close" entry and button that lead here.
 // - On the simple workflow there is nothing to finish or cancel: closing is
 //   just closing (`plain`), and the dialog says only that.
+// - A finished epic closed from the epic band has a wording of its own
+//   (bead-bb-ty5.1): it is not cancelled, and nothing is committed for it,
+//   since each of its sub-issues landed by itself. When epics can own a
+//   branch (the user's plan), this is where "Close & merge" will go: with a
+//   branch attached the button merges it, without one it only closes.
 // - Finishing an issue with sub-issues closes the open ones too; the dialog
 //   says how many, so it is never a surprise.
 
@@ -37,6 +42,13 @@ export interface PendingClose {
   moveId: string | null;
   /** The closing move's label, for the button; null when cancelling. */
   label: string | null;
+  /**
+   * Set when a finished epic is being closed from the epic band: how many
+   * issues it has under it, all of them closed. The epic is then neither
+   * cancelled nor taken through a workflow step of its own: its work was
+   * its sub-issues'.
+   */
+  epicDone?: number;
 }
 
 /**
@@ -64,6 +76,7 @@ export function CloseDialog({
   onCancel: () => void;
 }) {
   const finishing = closing !== null && closing.moveId !== null;
+  const epicDone = closing?.epicDone ?? 0;
   return (
     <Dialog
       open={closing !== null}
@@ -74,9 +87,11 @@ export function CloseDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>
-            {plain
-              ? "Close this issue?"
-              : finishing
+            {epicDone > 0
+              ? "All done. Close this epic?"
+              : plain
+                ? "Close this issue?"
+                : finishing
                 ? "Close this issue as finished?"
                 : "Close this issue without finishing it?"}
           </DialogTitle>
@@ -86,16 +101,22 @@ export function CloseDialog({
           </DialogDescription>
         </DialogHeader>
         <p className="text-sm text-muted-foreground">
-          {plain || finishing
-            ? "The issue is closed."
-            : "The issue is closed without being finished. Nothing is committed."}
+          {epicDone > 0
+            ? // Said the way a person would (the user found the first
+              // version, which spoke of sub-issues and of nothing being
+              // committed, "horrible"): what is true, what happens, and
+              // that it can be undone.
+              `${epicDone === 1 ? "Its one issue is" : `All ${epicDone} of its issues are`} finished, so there is nothing left to do here. Closing the epic moves it to Closed. You can reopen it later if more work comes up.`
+            : plain || finishing
+              ? "The issue is closed."
+              : "The issue is closed without being finished. Nothing is committed."}
           {openSubIssues === 0
             ? ""
             : ` Its ${openSubIssues} open ${openSubIssues === 1 ? "sub-issue is" : "sub-issues are"} closed with it.`}
         </p>
         <DialogFooter>
           <Button variant="outline" onClick={() => onCancel()}>
-            {finishing ? "Not yet" : "Keep it"}
+            {finishing || epicDone > 0 ? "Not yet" : "Keep it"}
           </Button>
           <Button
             onClick={() => {
@@ -103,7 +124,11 @@ export function CloseDialog({
               onCancel();
             }}
           >
-            {finishing ? (closing?.label ?? "Close") : "Close issue"}
+            {epicDone > 0
+              ? "Close epic"
+              : finishing
+                ? (closing?.label ?? "Close")
+                : "Close issue"}
           </Button>
         </DialogFooter>
       </DialogContent>

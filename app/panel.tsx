@@ -23,6 +23,7 @@ import { SwitchDialog } from "./current-toggle.tsx";
 import { IssueDetailsWindow } from "./details-window.tsx";
 import { getDragged, setDragged } from "./drag.ts";
 import {
+  finishedEpicSize,
   focusBlock,
   matchesFilters,
   pathTo,
@@ -110,6 +111,10 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
   // otherwise in the field; on the way out the field goes back to the top
   // level.
   const focusedId = focused?.id ?? null;
+  // How many issues the epic has under it once all of them are closed; 0
+  // while it is not finished. The band then offers to close the epic.
+  const focusedDone =
+    focused === null ? 0 : finishedEpicSize(tree.byId, focused.id);
   useEffect(() => {
     setNewIssueParentId(focusedId);
   }, [focusedId]);
@@ -301,6 +306,17 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
                 (issue) => issue.parentId === focused.id,
               )}
               onGo={actions.focus}
+              onClose={
+                focusedDone === 0
+                  ? undefined
+                  : () =>
+                      setClosing({
+                        issue: focused,
+                        moveId: null,
+                        label: null,
+                        epicDone: focusedDone,
+                      })
+              }
             />
           )}
           {ok ? <CurrentSection issue={currentIssue} /> : null}

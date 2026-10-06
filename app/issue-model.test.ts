@@ -16,6 +16,7 @@ import {
   buildTree,
   byUrgency,
   descendantIdsOf,
+  finishedEpicSize,
   focusBlock,
   fuzzyScore,
   isBlocked,
@@ -293,4 +294,28 @@ test("epic mode is refused, with the reason, while the current issue is from out
 test("a closed or missing epic cannot be zoomed in on, whatever is current", () => {
   assert.match(focusBlock(EPICS, "done", null) ?? "", /is closed/u);
   assert.match(focusBlock(EPICS, "nowhere", null) ?? "", /no longer in the list/u);
+});
+
+test("an epic is finished when everything under it, at any depth, is closed", () => {
+  const family = (grandchild: string, child = "closed") =>
+    new Map(
+      [
+        issue("epic"),
+        issue("child", { parentId: "epic", status: child }),
+        issue("grandchild", { parentId: "child", status: grandchild }),
+        issue("other"),
+      ].map((entry) => [entry.id, entry]),
+    );
+  // Both levels closed: finished, and it has two issues under it.
+  assert.equal(finishedEpicSize(family("closed"), "epic"), 2);
+  // One open issue anywhere under it: not finished.
+  assert.equal(finishedEpicSize(family("open"), "epic"), 0);
+  assert.equal(finishedEpicSize(family("closed", "in_progress"), "epic"), 0);
+  // Nothing under it: an issue, not a finished epic.
+  assert.equal(finishedEpicSize(family("closed"), "other"), 0);
+  // Already closed, or not there: nothing to offer.
+  const closed = family("closed");
+  closed.set("epic", issue("epic", { status: "closed" }));
+  assert.equal(finishedEpicSize(closed, "epic"), 0);
+  assert.equal(finishedEpicSize(family("closed"), "nowhere"), 0);
 });

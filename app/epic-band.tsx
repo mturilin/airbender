@@ -25,6 +25,7 @@
 //   the user asked for Tabler or Font Awesome over home-made drawings.
 
 import { Button } from "@/components/ui/button";
+import { Icon } from "@/components/ui/icon";
 import type { Issue } from "../server/contract.ts";
 import { IssueCard, useHoverCard } from "./issue-card.tsx";
 
@@ -73,15 +74,22 @@ export function ZoomInIcon({ className }: { className?: string }) {
  *   card.
  * @param onGo Called with the id of an issue of the path to zoom to it, or
  *   with null to leave epic mode for the whole list.
+ * @param onClose See the prop.
  */
 export function EpicBand({
   path,
   subIssues,
   onGo,
+  onClose,
 }: {
   path: Issue[];
   subIssues: Issue[];
   onGo: (beadId: string | null) => void;
+  /**
+   * Given when the epic is finished (every issue under it closed): the
+   * band then offers to close it, and this is called on a press.
+   */
+  onClose?: () => void;
 }) {
   const card = useHoverCard("below");
   const epic = path[path.length - 1]!;
@@ -157,6 +165,20 @@ export function EpicBand({
           ) : null}
         </div>
       </div>
+      {/* Everything under the epic is closed: nothing is left to do here
+          but close the epic itself (bead-bb-ty5.1). It asks first. */}
+      {onClose === undefined ? null : (
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 shrink-0 px-2"
+          tip="Every issue in this epic is closed. Close the epic itself."
+          onClick={onClose}
+        >
+          <Icon name="CircleCheck" className="size-4" />
+          Close epic
+        </Button>
+      )}
     </div>
   );
 }

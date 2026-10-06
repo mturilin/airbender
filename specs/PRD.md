@@ -331,6 +331,8 @@ that epic's issues, and the current issue is picked from among them. `[ha9]`
   - Going out of epic mode keeps the current issue; the owner can go back
     in. There is no limit on going in and out while these conditions hold.
 - **The current issue is the sub-issue**, not the epic. `[ha9]`
+- **When all the tasks of the epic are done, the band has a button to close
+  the epic.** `[ty5.1]`
 - A new issue created in epic mode goes into the epic unless the owner
   chooses otherwise. The details window stays as it is. `[ha9]`
 
@@ -680,6 +682,13 @@ breaking a requirement above.
 - Epic mode: the deselecting on entry is an ordinary release, so the agent
   gets the same short message as for any release. Nothing else about epic
   mode is told to the agent.
+- Epic mode: the button reads "Close epic" and is there when every issue
+  under the epic, at any depth, is closed and there is at least one. It
+  asks first, in friendly words: "All done. Close this epic?", then "All N
+  of its issues are finished, so there is nothing left to do here. Closing
+  the epic moves it to Closed. You can reopen it later if more work comes
+  up.", with "Close epic" and "Not yet". The epic is closed whatever step it is at
+  itself; the panel then shows the whole list.
 - Epic mode: it is remembered on the computer it was chosen on; the same
   conversation opened on another computer starts on the whole list.
 - Epic mode: the list keeps its groups, Group and Filter. A dragged issue
