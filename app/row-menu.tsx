@@ -115,11 +115,17 @@ export function RowMenu({
   issue,
   onAsk,
   lean = false,
+  canMaximize = true,
   className,
 }: {
   issue: Issue;
   onAsk: (what: RowAsk) => void;
   lean?: boolean;
+  /**
+   * Offer "Open in window". False on the issue the details window is
+   * already showing.
+   */
+  canMaximize?: boolean;
   className?: string;
 }) {
   const actions = useActions();
@@ -170,7 +176,8 @@ export function RowMenu({
               : dialog.getBoundingClientRect();
           // Under the button, right edges together; above it when there is
           // not enough room below.
-          const below = edge.bottom - box.bottom > 240;
+          // The menu is up to about 300px tall with every entry present.
+          const below = edge.bottom - box.bottom > 320;
           setPlace({
             into: dialog ?? document.body,
             style: {
@@ -205,6 +212,17 @@ export function RowMenu({
               style={place.style}
               className="z-[60] w-48 rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-md"
             >
+              {/* The details window, for every issue, open or closed: the
+                  same as the maximize button on the row (the user asked
+                  for it here too). */}
+              {canMaximize ? (
+                <Entry
+                  icon={<Icon name="Maximize2" className="size-4 shrink-0 text-muted-foreground" />}
+                  onPick={pick(() => actions.openDetails(issue.id))}
+                >
+                  Open in window
+                </Entry>
+              ) : null}
               {closed ? (
                 <Entry
                   icon={<Icon name="RotateCcw" className="size-4 shrink-0 text-muted-foreground" />}

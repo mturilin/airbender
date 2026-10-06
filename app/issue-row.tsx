@@ -278,15 +278,21 @@ export function IssueRow({
             drag grip appears on hover, since it is a handle, not an action. */}
         <div className={compact ? "hidden" : "contents"}>
         {/* Opens the details window on this issue: the roomy view of an
-            issue with its sub-issues, and the only way to levels deeper than
-            the one drawn here. */}
-        {subIssues.length === 0 || isDetailsRoot ? null : (
+            issue, with its sub-issues if it has any, and the only way to
+            levels deeper than the one drawn here. On every issue (the
+            user's request, bead-bb-2oy); it used to be only on issues with
+            sub-issues. Not on the issue the window is already showing. */}
+        {isDetailsRoot ? null : (
           <Button
             variant="ghost"
             size="icon"
             className="m-1 size-7 shrink-0 text-muted-foreground"
-            tip="Open this issue and its sub-issues in the details window"
-            aria-label={`Open ${issue.id} and its sub-issues in the details window`}
+            tip={
+              subIssues.length === 0
+                ? "Open this issue in the details window"
+                : "Open this issue and its sub-issues in the details window"
+            }
+            aria-label={`Open ${issue.id} in the details window`}
             onClick={() => actions.openDetails(issue.id)}
           >
             <Icon name="Maximize2" className="size-4" />
@@ -379,6 +385,7 @@ export function IssueRow({
           <RowMenu
             issue={issue}
             lean={simple}
+            canMaximize={!isDetailsRoot}
             className="m-1"
             onAsk={(what) => {
               setOpen(true);

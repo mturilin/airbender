@@ -74,8 +74,9 @@ From top to bottom the tab shows:
    for that step: at an agent's step it starts the agent on that step and
    makes the issue the thread's bead; at one of yours it is your approval.
    Send back, Skip and Mark as done are inside the opened issue. Next to it
-   is the row's "⋯" menu, the only other thing on a row besides the button
-   that opens an issue with its sub-issues: Make current, Edit, Add
+   is the row's "⋯" menu, the only other thing on a row besides the
+   maximize button, which opens the issue in the details window and is on
+   every issue: Open in window, Make current, Edit, Add
    sub-issue, Move to, Link and Close, or Reopen on a closed issue. Edit,
    Move to and Link open the issue and are done there. The same actions are
    buttons inside the opened issue; a sub-issue's row has no menu. Make

@@ -380,16 +380,19 @@ export function IssueDetails({
         )}
         {/* A compact sub-issue row has no buttons of its own (see
             IssueRow), so the way into the details window is repeated
-            here. Its play button is at the start of this row. */}
-        {showFacts && actions.childrenOf(issue.id).length > 0 ? (
+            here, for every sub-issue, with or without sub-issues of its
+            own. Its play button is at the start of this row. */}
+        {showFacts ? (
           <Button
             variant="outline"
             size="sm"
-            tip="Open this issue and its sub-issues in the details window"
+            tip="Open this issue in the details window"
             onClick={() => actions.openDetails(issue.id)}
           >
             <Icon name="Maximize2" className="size-4" />
-            Open with sub-issues
+            {actions.childrenOf(issue.id).length > 0
+              ? "Open with sub-issues"
+              : "Open in window"}
           </Button>
         ) : null}
         {/* Close and reopen, here as well as in the row's "more" menu (the

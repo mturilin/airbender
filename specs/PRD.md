@@ -256,8 +256,9 @@ An issue can contain other issues, and those can contain more, to any depth.
   sub-issues.
 - **An issue's chevron opens its description and its sub-issues together.**
   For an issue that has sub-issues the chevron is open by default.
-- **Every issue that has sub-issues has a details button.** It opens a modal
-  window showing that issue with its sub-issues, one level deep.
+- **Every issue has a details (maximize) button**, and the same in its
+  menu. It opens a modal window showing that issue, with its sub-issues one
+  level deep if it has any. `[2oy]`
 - **The window is one window that is moved through**, not windows on top of
   each other. Pressing details on a sub-issue inside it shows that sub-issue
   with its own sub-issues. A clickable path at the top goes back up. This is
@@ -688,6 +689,11 @@ breaking a requirement above.
   when it reaches the commit.
 - Where a discussion in the conversation ends in a decision worth keeping,
   the agent offers to record it.
+- The details window from an issue: the button is on every full-size row;
+  the menu entry reads "Open in window" and is first in the menu, on open
+  and closed issues. A sub-issue's row has no buttons, so inside an opened
+  sub-issue the button reads "Open in window", or "Open with sub-issues"
+  when it has some. The issue the window is showing offers neither.
 - The small step button on a row: lower than the icon buttons beside it,
   small text, no border, a soft grey fill that darkens under the pointer;
   it keeps its icon, label and tooltip. On the current issue it is the
