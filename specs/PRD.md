@@ -61,6 +61,17 @@ Bands, top to bottom. `[pp7]`
 
 Rules for the layout:
 
+- **An issue id is shown in the monospace font, and wherever it stands on a
+  line with other text it is lined up with that text on the baseline**, the
+  line the letters stand on. It must never be centred against the other
+  text box by box: monospace letters sit at a different height inside their
+  line than the letters of the ordinary font, so centred they look
+  misaligned. How to do it: put the id and the text beside it together in
+  one row that is aligned on the baseline; an icon on the same line stays
+  outside that row and is centred against it. The id is left exactly on that
+  baseline, with no nudge up or down, even where it seems to ride a little
+  high: that is an illusion of the monospace letters. `[fmg]`
+
 - Current is a group like the others and looks like them: a heading and one
   row. It is not a large card. `[pp7]`
 - The current issue is displayed more prominently than the other rows: its
@@ -333,6 +344,8 @@ that epic's issues, and the current issue is picked from among them. `[ha9]`
 - **The current issue is the sub-issue**, not the epic. `[ha9]`
 - **When all the tasks of the epic are done, the band has a button to close
   the epic.** `[ty5.1]`
+- **After leaving epic mode for a moment, a button returns to the epic that
+  was left**, without looking for it among all the issues. `[fmg]`
 - A new issue created in epic mode goes into the epic unless the owner
   chooses otherwise. The details window stays as it is. `[ha9]`
 
@@ -689,6 +702,15 @@ breaking a requirement above.
   the epic moves it to Closed. You can reopen it later if more work comes
   up.", with "Close epic" and "Not yet". The epic is closed whatever step it is at
   itself; the panel then shows the whole list.
+- Epic mode, the way back: one quiet line in the band's place while the
+  panel is on the whole list, reading "Back to epic" with the epic's id and
+  title, and a small cross that dismisses it. It is offered after leaving
+  with the back arrow and after epic mode ended by itself; not after going
+  up one level, which is still epic mode. While the conversation's current
+  issue is from outside that epic the line is greyed out, with the same
+  explanation as the magnifier. It goes when the epic is closed or no
+  longer exists, and entering another epic makes that one the epic to go
+  back to. It is remembered per conversation, on this computer.
 - Epic mode: it is remembered on the computer it was chosen on; the same
   conversation opened on another computer starts on the whole list.
 - Epic mode: the list keeps its groups, Group and Filter. A dragged issue

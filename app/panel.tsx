@@ -41,7 +41,7 @@ import { useIssues } from "./use-issues.ts";
 import type { Scope } from "./use-issues.ts";
 import { DEFAULT_WORKFLOW_ID, workflowFor } from "../shared/workflows.ts";
 import { WorkflowProvider } from "./workflow-controls.tsx";
-import { EpicBand } from "./epic-band.tsx";
+import { EpicBand, EpicReturn } from "./epic-band.tsx";
 import { useFocus } from "./use-focus.ts";
 import {
   Dialog,
@@ -79,7 +79,7 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
   // issue, and then lists that issue's direct sub-issues in place of the
   // top-level issues. Everything below (groups, Group, Filter, Closed, the
   // rows) is the same code fed a different list.
-  const [focusId, setFocus] = useFocus(scope);
+  const [focusId, setFocus, lastFocusId, forgetLastFocus] = useFocus(scope);
   const currentBeadId = result?.currentBeadId ?? null;
   const listed = result?.state === "ok";
   // The focus stands only while the user's rule holds: the epic is there
@@ -96,15 +96,36 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
   // is handed another conversation, the list still on screen is the old
   // conversation's until the new one answers, and must not be used to
   // judge the new conversation's focus.
-  const judge = useRef({ focusId, focusHolds, setFocus });
-  judge.current = { focusId, focusHolds, setFocus };
+  // The epic last left, which the tab offers the way back to
+  // (bead-bb-fmg). Worth offering only while it is still there and open.
+  const lastEpic =
+    lastFocusId === null ? null : (tree.byId.get(lastFocusId) ?? null);
+  const lastGone =
+    lastFocusId !== null &&
+    listed &&
+    (lastEpic === null || lastEpic.status === CLOSED_STATUS);
+  const judge = useRef({ focusId, focusHolds, setFocus, lastGone, forgetLastFocus });
+  judge.current = { focusId, focusHolds, setFocus, lastGone, forgetLastFocus };
   useEffect(() => {
     const now = judge.current;
-    if (result?.state === "ok" && now.focusId !== null && !now.focusHolds) {
+    if (result?.state !== "ok") return;
+    if (now.focusId !== null && !now.focusHolds) {
+      // Remembered as the epic last left, so the way back is offered.
       now.setFocus(null);
+    } else if (now.focusId === null && now.lastGone) {
+      // Closed or deleted since: there is nothing to go back to.
+      now.forgetLastFocus();
     }
   }, [result]);
   const focused = focusHolds ? (tree.byId.get(focusId) ?? null) : null;
+  // Offered only on the whole list. Why it cannot be entered right now, if
+  // it cannot: the conversation's current issue is from outside it.
+  const returnTo =
+    focused === null && lastEpic !== null && !lastGone ? lastEpic : null;
+  const returnBlocked =
+    returnTo === null
+      ? null
+      : focusBlock(tree.byId, returnTo.id, currentBeadId);
   const others =
     focused === null ? tree.topLevel : (tree.children.get(focused.id) ?? []);
   // While zoomed in, a new issue belongs in the epic unless the user says
@@ -317,6 +338,16 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
                         epicDone: focusedDone,
                       })
               }
+            />
+          )}
+          {/* Out of epic mode for a moment: the way back into the epic
+              that was left, in the band's place. */}
+          {returnTo === null ? null : (
+            <EpicReturn
+              epic={returnTo}
+              blocked={returnBlocked}
+              onReturn={() => actions.focus(returnTo.id)}
+              onForget={forgetLastFocus}
             />
           )}
           {ok ? <CurrentSection issue={currentIssue} /> : null}

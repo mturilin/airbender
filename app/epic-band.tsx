@@ -9,6 +9,9 @@
 // to the epic, there is a sign with an arrow back ... Similar how getting
 // out of the folder."
 //
+// - EpicReturn, further down, is the same place on the whole list: one line
+//   that goes back into the epic last left.
+//
 // Design notes:
 // - The arrow goes up one level: to the issue the epic is inside when there
 //   is one, otherwise to the whole list. Epic mode goes down one level at a
@@ -179,6 +182,82 @@ export function EpicBand({
           Close epic
         </Button>
       )}
+    </div>
+  );
+}
+
+/**
+ * The way back into the epic that was last left: one quiet line in the
+ * band's place while the tab is on the whole list (bead-bb-fmg: "return to
+ * epic mode button - when you exited temporarily and want to go back
+ * without scanning all epics").
+ *
+ * Quieter than the band itself, with no fill: it is an offer, not where
+ * the tab is. A small cross dismisses it.
+ *
+ * @param blocked Why epic mode cannot be entered on it right now (the
+ *   conversation's current issue is from outside it); null when it can.
+ *   The line is then greyed out and says so in its tooltip.
+ * @param onReturn Called on a press, when not blocked.
+ * @param onForget Called by the cross.
+ */
+export function EpicReturn({
+  epic,
+  blocked,
+  onReturn,
+  onForget,
+}: {
+  epic: Issue;
+  blocked: string | null;
+  onReturn: () => void;
+  onForget: () => void;
+}) {
+  return (
+    <div className="flex items-center gap-1">
+      <Button
+        variant="ghost"
+        size="sm"
+        // Greyed out by hand, not `disabled`, so the tooltip with the
+        // reason still shows; a press then does nothing. The pointer stays
+        // the plain arrow (see the magnifier in IssueRow).
+        className={
+          "h-7 min-w-0 flex-1 justify-start gap-1.5 px-2 text-xs font-normal text-muted-foreground" +
+          (blocked === null ? "" : " cursor-default opacity-40 hover:bg-transparent")
+        }
+        aria-disabled={blocked !== null}
+        tip={blocked ?? `Back into epic mode on ${epic.id}`}
+        onClick={() => {
+          if (blocked === null) onReturn();
+        }}
+      >
+        <ZoomInIcon className="size-4 shrink-0" />
+        {/* The words, the id and the title share one baseline. The id is
+            in the monospace font, whose letters sit at a different height
+            in their line: centred box against box, as a button lays its
+            content out, it rode visibly off the line of the words beside
+            it (the user's screenshot). So the text parts are a row of
+            their own, lined up on the baseline, and only the icon is
+            centred against that row. The rule is in the spec. */}
+        <span className="flex min-w-0 items-baseline gap-1.5">
+          <span className="shrink-0">Back to epic</span>
+          {/* Exactly on the baseline, and left there. It can look as if it
+              rides high: a one-pixel nudge down was tried at the user's
+              request and taken back by them ("it was okay before - just
+              visual illusion"). */}
+          <span className="shrink-0 font-mono">{epic.id}</span>
+          <span className="min-w-0 truncate text-foreground">{epic.title}</span>
+        </span>
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="size-6 shrink-0 text-muted-foreground"
+        tip="Forget this epic: stop offering the way back"
+        aria-label={`Stop offering the way back to ${epic.id}`}
+        onClick={onForget}
+      >
+        <Icon name="X" className="size-3.5" />
+      </Button>
     </div>
   );
 }

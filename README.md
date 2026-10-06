@@ -59,7 +59,9 @@ From top to bottom the tab shows:
    a magnifier button that zooms the list in on it, so only its direct
    sub-issues are listed, as full rows. The band names the epic and its
    back arrow goes up one level. Once every issue under the epic is
-   closed, the band offers "Close epic". Epic mode is only a way of looking, is
+   closed, the band offers "Close epic". After you leave epic mode, a
+   "Back to epic" line in the same place takes you back into the epic you
+   left. Epic mode is only a way of looking, is
    remembered per thread, and can be entered while the thread's bead is
    none, the epic (which is then released) or something inside it; it ends
    by itself when an outside issue becomes the thread's bead.

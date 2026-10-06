@@ -17,6 +17,7 @@ import {
   byUrgency,
   descendantIdsOf,
   finishedEpicSize,
+  focusAfter,
   focusBlock,
   fuzzyScore,
   isBlocked,
@@ -318,4 +319,25 @@ test("an epic is finished when everything under it, at any depth, is closed", ()
   closed.set("epic", issue("epic", { status: "closed" }));
   assert.equal(finishedEpicSize(closed, "epic"), 0);
   assert.equal(finishedEpicSize(family("closed"), "nowhere"), 0);
+});
+
+test("leaving an epic remembers it; entering one, or dismissing, forgets", () => {
+  const none = { focus: null, last: null };
+  // In, then out: the way back is remembered.
+  const inside = focusAfter(none, { enter: "epic" });
+  assert.deepEqual(inside, { focus: "epic", last: null });
+  const out = focusAfter(inside, "leave");
+  assert.deepEqual(out, { focus: null, last: "epic" });
+  // Leaving again from the whole list keeps it.
+  assert.deepEqual(focusAfter(out, "leave"), out);
+  // Going back in: nothing is offered while inside.
+  assert.deepEqual(focusAfter(out, { enter: "epic" }), inside);
+  // Another epic entered and left becomes the one to go back to.
+  const other = focusAfter(focusAfter(out, { enter: "other" }), "leave");
+  assert.deepEqual(other, { focus: null, last: "other" });
+  // Up one level is entering the parent: still epic mode, nothing offered.
+  assert.deepEqual(focusAfter({ focus: "child", last: null }, { enter: "epic" }), inside);
+  // The cross forgets the offer and nothing else.
+  assert.deepEqual(focusAfter(out, "forget"), none);
+  assert.deepEqual(focusAfter({ focus: "epic", last: "x" }, "forget"), inside);
 });

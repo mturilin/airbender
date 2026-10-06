@@ -393,6 +393,41 @@ export function focusBlock(
 }
 
 /**
+ * Epic mode's memory for one conversation: the epic zoomed in on, and the
+ * epic last left, which the tab offers to go back to.
+ */
+export interface FocusMemory {
+  /** The epic zoomed in on; null on the whole list. */
+  focus: string | null;
+  /** The epic last left; null when there is none to go back to. */
+  last: string | null;
+}
+
+/**
+ * What epic mode remembers after the user enters an epic, leaves epic mode,
+ * or dismisses the offer to go back (bead-bb-fmg: "return to epic mode
+ * button - when you exited temporarily and want to go back without
+ * scanning all epics").
+ *
+ * - Entering an epic forgets the one last left: the one just entered is
+ *   what will be offered after leaving it. Going up one level to a parent
+ *   epic is entering that parent.
+ * - Leaving remembers the epic that was left. Leaving when already on the
+ *   whole list changes nothing.
+ * - Forgetting drops the offer and leaves the focus alone.
+ */
+export function focusAfter(
+  memory: FocusMemory,
+  action: { enter: string } | "leave" | "forget",
+): FocusMemory {
+  if (action === "leave") {
+    return { focus: null, last: memory.focus ?? memory.last };
+  }
+  if (action === "forget") return { focus: memory.focus, last: null };
+  return { focus: action.enter, last: null };
+}
+
+/**
  * How many issues a finished epic has under it; 0 when it is not finished.
  *
  * An epic is finished when it is still open itself, has at least one issue

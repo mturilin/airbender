@@ -17,21 +17,29 @@
 //   epic exists, is open, and the current issue belongs to it) is decided
 //   by the panel from the issue list, with focusBlock in issue-model.ts.
 //
+// - It also remembers the epic last left, so the tab can offer the way
+//   back in (bead-bb-fmg). What the two values become on entering, leaving
+//   and dismissing is focusAfter in issue-model.ts, where it is tested.
+//
 // Gotchas:
 // - Per browser: the same conversation opened on another machine starts
 //   unfocused.
 
 import { useCallback, useEffect, useState } from "react";
 import { BEAD_ID_PATTERN } from "../shared/constants.ts";
+import { focusAfter } from "./issue-model.ts";
+import type { FocusMemory } from "./issue-model.ts";
 import type { Scope } from "./use-issues.ts";
 
 /**
  * The focused epic for one conversation (or, on the new-conversation
  * screen, for one project).
  *
- * @returns The epic's id, or null when the whole list is shown, and a
- *   setter; null clears it. Stored text is untrusted: anything that is not
- *   an issue id reads as "no focus".
+ * @returns In order: the focused epic's id, or null when the whole list is
+ *   shown; a setter for it, where null leaves epic mode and remembers the
+ *   epic that was left; the id of the epic last left, or null; and a
+ *   function that forgets that one. Stored text is untrusted: anything
+ *   that is not an issue id reads as none.
  * Side effects: reads local storage when the scope changes; writes it on
  *   every set.
  */
@@ -43,42 +51,66 @@ export function useFocus(scope: Scope) {
         ? `project:${scope.projectId}`
         : null;
   const key = owner === null ? null : `bb-plugin-airbender:focus:${owner}`;
-  // The focus is kept together with the conversation it was read for. When
-  // the tab is handed another conversation, the old focus must not be taken
-  // for the new one's during the moment before the new one is read: acting
-  // on it (the panel drops a focus that no longer holds) would erase what
-  // the new conversation had stored.
-  const [held, setHeld] = useState<{ key: string; id: string | null } | null>(
+  // The epic last left, kept beside the focus, under a key of its own.
+  const lastKey = key === null ? null : `${key}:last`;
+  // The memory is kept together with the conversation it was read for.
+  // When the tab is handed another conversation, the old memory must not
+  // be taken for the new one's during the moment before the new one is
+  // read: acting on it (the panel drops a focus that no longer holds)
+  // would erase what the new conversation had stored.
+  const [held, setHeld] = useState<{ key: string; memory: FocusMemory } | null>(
     null,
   );
   useEffect(() => {
-    if (key === null) {
+    if (key === null || lastKey === null) {
       setHeld(null);
       return;
     }
-    let id: string | null = null;
-    try {
-      const stored = localStorage.getItem(key);
-      id = stored !== null && BEAD_ID_PATTERN.test(stored) ? stored : null;
-    } catch {
-      // Storage switched off: no focus is remembered.
-    }
-    setHeld({ key, id });
-  }, [key]);
-  const setFocus = useCallback(
-    (next: string | null) => {
-      if (key === null) return;
-      setHeld({ key, id: next });
+    /** One stored id; anything that is not an issue id reads as none. */
+    const read = (from: string) => {
       try {
-        if (next === null) localStorage.removeItem(key);
-        else localStorage.setItem(key, next);
+        const stored = localStorage.getItem(from);
+        return stored !== null && BEAD_ID_PATTERN.test(stored) ? stored : null;
       } catch {
-        // Storage can be full or switched off; the focus then lasts only
-        // while the tab is open.
+        // Storage switched off: nothing is remembered.
+        return null;
       }
+    };
+    setHeld({ key, memory: { focus: read(key), last: read(lastKey) } });
+  }, [key, lastKey]);
+  /** Applies one step to the memory and stores the result. */
+  const apply = useCallback(
+    (action: Parameters<typeof focusAfter>[1]) => {
+      if (key === null || lastKey === null) return;
+      setHeld((now) => {
+        const before =
+          now !== null && now.key === key
+            ? now.memory
+            : { focus: null, last: null };
+        const memory = focusAfter(before, action);
+        try {
+          for (const [where, id] of [
+            [key, memory.focus],
+            [lastKey, memory.last],
+          ] as const) {
+            if (id === null) localStorage.removeItem(where);
+            else localStorage.setItem(where, id);
+          }
+        } catch {
+          // Storage can be full or switched off; the memory then lasts
+          // only while the tab is open.
+        }
+        return { key, memory };
+      });
     },
-    [key],
+    [key, lastKey],
   );
-  const focusId = held !== null && held.key === key ? held.id : null;
-  return [focusId, setFocus] as const;
+  const setFocus = useCallback(
+    (next: string | null) => apply(next === null ? "leave" : { enter: next }),
+    [apply],
+  );
+  const forgetLast = useCallback(() => apply("forget"), [apply]);
+  const memory =
+    held !== null && held.key === key ? held.memory : { focus: null, last: null };
+  return [memory.focus, setFocus, memory.last, forgetLast] as const;
 }
