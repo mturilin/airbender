@@ -700,10 +700,9 @@ breaking a requirement above.
   mode is told to the agent.
 - Epic mode: the button reads "Close epic" and is there when every issue
   under the epic, at any depth, is closed and there is at least one. It
-  asks first, in friendly words: "All done. Close this epic?", then "All N
-  of its issues are finished, so there is nothing left to do here. Closing
-  the epic moves it to Closed. You can reopen it later if more work comes
-  up.", with "Close epic" and "Not yet". The epic is closed whatever step it is at
+  asks first: "Close this epic?", then "All N issues in <the epic's title>
+  are closed. You can reopen the epic later." (for one: "The only issue in
+  <the epic's title> is closed. ..."), with "Close epic" and "Not yet". The epic is closed whatever step it is at
   itself; the panel then shows the whole list.
 - Epic mode, the way back: one quiet line in the band's place while the
   panel is on the whole list, reading "Back to epic" with the epic's id and

@@ -88,7 +88,7 @@ export function CloseDialog({
         <DialogHeader>
           <DialogTitle>
             {epicDone > 0
-              ? "All done. Close this epic?"
+              ? "Close this epic?"
               : plain
                 ? "Close this issue?"
                 : finishing
@@ -97,19 +97,30 @@ export function CloseDialog({
           </DialogTitle>
           <DialogDescription>
             <span className="font-mono">{closing?.issue.id}</span>{" "}
-            {closing?.issue.title}
+            {/* For an epic the sentence below names it. */}
+            {epicDone > 0 ? null : closing?.issue.title}
           </DialogDescription>
         </DialogHeader>
         <p className="text-sm text-muted-foreground">
-          {epicDone > 0
-            ? // Said the way a person would (the user found the first
-              // version, which spoke of sub-issues and of nothing being
-              // committed, "horrible"): what is true, what happens, and
-              // that it can be undone.
-              `${epicDone === 1 ? "Its one issue is" : `All ${epicDone} of its issues are`} finished, so there is nothing left to do here. Closing the epic moves it to Closed. You can reopen it later if more work comes up.`
-            : plain || finishing
-              ? "The issue is closed."
-              : "The issue is closed without being finished. Nothing is committed."}
+          {epicDone > 0 ? (
+            // The third wording tried, and the one the user chose: short,
+            // naming the epic, saying its issues are closed and that this
+            // can be undone. Before it: one that spoke of sub-issues and of
+            // nothing being committed ("horrible"), and a chattier one
+            // ("not good still").
+            <>
+              {epicDone === 1 ? "The only issue in " : `All ${epicDone} issues in `}
+              <strong className="font-medium text-foreground">
+                {closing?.issue.title}
+              </strong>
+              {epicDone === 1 ? " is closed." : " are closed."} You can
+              reopen the epic later.
+            </>
+          ) : plain || finishing ? (
+            "The issue is closed."
+          ) : (
+            "The issue is closed without being finished. Nothing is committed."
+          )}
           {openSubIssues === 0
             ? ""
             : ` Its ${openSubIssues} open ${openSubIssues === 1 ? "sub-issue is" : "sub-issues are"} closed with it.`}
