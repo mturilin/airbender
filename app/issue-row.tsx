@@ -28,6 +28,7 @@ import { getDragged, setDragged } from "./drag.ts";
 import { IssueDetails } from "./issue-details.tsx";
 import { IssueFacts } from "./issue-facts.tsx";
 import {
+  EpicPlaceTag,
   StateTag,
   WorkflowButton,
   useWorkflow,
@@ -227,6 +228,7 @@ export function IssueRow({
             </button>
             {hasSubIssues ? <Tag>{subIssues.length} sub</Tag> : null}
             <StateTag issue={issue} />
+            <EpicPlaceTag issue={issue} />
             <StatusTag issue={issue} />
             {issue.priority === null ? null : (
               <Tag strong={issue.priority <= 1}>P{issue.priority}</Tag>

@@ -203,6 +203,7 @@ export default async function plugin(bb: BbPluginApi) {
     workflowChoice,
     onUserSize: sizing.forget,
     hasUncommittedChanges: folders.hasUncommittedChanges,
+    currentBranch: folders.currentBranch,
     workTrees,
   });
   const { setupStatus, runSetup } = createSetup({ bb, folders, store });
@@ -219,7 +220,15 @@ export default async function plugin(bb: BbPluginApi) {
       if (listed.state === "ok" && listed.path !== null) {
         sizing.consider(listed.path, listed.issues, input);
       }
-      return listed;
+      // Which issues have a conversation of their own in a work tree is
+      // the plugin's knowledge, not beads': added here, for the tab.
+      return {
+        ...listed,
+        issues: listed.issues.map((issue) => ({
+          ...issue,
+          conversationId: workTrees.threadFor(issue.id),
+        })),
+      };
     },
     issue_comments: (input) => store.listComments(input),
     issue_create: (input) => store.createIssue(input),
@@ -239,6 +248,7 @@ export default async function plugin(bb: BbPluginApi) {
         message: outcome.message,
         warning: outcome.warning === true,
         openThreadId: outcome.openThreadId ?? null,
+        enterEpic: outcome.enterEpic === true,
       };
     },
     issue_set_size: (input) => work.resize(input),

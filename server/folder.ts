@@ -188,6 +188,21 @@ export function createFolders({
   }
 
   /**
+   * The branch a folder is on.
+   *
+   * @returns Null when no branch is checked out, and when it cannot be
+   *   told (not a git folder).
+   * Side effects: one read-only git command.
+   */
+  async function currentBranch(path: string): Promise<string | null> {
+    const current = await readGit(path, ["rev-parse", "--abbrev-ref", "HEAD"]);
+    // "HEAD" is what git answers when no branch is checked out.
+    return current === null || current === "" || current === "HEAD"
+      ? null
+      : current;
+  }
+
+  /**
    * The name of the repository's main branch: the remote's default where
    * git knows it, else a local branch called main or master.
    *
@@ -301,6 +316,7 @@ export function createFolders({
 
   return {
     onOwnBranch,
+    currentBranch,
     mainBranch,
     mainFolder,
     deleteMergedBranch,

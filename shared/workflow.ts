@@ -46,6 +46,18 @@ export const CLOSED = "closed";
 export interface WorkflowContext {
   /** The folder is on a branch other than the repository's main one. */
   ownBranch: boolean;
+  /**
+   * The issue belongs to an epic that has a branch of its own (see
+   * `holdsBranch`), in whatever folder: it cannot be given a branch or a
+   * work tree of its own. Left out or false otherwise.
+   */
+  inEpic?: boolean;
+  /**
+   * That epic's branch is the one this folder is on. The issue's work is
+   * then only committed there; the epic's branch is merged once, with the
+   * epic. Left out or false otherwise.
+   */
+  inEpicBranch?: boolean;
 }
 
 /** One state an open issue can be in. */
@@ -72,6 +84,14 @@ export interface WorkflowState {
    * it is the agent's.
    */
   ask: string;
+  /**
+   * An issue in this state has sub-issues that are worked one at a time on
+   * a branch the issue holds (bead-bb-ty5.2): the issue itself is not
+   * worked, it waits until they are all closed. Not a step issues pass
+   * through in the normal order, so it is left out where the steps are
+   * listed, and the agent's free moves cannot enter it.
+   */
+  holdsBranch?: boolean;
   /**
    * For an agent's state: the label of the button that gets the agent going
    * on it, e.g. "Plan". Left out for the user's states, where the buttons
@@ -146,6 +166,40 @@ export interface WorkflowMove {
    */
   needsCleanFolder?: string;
   /**
+   * The move gives the issue a place of its own to be worked in: a branch,
+   * or a work tree with its conversation. Not offered, and refused, for an
+   * issue that belongs to an epic with a branch (see `holdsBranch`).
+   */
+  ownPlace?: boolean;
+  /**
+   * What the move is when the issue has open sub-issues: it then sets a
+   * place up for all of them and starts no work. Where it leads (a
+   * `holdsBranch` state), how it reads, the branch it records on the issue
+   * (left out when the place names its own branch, as a work tree does),
+   * and what the agent is told, in full: no step's instruction follows.
+   */
+  epic?: {
+    to: string;
+    label: string;
+    hint: string;
+    icon: string;
+    branch?(issue: WorkflowIssue): string;
+    opening(issue: WorkflowIssue): string[];
+  };
+  /**
+   * The move ends in a merge of the issue's branch. Refused for an issue
+   * that belongs to an epic with a branch: that branch is merged once,
+   * with the epic.
+   */
+  merges?: boolean;
+  /** Refused while the issue has open sub-issues. */
+  needsSubIssuesClosed?: boolean;
+  /**
+   * The move takes the issue out of a `holdsBranch` state without landing
+   * its branch: the branch recorded on the issue is forgotten.
+   */
+  dropsBranch?: boolean;
+  /**
    * Lines put in front of what the agent is told after this move: something
    * to do first, once, that belongs to the move and not to the step it
    * leads to.
@@ -187,6 +241,16 @@ export interface WorkflowIssue {
   workTree?: boolean;
   /** Its open sub-issues, at any depth; worked together with it. */
   openSubIssues: readonly { id: string; title: string }[];
+  /**
+   * The issue is an epic that holds a branch its sub-issues were worked
+   * on, each committed there by itself. Left out or false otherwise.
+   */
+  holdsBranch?: boolean;
+  /**
+   * The epic this issue belongs to, when that epic holds a branch: the
+   * issue's work is done and committed on that branch. Left out otherwise.
+   */
+  epic?: { id: string; title: string; branch: string };
 }
 
 /** A workflow: the states an issue passes through and the moves between them. */
@@ -259,11 +323,15 @@ export function offeredMoves(
   by: Actor,
   context: WorkflowContext,
 ): WorkflowMove[] {
+  // On an epic's branch there is nothing to merge issue by issue: the
+  // issue is offered what it would be on the main branch.
+  const ownBranch = context.ownBranch && context.inEpicBranch !== true;
   return movesFor(workflow, stateId, by).filter(
     (move) =>
       move.menuOnly !== true &&
-      (move.ownBranchOnly !== true || context.ownBranch) &&
-      (move.mainBranchOnly !== true || !context.ownBranch),
+      (move.ownPlace !== true || context.inEpic !== true) &&
+      (move.ownBranchOnly !== true || ownBranch) &&
+      (move.mainBranchOnly !== true || !ownBranch),
   );
 }
 
@@ -275,10 +343,58 @@ export function menuMoves(
   workflow: Workflow,
   stateId: string,
   by: Actor,
+  context?: Pick<WorkflowContext, "inEpic">,
 ): WorkflowMove[] {
   return movesFor(workflow, stateId, by).filter(
-    (move) => move.alsoInMenu === true,
+    (move) =>
+      move.alsoInMenu === true &&
+      (move.ownPlace !== true || context?.inEpic !== true),
   );
+}
+
+/**
+ * A move as it reads on a given issue: on one with open sub-issues, a move
+ * that has an `epic` form carries that form's label, hint and icon.
+ */
+export function asOffered(move: WorkflowMove, hasSubIssues: boolean): WorkflowMove {
+  return hasSubIssues && move.epic !== undefined
+    ? { ...move, label: move.epic.label, hint: move.epic.hint, icon: move.epic.icon }
+    : move;
+}
+
+/** What `epicOver` needs to know of an issue. */
+export interface PlacedIssue {
+  id: string;
+  parentId: string | null;
+  step: string | null;
+  /** The branch recorded on the issue; null when none is. */
+  branch: string | null;
+}
+
+/**
+ * The epic an issue belongs to that holds a branch: the nearest issue above
+ * it that is in a `holdsBranch` state or has a branch recorded.
+ *
+ * @param byId Looks an issue up by id; undefined for one not in the list.
+ * @returns That epic, or null when there is none. Its `branch` is null
+ *   while the place is still being set up (a work tree names its branch
+ *   itself, a moment after it is asked for).
+ */
+export function epicOver<T extends PlacedIssue>(
+  workflow: Workflow,
+  issue: PlacedIssue,
+  byId: (id: string) => T | undefined,
+): T | null {
+  const seen = new Set<string>([issue.id]);
+  let above = issue.parentId === null ? undefined : byId(issue.parentId);
+  while (above !== undefined && !seen.has(above.id)) {
+    if (above.branch !== null || stateOf(workflow, above.step).holdsBranch === true) {
+      return above;
+    }
+    seen.add(above.id);
+    above = above.parentId === null ? undefined : byId(above.parentId);
+  }
+  return null;
 }
 
 /** Whose work comes next for an issue in this state (see `nextWork`). */
@@ -380,6 +496,9 @@ export function problemsIn(workflow: Workflow): string[] {
       problems.push(`Move "${move.id}" sets an unknown size.`);
     }
     if (!ids.has(move.from)) problems.push(`Move "${move.id}" starts at an unknown state.`);
+    if (move.epic !== undefined && !ids.has(move.epic.to)) {
+      problems.push(`Move "${move.id}" leads an epic to an unknown state.`);
+    }
     if (move.to !== CLOSED && !ids.has(move.to)) {
       problems.push(`Move "${move.id}" from "${move.from}" leads to an unknown state.`);
     }

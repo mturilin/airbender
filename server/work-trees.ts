@@ -28,6 +28,12 @@
 // - Which conversations are the plugin's own is kept in its storage, so a
 //   reload in the middle of an issue does not lose it.
 //
+// - A conversation can also be opened for an epic (bead-bb-ty5.2): all of
+//   its issues are then worked there, one at a time. Nothing differs here
+//   except that the epic's id is what is remembered, so the closing up
+//   happens when the epic itself lands, not when one of its issues does;
+//   `branchOf` lets the caller record the tree's branch on the epic.
+//
 // - The new conversation gets the Airbender tab among its side tabs (the
 //   user: "In the new chat, I want [the Airbender] tab to be open"): BB
 //   keeps each conversation's tabs and lets a plugin write them. Whether
@@ -229,6 +235,42 @@ export async function createWorkTrees({
     }
   }
 
+  /**
+   * The branch of a work tree conversation, which BB names itself. Asked
+   * for right after the conversation is opened, when the tree may not be
+   * there yet, so it is tried for a while.
+   *
+   * @returns The branch, or null when BB did not name one in time.
+   * Side effects: read requests to BB, up to about a minute.
+   */
+  async function branchOf(threadId: string): Promise<string | null> {
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      try {
+        const { environmentId } = await bb.sdk.threads.get({ threadId });
+        if (environmentId !== null) {
+          const branch =
+            (await bb.sdk.environments.get({ environmentId })).branchName ?? null;
+          if (branch !== null && branch !== "") return branch;
+        }
+      } catch (cause) {
+        bb.log.warn(`work tree branch of ${threadId} not read yet: ${reason(cause)}`);
+      }
+      await pause(REMOVAL_POLL_MS);
+    }
+    return null;
+  }
+
+  /**
+   * The conversation the plugin opened for an issue in a work tree, and
+   * has not closed up since; null when there is none.
+   */
+  function threadFor(beadId: string): string | null {
+    for (const [threadId, entry] of opened) {
+      if (entry.beadId === beadId) return threadId;
+    }
+    return null;
+  }
+
   /** Whether a conversation is one the plugin opened in a work tree. */
   function isOurs(threadId: string | null): boolean {
     return threadId !== null && opened.has(threadId);
@@ -292,7 +334,7 @@ export async function createWorkTrees({
     bb.log.warn(`branch ${branch} was left in ${entry.home}: ${problem}`);
   }
 
-  return { open, isOurs, landed };
+  return { open, branchOf, threadFor, isOurs, landed };
 }
 
 /** What the rest of the server asks of the work tree conversations. */

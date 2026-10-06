@@ -91,6 +91,13 @@ example "\`bd close <id>\` to complete work"), these rules take precedence.
   tells you the branch to create first. In a conversation opened for one
   issue in a work tree, follow the landing order that step gives you, and
   leave the work tree and its local branch to Airbender.
+- **(standard) An epic can have a branch for all of its issues.** The user
+  starts an issue that has sub-issues "in a branch" or "in a work tree":
+  you then only create the branch (or say which branch the work tree is
+  on) and start no work. The epic waits at the step "On its branch". Its
+  issues are started one at a time, in a folder on that branch only, and
+  each is committed there and never merged by itself. The branch is merged
+  once, when the user closes the epic with "Close & merge".
 - **On the simple workflow, commit only when the user asks.**
 ${RULES_END}
 `;

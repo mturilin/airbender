@@ -18,7 +18,9 @@ import {
 } from "./standard-workflow.ts";
 import {
   CLOSED,
+  asOffered,
   checkMove,
+  epicOver,
   menuMoves,
   movesFor,
   nextWorkOf,
@@ -97,7 +99,9 @@ test("an issue closes only once its work is in git, which needs the user's accep
       flow.moves.filter((move) => move.to === step).map((move) => move.from),
     ),
   ];
-  assert.deepEqual(from("commit-merge"), ["apply"]);
+  // And, for an epic whose issues were worked on its own branch, from the
+  // step it waits in: the user's Close & merge (bead-bb-ty5.2).
+  assert.deepEqual(from("commit-merge").sort(), ["apply", "on-branch"]);
   assert.deepEqual(from("commit").sort(), ["apply", "user-review"]);
   // Either way it is the user's doing: their button, or their words quoted.
   for (const move of flow.moves.filter(
@@ -562,4 +566,139 @@ test("landing from a work tree: main comes into the branch first, conflicts go b
   assert.match(plain, /delete the branch the work was on/u);
   // A conflict can be sent back from that step.
   assert.equal(go("commit-merge", "send-back", "agent", "conflict in a.ts"), "implement");
+});
+
+test("an epic can be given a branch or a work tree for all of its issues", () => {
+  const epic = {
+    id: "x-1",
+    title: "Kanban board",
+    size: null,
+    openSubIssues: [{ id: "x-1.1", title: "A" }],
+  };
+  for (const [id, label, icon] of [
+    ["start-branch", "Start epic in branch", "epic-branch"],
+    ["start-worktree", "Start epic in worktree", "epic-tree"],
+  ] as const) {
+    const move = flow.moves.find((candidate) => candidate.id === id)!;
+    // On an issue with sub-issues the move reads and looks different...
+    const offered = asOffered(move, true);
+    assert.equal(offered.label, label);
+    assert.equal(offered.icon, icon);
+    // ...and is itself on an issue without.
+    assert.equal(asOffered(move, false).label, move.label);
+    assert.equal(move.ownPlace, true);
+    // It leads to the step the epic waits in, and starts no work.
+    assert.equal(move.epic?.to, "on-branch");
+    const told = (move.epic?.opening(epic) ?? []).join("\n");
+    assert.match(told, /Do not start work on the epic or on any of its issues|do not start work on the epic or on any of its issues/u);
+  }
+  const branch = flow.moves.find((candidate) => candidate.id === "start-branch")!;
+  assert.equal(branch.epic?.branch?.(epic), "x-1-kanban-board");
+  const told = (branch.epic?.opening(epic) ?? []).join("\n");
+  assert.match(told, /git switch -c x-1-kanban-board/u);
+  // A branch that cannot be made takes the epic back, forgetting the branch.
+  assert.match(told, /move `to:not-started`/u);
+  const back = checkMove(flow, "on-branch", "to:not-started", "agent", "name taken");
+  assert.ok(!("message" in back) && back.dropsBranch === true);
+  // A work tree names its own branch.
+  const tree = flow.moves.find((candidate) => candidate.id === "start-worktree")!;
+  assert.equal(tree.epic?.branch, undefined);
+});
+
+test("an epic on its branch is not worked itself: it waits, then is closed and merged", () => {
+  const step = stateOf(flow, "on-branch");
+  assert.equal(step.holdsBranch, true);
+  assert.equal(step.actor, "user");
+  // The agent's free moves cannot enter it, and leave it only for the start.
+  assert.ok(flow.moves.every((move) => move.id !== "to:on-branch"));
+  assert.deepEqual(
+    movesFor(flow, "on-branch", "agent").map((move) => move.id),
+    ["to:not-started"],
+  );
+  // The user's one move there, drawn by the epic band and nowhere else.
+  const close = checkMove(flow, "on-branch", "close-merge", "user", "");
+  assert.ok(!("message" in close));
+  assert.equal(close.to, "commit-merge");
+  assert.equal(close.needsSubIssuesClosed, true);
+  assert.deepEqual(offeredMoves(flow, "on-branch", "user", { ownBranch: true }), []);
+  assert.deepEqual(menuMoves(flow, "on-branch", "user"), []);
+  // The step is not one of those listed for agents as the path of an issue.
+  assert.doesNotMatch(
+    flow.describeForAgents().split("before it is closed:")[1]!.split(".")[0]!,
+    /On its branch/u,
+  );
+  assert.match(flow.describeForAgents(), /On its branch \[on-branch\]/u);
+  // Landing it: the agent is told there is normally nothing left to commit.
+  const text = flow.instruction(stateOf(flow, "commit-merge"), {
+    id: "x-1",
+    title: "T",
+    size: null,
+    openSubIssues: [],
+    holdsBranch: true,
+  });
+  assert.match(text, /every one of them is closed and committed there/u);
+  // Not said where the epic was sent back to the work after a failed merge.
+  assert.doesNotMatch(
+    flow.instruction(stateOf(flow, "implement"), {
+      id: "x-1",
+      title: "T",
+      size: "m",
+      openSubIssues: [],
+      holdsBranch: true,
+    }),
+    /nothing left to commit/u,
+  );
+});
+
+test("an issue of an epic that has a branch is only committed, on that branch", () => {
+  const ids = (context: Parameters<typeof offeredMoves>[3], step: string) =>
+    offeredMoves(flow, step, "user", context).map((move) => move.id);
+  // On the epic's branch: as on the main branch, no choice of a merge.
+  const there = { ownBranch: true, inEpic: true, inEpicBranch: true };
+  assert.ok(ids(there, "user-review").includes("accept-commit"));
+  assert.ok(!ids(there, "user-review").includes("accept"));
+  assert.ok(!ids(there, "apply").includes("commit-merge"));
+  // On any other branch of its own, an issue still gets the choice.
+  assert.ok(ids({ ownBranch: true }, "user-review").includes("accept"));
+  // No branch or work tree of its own, on the row or in the menu.
+  assert.ok(!ids({ ownBranch: false, inEpic: true }, "not-started").includes("start-branch"));
+  assert.deepEqual(menuMoves(flow, "not-started", "user", { inEpic: true }), []);
+  assert.equal(menuMoves(flow, "not-started", "user").length, 2);
+  // Both ways of asking for a merge are marked, so the server can refuse them.
+  assert.ok(
+    flow.moves
+      .filter((move) => move.from === "apply" && move.to === "commit-merge")
+      .every((move) => move.merges === true),
+  );
+  // The agent is told where the work goes.
+  const text = flow.instruction(stateOf(flow, "implement"), {
+    id: "x-1.1",
+    title: "A",
+    size: "s",
+    openSubIssues: [],
+    epic: { id: "x-1", title: "Kanban board", branch: "x-1-kanban-board" },
+  });
+  assert.match(text, /belongs to the epic x-1/u);
+  assert.match(text, /Stay on that branch/u);
+});
+
+test("the epic an issue belongs to is the nearest one above it that holds a branch", () => {
+  const all = [
+    { id: "e", parentId: null, step: "on-branch", branch: "e-branch" },
+    { id: "e.1", parentId: "e", step: null, branch: null },
+    { id: "e.1.1", parentId: "e.1", step: null, branch: null },
+    // Started in a work tree a moment ago: the branch is not known yet.
+    { id: "t", parentId: null, step: "on-branch", branch: null },
+    { id: "t.1", parentId: "t", step: null, branch: null },
+    { id: "plain", parentId: null, step: "implement", branch: null },
+    { id: "plain.1", parentId: "plain", step: null, branch: null },
+  ];
+  const byId = (id: string) => all.find((issue) => issue.id === id);
+  const over = (id: string) => epicOver(flow, byId(id)!, byId)?.id ?? null;
+  assert.equal(over("e.1"), "e");
+  assert.equal(over("e.1.1"), "e");
+  assert.equal(over("t.1"), "t");
+  assert.equal(over("plain.1"), null);
+  // Never the issue itself.
+  assert.equal(over("e"), null);
 });

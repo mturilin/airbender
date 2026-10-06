@@ -38,6 +38,7 @@ import { cn } from "@/lib/utils";
 import type { Issue } from "../server/contract.ts";
 import { CLOSED_STATUS } from "../shared/constants.ts";
 import {
+  asOffered,
   menuMoves,
   nextWorkOf,
   offeredMoves,
@@ -48,7 +49,7 @@ import type {
   WorkflowMove,
   WorkflowState,
 } from "../shared/workflow.ts";
-import { useActions } from "./actions.ts";
+import { useActions, useOptionalActions } from "./actions.ts";
 import type { IssueActions } from "./actions.ts";
 import { PersonIcon, RobotIcon, TAG_SELECT_CLASS, Tag } from "./bits.tsx";
 
@@ -80,7 +81,28 @@ export function useWorkflow(): Workflow | null {
 function canAct(actions: IssueActions, issue: Issue): boolean {
   return (
     issue.status !== CLOSED_STATUS &&
-    (actions.currentBeadId === null || actions.currentBeadId === issue.id)
+    (actions.currentBeadId === null || actions.currentBeadId === issue.id) &&
+    // An issue of an epic that has a branch is worked only in a folder on
+    // that branch (bead-bb-ty5.2); see Elsewhere for what is shown instead.
+    actions.placeOf(issue).elsewhere === null
+  );
+}
+
+/**
+ * In place of an issue's workflow buttons, where the issue belongs to an
+ * epic whose issues are worked on that epic's branch and this folder is
+ * not on it: a line saying so. On a row it is kept short, with the whole
+ * sentence as its tooltip.
+ */
+function Elsewhere({ why, short }: { why: string; short: boolean }) {
+  return short ? (
+    <Tip label={why}>
+      <span className="mx-1 mt-1.5 shrink-0 text-xs text-muted-foreground">
+        On the epic's branch
+      </span>
+    </Tip>
+  ) : (
+    <span className="self-center text-xs text-muted-foreground">{why}</span>
   );
 }
 
@@ -113,6 +135,72 @@ export function StateTag({ issue }: { issue: Issue }) {
       <span className="shrink-0 cursor-default">
         <StateChip state={state} />
       </span>
+    </Tip>
+  );
+}
+
+/**
+ * Where an epic's issues are worked, as a tag beside its step
+ * (bead-bb-ty5.2): "worktree" with the fir when Airbender opened a
+ * conversation and a work tree for it, "branch" with the branch icon when
+ * it holds a branch in a folder. Nothing for any other issue.
+ *
+ * The user asked for it: "Can we show that the epic is opened on a
+ * different work tree in a parallel conversation? Has a tag somewhere in
+ * epic?" The work tree's tag is a link to that conversation, except in
+ * that conversation itself and where the tag is drawn outside the tab (an
+ * issue's card above the message box), where it is only a tag.
+ *
+ * The same box as the tags beside it, and plain inline text for the same
+ * reason as the step's chip: the facts are lined up on their baseline.
+ */
+export function EpicPlaceTag({ issue }: { issue: Issue }) {
+  const workflow = useWorkflow();
+  const actions = useOptionalActions();
+  if (workflow === null || issue.status === CLOSED_STATUS) return null;
+  const holds =
+    issue.branch !== null || stateOf(workflow, issue.step).holdsBranch === true;
+  if (!holds) return null;
+  const tree = issue.conversationId !== null;
+  const there =
+    tree && actions !== null && actions.threadId !== issue.conversationId
+      ? issue.conversationId
+      : null;
+  const on = issue.branch === null ? "" : `, on the branch ${issue.branch}`;
+  const label = tree
+    ? there !== null
+      ? `This epic's issues are worked in a conversation and work tree of its own${on}. Click to go there.`
+      : `This epic's issues are worked in this conversation's work tree${on}.`
+    : `This epic's issues are worked on a branch of its own${on}.`;
+  const className =
+    "shrink-0 whitespace-nowrap rounded border border-border px-1.5 py-px text-[11px] leading-4 text-muted-foreground";
+  const content = (
+    <>
+      <MoveIcon
+        name={tree ? "epic-tree" : "epic-branch"}
+        className="mr-1 inline-block size-3 align-[-1.5px]"
+      />
+      {tree ? "worktree" : "branch"}
+    </>
+  );
+  return (
+    <Tip label={label}>
+      {there !== null && actions !== null ? (
+        <button
+          type="button"
+          className={cn(className, "cursor-pointer hover:bg-foreground/[0.08] hover:text-foreground")}
+          aria-label={`Go to the conversation of ${issue.id}`}
+          onClick={(event) => {
+            // The row under it opens the issue on a click.
+            event.stopPropagation();
+            actions.goToThread(there);
+          }}
+        >
+          {content}
+        </button>
+      ) : (
+        <span className={className}>{content}</span>
+      )}
     </Tip>
   );
 }
@@ -165,7 +253,13 @@ export function useMenuMoves(issue: Issue): WorkflowMove[] {
   const actions = useActions();
   const workflow = useWorkflow();
   if (workflow === null || issue.status === CLOSED_STATUS) return [];
-  const listed = menuMoves(workflow, stateOf(workflow, issue.step).id, "user");
+  const place = actions.placeOf(issue);
+  const listed = menuMoves(
+    workflow,
+    stateOf(workflow, issue.step).id,
+    "user",
+    place.context,
+  ).map((move) => asOffered(move, place.hasSubIssues));
   // A move made in a conversation of its own does not touch this one, so
   // it is offered whatever this conversation's current issue is: starting
   // another issue alongside is what it is for.
@@ -213,7 +307,31 @@ export function MoveIcon({
       aria-hidden="true"
       className={className}
     >
-      {name === "play-tree" ? (
+      {name === "epic-branch" ? (
+        <>
+          {/* Starting an epic in a branch of its own (bead-bb-ty5.2): a
+              branch alone, with no play triangle, so that it does not read
+              as "start this issue". Tabler Icons' "git-branch" outline.
+              The user's choice ("just a branch icon"), after first taking
+              the epic mode arrow with a small branch in its corner, which
+              was built and then replaced by this. */}
+          <circle cx="7" cy="18" r="2" />
+          <circle cx="7" cy="6" r="2" />
+          <circle cx="17" cy="6" r="2" />
+          <path d="M7 8v8" />
+          <path d="M9 18h6a2 2 0 0 0 2 -2v-5" />
+          <path d="M14 14l3 -3l3 3" />
+        </>
+      ) : name === "epic-tree" ? (
+        <>
+          {/* Starting an epic in a work tree: the fir alone, two
+              triangles and a trunk (the user: "just a fir tree with two
+              triangles"). The fir of "play-tree" below, at full size. */}
+          <path d="M12 3l-4.5 7h9z" />
+          <path d="M12 10l-6 8h12z" />
+          <path d="M12 18v3" />
+        </>
+      ) : name === "play-tree" ? (
         <>
           {/* The same triangle, a little smaller still, and a small fir:
               two tiers and a trunk. The user's choice for "start in a
@@ -351,7 +469,18 @@ export function WorkflowButton({
 }) {
   const actions = useActions();
   const workflow = useWorkflow();
-  if (workflow === null || !canAct(actions, issue)) return null;
+  if (workflow === null) return null;
+  if (!canAct(actions, issue)) {
+    // Worked on its epic's branch, and this folder is not on it: say so
+    // where the buttons would be. Not while the conversation is on another
+    // issue, when no row but the current one has buttons anyway.
+    const { elsewhere } = actions.placeOf(issue);
+    return elsewhere !== null &&
+      issue.status !== CLOSED_STATUS &&
+      (actions.currentBeadId === null || actions.currentBeadId === issue.id) ? (
+      <Elsewhere why={elsewhere} short={icons} />
+    ) : null;
+  }
   const state = stateOf(workflow, issue.step);
   if (state.actor === "agent") {
     const { run } = actions;
@@ -382,9 +511,10 @@ export function WorkflowButton({
       </Button>
     );
   }
-  const offered = offeredMoves(workflow, state.id, "user", {
-    ownBranch: actions.ownBranch,
-  });
+  const place = actions.placeOf(issue);
+  const offered = offeredMoves(workflow, state.id, "user", place.context).map(
+    (move) => asOffered(move, place.hasSubIssues),
+  );
   // Moves the workflow wants drawn without words (the two ways to start an
   // issue): on a row they are a small group of icon buttons, set apart by a
   // soft fill from the row's other icons, each with its hint as a tooltip.
@@ -464,9 +594,12 @@ export function WorkflowMoves({
     <>
       {withMenuMoves(
         canAct(actions, issue)
-          ? offeredMoves(workflow, state.id, "user", {
-              ownBranch: actions.ownBranch,
-            })
+          ? offeredMoves(
+              workflow,
+              state.id,
+              "user",
+              actions.placeOf(issue).context,
+            ).map((move) => asOffered(move, actions.placeOf(issue).hasSubIssues))
           : [],
         always,
       )

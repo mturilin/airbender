@@ -18,7 +18,8 @@ panel, beside a thread or on the New thread screen.
   opened issue, groups, new-issue field, menus, setup), and
   `app/composer.tsx` holds the message-box controls; `app/issue-card.tsx`
   is the card an issue shows on hover; `app/epic-band.tsx`
-  and `app/use-focus.ts` are epic mode. Logic without React is
+  and `app/use-focus.ts` are epic mode; `app/place.ts` says whether an
+  issue belongs to an epic with a branch and whether the folder is on it. Logic without React is
   in `app/issue-model.ts` and `app/quick-tags.ts`.
 - `shared/` — what both halves use: `constants.ts` (the values they must
   agree on), `tree.ts` (walking sub-issues), and the workflow:
@@ -107,6 +108,15 @@ From top to bottom the tab shows:
    it; after that Airbender archives that conversation, has BB remove the
    work tree, and deletes the branch (the one git change the plugin makes
    itself, and only once the branch is fully on main).
+   On an issue with sub-issues the two read "Start epic in branch" and
+   "Start epic in worktree" and do something else: they set the branch or
+   the work tree up for the whole epic, put the epic at the step "On its
+   branch" and enter epic mode, starting no work. They are refused while
+   one of the epic's issues is the current issue of any conversation. The
+   epic's issues are then started one by one, only in a folder on that
+   branch (elsewhere a line says where they are worked), and are only
+   committed there. When all of them are closed, the epic band's "Close &
+   merge" has the agent merge the branch, and the epic closes.
    An issue takes only the steps its size needs. Starting one has the
    agent size it first: S (done in one go, you see it once, at the end), M
    (definition and plan together, one review, then the result) or L (every

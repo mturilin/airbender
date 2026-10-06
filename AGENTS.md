@@ -181,6 +181,13 @@ not at the end.
   out, push it, delete your branch on the remote, and leave the work tree
   and the local branch alone: Airbender archives the conversation and
   removes both when you report the step done.
+- An epic can have a branch for all of its beads. The user starts a bead
+  that has sub-issues "in a branch" or "in a work tree": you then only
+  create the branch (or say which branch the work tree is on) and start no
+  work. The epic waits at the step "On its branch". Its beads are started
+  one at a time, in a folder on that branch only, and each is committed
+  there and never merged by itself. The branch is merged once, when the
+  user closes the epic with "Close & merge".
 - When the work is in git, report the step done with the
   `beads_workflow_move` tool, naming the commit. That closes the bead.
 - One commit per bead. Stage only the files that belong to it; never

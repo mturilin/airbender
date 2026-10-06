@@ -36,6 +36,27 @@ import { focusAfter } from "./issue-model.ts";
 import type { FocusMemory } from "./issue-model.ts";
 import type { Scope } from "./use-issues.ts";
 
+/** Where a conversation's focused epic is kept in local storage. */
+const threadKey = (threadId: string) =>
+  `bb-plugin-airbender:focus:thread:${threadId}`;
+
+/**
+ * Puts another conversation into epic mode on an epic, before it is opened
+ * (bead-bb-ty5.2: an epic started in a work tree gets a conversation of its
+ * own, which opens zoomed in on it).
+ *
+ * Side effects: writes that conversation's memory in local storage; a
+ *   failure (storage full or switched off) only costs the zoom.
+ */
+export function rememberFocus(threadId: string, epicId: string): void {
+  try {
+    localStorage.setItem(threadKey(threadId), epicId);
+    localStorage.removeItem(`${threadKey(threadId)}:last`);
+  } catch {
+    // The conversation then opens on the whole list.
+  }
+}
+
 /**
  * The focused epic for one conversation (or, on the new-conversation
  * screen, for one project).
@@ -49,13 +70,12 @@ import type { Scope } from "./use-issues.ts";
  *   every set.
  */
 export function useFocus(scope: Scope) {
-  const owner =
+  const key =
     scope.threadId !== null
-      ? `thread:${scope.threadId}`
+      ? threadKey(scope.threadId)
       : scope.projectId !== null
-        ? `project:${scope.projectId}`
+        ? `bb-plugin-airbender:focus:project:${scope.projectId}`
         : null;
-  const key = owner === null ? null : `bb-plugin-airbender:focus:${owner}`;
   // The epic last left, kept beside the focus, under a key of its own.
   const lastKey = key === null ? null : `${key}:last`;
   // The memory is kept together with the conversation it was read for.

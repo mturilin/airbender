@@ -98,3 +98,11 @@ test("a switch of workflow is told as a note that asks for nothing", () => {
   }
   assert.match(switchNote("simple"), /do not call beads_workflow_move/u);
 });
+
+test("the step tool's standing instructions fit the limit BB sets", () => {
+  // BB refuses to load a plugin whose tool instructions exceed 4096
+  // characters (found when the epic's step was added, bead-bb-ty5.2).
+  assert.ok(
+    moveToolInstructions(standardWorkflow.describeForAgents()).length <= 4096,
+  );
+});

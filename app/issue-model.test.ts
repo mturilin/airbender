@@ -45,6 +45,8 @@ function issue(id: string, over: Partial<Issue> = {}): Issue {
     parentId: null,
     step: null,
     size: null,
+    branch: null,
+    conversationId: null,
     status: "open",
     priority: 2,
     type: "task",

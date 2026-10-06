@@ -73,6 +73,21 @@ const issueSchema = z.object({
    * a label `size:<id>`.
    */
   size: z.string().nullable(),
+  /**
+   * For an epic whose issues are worked on a branch of its own
+   * (bead-bb-ty5.2): that branch. Null otherwise, and for a moment after
+   * such an epic is started in a work tree, until the tree's branch is
+   * known. Kept in beads as a label `branch:<name>`.
+   */
+  branch: z.string().nullable(),
+  /**
+   * The conversation Airbender opened for this issue in a work tree of its
+   * own, while that conversation is still there; null otherwise. Not kept
+   * in beads: the plugin remembers which conversations it opened. The tab
+   * uses it to say that an epic lives in a parallel conversation, and to
+   * go there.
+   */
+  conversationId: z.string().nullable(),
   status: z.string(),
   /** 0 (most urgent) to 4; null when bd reported none. */
   priority: z.number().nullable(),
@@ -152,6 +167,12 @@ const issuesResultSchema = z.object({
    * folder, no branch checked out, no main branch found).
    */
   ownBranch: z.boolean(),
+  /**
+   * The branch the folder is on; null when it cannot be told or no branch
+   * is checked out. Compared with an epic's `branch` to tell whether this
+   * is the folder that epic's issues are worked in.
+   */
+  branch: z.string().nullable(),
   /**
    * Which workflow the folder's repository uses: "standard" (every issue
    * goes through its steps) or "simple" (no steps). The default when the
@@ -379,6 +400,9 @@ export const rpcContract = defineRpcContract({
       message: z.string().nullable(),
       warning: z.boolean(),
       openThreadId: z.string().nullable(),
+      // The move set an epic up to be worked issue by issue: the tab goes
+      // into epic mode on it (in the conversation opened, when one was).
+      enterEpic: z.boolean(),
     }),
   },
   issue_set_size: {

@@ -98,7 +98,41 @@ export function createCurrentBead(bb: BbPluginApi) {
     bb.realtime.publish(CHANGED_CHANNEL, { threadId });
   }
 
-  return { read, store, write };
+  /**
+   * Which of some issues are the current issue of a conversation, in any
+   * conversation of a project that is not archived (bead-bb-ty5.2: an epic
+   * is not given a branch while one of its issues is being worked on
+   * somewhere).
+   *
+   * @param ids The issues asked about.
+   * @returns Those of them that are current somewhere, each once, in the
+   *   order found. A conversation whose note cannot be read is passed over.
+   * @throws When BB cannot list the project's conversations.
+   * Side effects: one or more list requests, and one read per conversation.
+   */
+  async function heldAmong(
+    projectId: string,
+    ids: ReadonlySet<string>,
+  ): Promise<string[]> {
+    if (ids.size === 0) return [];
+    const held = new Set<string>();
+    const PAGE = 100;
+    // Bounded: a project with more open conversations than this is not
+    // read to the end, and the check errs on the side of allowing.
+    for (let offset = 0; offset < 20 * PAGE; offset += PAGE) {
+      const threads = await bb.sdk.threads.list({ projectId, limit: PAGE, offset });
+      const found = await Promise.all(
+        threads.map((thread) => read(thread.id).catch(() => null)),
+      );
+      for (const beadId of found) {
+        if (beadId !== null && ids.has(beadId)) held.add(beadId);
+      }
+      if (threads.length < PAGE) break;
+    }
+    return [...held];
+  }
+
+  return { read, store, write, heldAmong };
 }
 
 /** What createCurrentBead returns. */

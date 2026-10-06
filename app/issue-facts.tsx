@@ -17,7 +17,7 @@ import { ISSUE_TYPES } from "../shared/constants.ts";
 import type { IssueType } from "../shared/constants.ts";
 import type { IssueActions } from "./actions.ts";
 import { StatusTag, TAG_SELECT_CLASS, Tag } from "./bits.tsx";
-import { SizeTag, StateTag } from "./workflow-controls.tsx";
+import { EpicPlaceTag, SizeTag, StateTag } from "./workflow-controls.tsx";
 
 /** Value of the dropdown entry that switches CategorySelect to typing. */
 const NEW_CATEGORY = "\u0000new";
@@ -154,6 +154,8 @@ export function IssueFacts({
     <span className="mt-1 flex flex-wrap items-baseline gap-1.5">
       {/* The step comes first: it is the first thing to know. */}
       <StateTag issue={issue} />
+      {/* For an epic with a branch or a work tree of its own: which. */}
+      <EpicPlaceTag issue={issue} />
       {/* Its size, once it has one: how much of the workflow it takes. */}
       <SizeTag
         issue={issue}

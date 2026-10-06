@@ -77,6 +77,20 @@
 //   removed, the branch deleted. Landing itself is the agent's: it brings
 //   the main branch into its own first, so a conflict is settled in its
 //   work tree and never on the main branch.
+// - An epic can be given a branch, or a work tree, for all of its issues
+//   together (bead-bb-ty5.2). The user: "I want to be able to start epic in
+//   a branch or worktree / then the epic mode is activated and the
+//   branch/worktree is created / then individual issues don't propose to
+//   merge, only commit / when the issues are all closed the epic has button
+//   close and merge". So on an issue with sub-issues the two starts "in a
+//   place of its own" mean something else: they set the place up, start no
+//   work, and put the epic in a step of its own, "On its branch", where it
+//   waits while its issues are started one by one. From there the user's
+//   "Close & merge" leads to the ordinary Commit & merge step. Plain Start
+//   on an epic still means "work all of it in one go". The step stands
+//   last in the list because it is not one issues pass through in order.
+//   Rejected: handling such epics in the tab and the server, outside the
+//   workflow (the app must not know one workflow from another).
 // - Dropping an issue (Cancel) is not a move here. It is always possible and
 //   is the tab's own action, outside the workflow.
 //
@@ -190,6 +204,15 @@ const states: WorkflowState[] = [
     hint: "The agent commits the accepted work and merges its branch into the main one.",
     ask: "The agent is committing and merging the work.",
   },
+  {
+    // Last, and apart from the order above: see the design notes.
+    id: "on-branch",
+    label: "On its branch",
+    actor: "user",
+    holdsBranch: true,
+    hint: "Its issues are worked one at a time on a branch of its own; it is closed and merged when they are all closed.",
+    ask: "Its issues are worked on its branch. Close & merge when they are all closed.",
+  },
 ];
 
 /** A step the agent finishes: it may report it, and so may the user. */
@@ -295,6 +318,19 @@ const moves: WorkflowMove[] = [
       "All of this issue's work is done on that branch. At the end the user chooses whether it is merged.",
       "",
     ],
+    ownPlace: true,
+    epic: {
+      to: "on-branch",
+      label: "Start epic in branch",
+      hint: "Give this epic a branch of its own: the agent creates it and starts nothing. Its issues are then started one by one and committed there, and Close & merge at the end brings the branch back.",
+      icon: "epic-branch",
+      branch: (issue) => branchName(issue),
+      opening: (issue) => [
+        `The user started the epic ${issue.id} (${JSON.stringify(issue.title)}) in a branch of its own. Do one thing only: create and switch to a new branch named \`${branchName(issue)}\` from where the folder is now (\`git switch -c ${branchName(issue)}\`), and tell the user in one line that the epic's work is on that branch.`,
+        `If a branch of that name already exists, or the branch cannot be created, do not reuse or overwrite a branch: tell the user why, and ${report(issue.id, "to:not-started")} saying so, which takes the epic back to where it was.`,
+        "Do not start work on the epic or on any of its issues. The user starts them one at a time from the Airbender tab; each is committed on this branch when it is accepted, and the branch is merged once, when the user closes the epic.",
+      ],
+    },
   },
   {
     id: "start-worktree",
@@ -314,6 +350,18 @@ const moves: WorkflowMove[] = [
       "All of this issue's work is done here. Do not switch branches, and do not touch the repository's main folder until the issue is to be landed.",
       "",
     ],
+    ownPlace: true,
+    epic: {
+      to: "on-branch",
+      label: "Start epic in worktree",
+      hint: "Give this epic a conversation and a work tree of its own. Its issues are then started one by one there and committed on its branch, and Close & merge at the end brings it to the main branch and closes that conversation.",
+      icon: "epic-tree",
+      opening: (issue) => [
+        `This conversation was opened for the epic ${issue.id} (${JSON.stringify(issue.title)}), in a git work tree of its own, on a branch of its own. Tell the user in one line which branch this is (\`git branch --show-current\`); do not rename it.`,
+        "Do nothing else now: do not start work on the epic or on any of its issues. The user starts them one at a time from the Airbender tab of this conversation; each is committed on this branch when it is accepted, and the branch is merged once, when the user closes the epic.",
+        "Do not switch branches, and do not touch the repository's main folder until the epic is to be landed.",
+      ],
+    },
   },
   // How the agent records the size it chose (see the design notes). A small
   // issue goes straight to Implement, so the step shown is the one the work
@@ -458,6 +506,7 @@ const moves: WorkflowMove[] = [
     label: "Commit & merge",
     hint: "Commit the work and merge its branch into the main one. The issue closes when that is done.",
     ownBranchOnly: true,
+    merges: true,
   },
   {
     id: "send-back",
@@ -487,6 +536,7 @@ const moves: WorkflowMove[] = [
     label: "Commit & merge, as the user said",
     hint: "The user has said to commit and merge; quote what they said.",
     needsNote: true,
+    merges: true,
   },
   {
     id: "done",
@@ -512,6 +562,20 @@ const moves: WorkflowMove[] = [
     by: ["agent", "user"],
     label: "Mark as done",
     hint: "The work is in git: committed, and its branch merged into the main one. Closes the issue.",
+  },
+  {
+    // An epic whose issues were worked on its branch, all closed now: the
+    // one way on from its step. Drawn by the tab in epic mode's band, not
+    // on a row or in a menu.
+    id: "close-merge",
+    from: "on-branch",
+    to: "commit-merge",
+    by: ["user"],
+    label: "Close & merge",
+    hint: "Every issue of this epic is closed: the agent merges the epic's branch into the main one, and the epic closes.",
+    primary: true,
+    menuOnly: true,
+    needsSubIssuesClosed: true,
   },
   {
     id: "send-back",
@@ -545,7 +609,12 @@ const jumps: WorkflowMove[] = states.flatMap((from, fromIndex) =>
       (to, toIndex) =>
         to.id !== from.id &&
         toIndex < APPLY_FROM &&
-        ((from.nextWork ?? from.actor) === "agent" || toIndex < fromIndex),
+        // An epic on its branch is not worked itself: the only way out,
+        // short of landing it, is back to the start (the branch could not
+        // be made), which forgets the branch.
+        (from.holdsBranch === true
+          ? toIndex === 0
+          : (from.nextWork ?? from.actor) === "agent" || toIndex < fromIndex),
     )
     .map((to) => ({
       id: `to:${to.id}`,
@@ -556,6 +625,7 @@ const jumps: WorkflowMove[] = states.flatMap((from, fromIndex) =>
       hint: `Go straight to ${to.label}; say why.`,
       needsNote: true,
       unlisted: true,
+      ...(from.holdsBranch === true ? { dropsBranch: true } : {}),
     })),
 );
 moves.push(...jumps);
@@ -768,6 +838,24 @@ function instruction(
   issue: WorkflowIssue,
   note?: string,
 ): string {
+  // An issue of an epic that holds a branch: where its work goes.
+  const inEpic =
+    issue.epic === undefined
+      ? []
+      : [
+          "",
+          `This issue belongs to the epic ${issue.epic.id} (${JSON.stringify(issue.epic.title)}), whose issues are all worked on the branch \`${issue.epic.branch}\`. Stay on that branch: do not create or switch to another. The issue's work is only committed there; the branch is merged once, when the user closes the epic.`,
+        ];
+  // An epic being landed: its issues are done, only the branch is left.
+  // Said only where it is landed: sent back to the work after a merge
+  // that failed, there is something left to do.
+  const landing =
+    issue.holdsBranch !== true || state.id !== "commit-merge"
+      ? []
+      : [
+          "",
+          "This issue is an epic whose issues were worked one at a time on its branch, and every one of them is closed and committed there. There is normally nothing left to commit: what remains is the merge of that branch.",
+        ];
   // An issue with sub-issues is worked as a whole: the user asked that play
   // on an epic means "this issue and all its sub-issues" (bead-bb-5qt).
   const epic =
@@ -788,6 +876,8 @@ function instruction(
   return [
     `Work on beads issue ${issue.id}: ${JSON.stringify(issue.title)}. It is at the "${state.label}" step. Start with \`bd show ${issue.id}\` and \`bd comments ${issue.id}\`.`,
     ...epic,
+    ...inEpic,
+    ...landing,
     ...back,
     "",
     ...stepText(state.id, issue.id, issue.size, issue.workTree === true),
@@ -830,6 +920,7 @@ function resizeInstruction(
 
 function describeForAgents(): string {
   const steps = states
+    .filter((state) => state.holdsBranch !== true)
     .map(
       (state) =>
         `${state.label} [${state.id}] (${state.actor === "agent" ? "you" : "the user"})`,
@@ -852,12 +943,15 @@ function describeForAgents(): string {
     `Every beads issue in this repository goes through these steps before it is closed: ${steps}.`,
     "You are told which step an issue is at when you are started on it. Do that step.",
     `Not every issue takes every step. Issues have a size, S, M or L, which you choose when you are started on one that has none, with the move \`size:s\`, \`size:m\` or \`size:l\` at ${states[1]!.label}: S is done in one go and reaches the user once, at the end; M has one review at the front, of definition and plan together; L takes every step. In doubt, take the larger. The user can set or change the size; you are told when they do.`,
-    "When you create an issue yourself you may give it a size, since you know it better than anyone sizing it later: add the label `size:s`, `size:m` or `size:l`.",
+    "When you create an issue yourself you may give it a size: add the label `size:s`, `size:m` or `size:l`.",
     "A plain question or a discussion needs no issue: answer it in the conversation. Create an issue only when something is to be changed; where a discussion ends in a decision worth keeping, offer to record it.",
     `If you begin work on an issue that is still at ${states[0]!.label} (for example from a typed request), move it with \`start\` first; if the user asked for it to be done in a branch of its own, with \`start-branch\` instead, which tells you the branch to create and is refused while the folder has uncommitted changes.`,
-    `When you finish a step, report it with the ${MOVE_TOOL} tool (${agentMoves}), each with a short note. The tool tells you what comes next: either your next step, or that the issue now waits for the user.`,
-    "You have the judgment to move an issue to where the work really is: the move `to:<step id>` (the ids are in square brackets above) takes it to any step, with your reason, for example to leave out steps that are not needed. Two limits: while an issue waits for the user's review you may only move it back, not on; and you can never move an issue to Apply or past it.",
+    `When you finish a step, report it with the ${MOVE_TOOL} tool (${agentMoves}), each with a short note. The tool tells you what comes next.`,
+    "You have the judgment to move an issue to where the work really is: the move `to:<step id>` (the ids are in square brackets above) takes it to any step, with your reason. Two limits: while an issue waits for the user's review you may only move it back, not on; and you can never move an issue to Apply or past it.",
     "While an issue waits for the user's review, read what they reply. If they ask for changes, move it back with `send-back`, giving their words as the reason, and redo the work; a long rework belongs in the work step, a quick question does not need a move at all. If they approve in the conversation, record it with `approved`, quoting what they said, and carry on. At Human review, if they accept the work and say to commit it, record that with `approved:commit` instead, which goes straight to the commit. At Apply the user chooses between committing and committing with a merge; if they say which in the conversation, record it with `approved:commit` or `approved:commit-merge`, quoting them. Never record an approval the user has not given.",
+    // Kept short: BB limits a tool's instructions to 4096 characters, and
+    // the step's own instruction says the rest when it applies.
+    "An epic may hold a branch for all its issues (step On its branch [on-branch]): do not work on the epic itself; its issues are only committed on that branch, never merged alone.",
     "Do not commit before the user has accepted an issue; an issue is closed by reporting its last step, never with bd close.",
   ].join(" ");
 }

@@ -345,7 +345,8 @@ that epic's issues, and the current issue is picked from among them. `[ha9]`
     in. There is no limit on going in and out while these conditions hold.
 - **The current issue is the sub-issue**, not the epic. `[ha9]`
 - **When all the tasks of the epic are done, the band has a button to close
-  the epic.** `[ty5.1]`
+  the epic.** `[ty5.1]` For an epic that has a branch of its own the
+  button is "Close & merge" (see "The workflow"). `[ty5.2]`
 - **After leaving epic mode for a moment, a button returns to the epic that
   was left**, without looking for it among all the issues. `[fmg]`
 - A new issue created in epic mode goes into the epic unless the owner
@@ -476,6 +477,35 @@ The steps, in order: `[e2b]`
     another conversation themselves.
 - **Inside an opened issue, the two buttons have their icon and the text
   "Start in branch" and "Start in worktree".** `[o3d]`
+- **An epic can be started in a branch or in a work tree**, for all of its
+  issues together. `[ty5.2]`
+  - On an issue that has sub-issues the two commands read **"Start epic in
+    branch"** and **"Start epic in worktree"**, and have icons of their
+    own, so that it is clear they mean something different: **just a
+    branch**, and **just a fir tree with two triangles**, without the play
+    button.
+  - Starting that way **creates the branch or the work tree and activates
+    epic mode**. No work is started: the epic's issues are started one by
+    one. The plain start on an epic keeps its meaning: the agent works the
+    whole epic in one go.
+  - **It can only be started while none of the epic's issues is being
+    worked on**, that is, while none of them is the current issue of any
+    conversation. Otherwise nothing is started. Nothing else is checked:
+    uncommitted changes are not looked at for this, so an epic can be
+    started in a work tree from a main branch that has unfinished work on
+    it. An issue that was started, released and left half-done can
+    therefore overlap with the epic's work; that is accepted.
+  - **Once an epic has a branch, its issues are worked on only in a folder
+    that is on that branch.**
+  - **Its issues do not propose to merge, only to commit.**
+  - **The epic carries a tag showing where it is worked**: "worktree" when
+    it is opened in a work tree in a parallel conversation, "branch"
+    otherwise. The work tree's tag takes the owner to that conversation.
+    The tag is on the epic's row, in the opened epic and in the band of
+    epic mode.
+  - **When all its issues are closed, the epic has the button "Close &
+    merge"**: its branch is merged, and the epic is closed. For an epic in
+    a work tree, everything is then closed as for a single issue.
 - **The agent sizes the issue first**, and says which size in one line.
   The sizes are T-shirt sizes: `[4mb]`
   - **S, small**: definition, the work and the agent's own review in one
@@ -801,6 +831,37 @@ breaking a requirement above.
   fails, what is left stays in place. "Commit" without merging leaves the
   conversation, the work tree and the branch. If the work tree or the
   conversation cannot be made, nothing is started and the panel says why.
+- An epic with a branch of its own: while its issues are being worked the
+  epic stands at a step called "On its branch", shown as its step like any
+  other; the agent does not work on the epic itself. The branch is noted on
+  the epic. "Start epic in branch" is refused over uncommitted changes like
+  any start in a branch, and names the branch from the epic's id and title;
+  if the branch cannot be made the agent says why and the epic goes back to
+  not started. From the new-conversation screen, where there is no agent
+  to make a branch, only the work tree start is possible; the branch start
+  says so. A refused start shows a message box naming the issues that
+  are being worked on. The conversation opened for an epic in a work tree
+  has no current issue, and its agent only says which branch it is on. For
+  a moment after such a start, until the work tree's branch is known, the
+  epic's issues cannot be started and say that the work tree is being set
+  up. In a folder that is not on the epic's branch, an issue of the epic
+  shows, where its buttons would be, a line naming the epic and its
+  branch, and anything asked for it anyway is refused with those words. An
+  issue of such an epic is not offered a branch or a work tree of its own,
+  and neither is an epic inside it. "Close & merge" is offered only in a
+  folder on the epic's branch, and asks first: "Close and merge this
+  epic?", saying that all its issues are closed and that its branch is
+  merged into the main branch and deleted, with "Not yet" and "Close &
+  merge". In another folder the band offers no button for such an epic.
+  Closing the epic without finishing it, from its menu, leaves its branch
+  and work tree as they are. A merge that fails sends the epic back to the
+  work like any issue. Only the owner can start an epic in a work tree; an
+  agent may start one in a branch when asked to.
+- The epic's place tag: it sits after the step, carries the fir or the
+  branch icon of the two start commands, and its tooltip names the branch.
+  In the epic's own conversation, and on an issue's card above the message
+  box, the work tree's tag is not a link. The step still reads "On its
+  branch" in both cases.
 - The small step button on a row: lower than the icon buttons beside it,
   small text, no border, a soft grey fill that darkens under the pointer;
   it keeps its icon, label and tooltip. On the current issue it is the

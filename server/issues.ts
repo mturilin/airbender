@@ -98,6 +98,21 @@ export function sizeOf(labels: string[]): string | null {
   return size === "" ? null : size;
 }
 
+/**
+ * The label prefix an epic's branch is stored under, e.g.
+ * `branch:proj-a1b-kanban-board` (bead-bb-ty5.2): the branch all of its
+ * issues are worked on. A label, like the step and the size, so that it is
+ * visible in beads and travels with the issue.
+ */
+export const BRANCH_PREFIX = "branch:";
+
+/** The branch recorded on an issue, or null when none is. */
+export function branchOf(labels: string[]): string | null {
+  const label = labels.find((candidate) => candidate.startsWith(BRANCH_PREFIX));
+  const branch = label?.slice(BRANCH_PREFIX.length).trim() ?? "";
+  return branch === "" ? null : branch;
+}
+
 /** Longest category name accepted. */
 const CATEGORY_MAX_LENGTH = 40;
 
@@ -270,6 +285,9 @@ export function toIssues(rows: BdIssue[]): Issue[] {
     parentId: row.parent ?? null,
     step: stepOf(row.labels ?? []),
     size: sizeOf(row.labels ?? []),
+    branch: branchOf(row.labels ?? []),
+    // Not known to beads; filled in by the server for the tab's list.
+    conversationId: null,
     status: row.status,
     priority: row.priority ?? null,
     type: row.issue_type ?? null,
@@ -279,7 +297,8 @@ export function toIssues(rows: BdIssue[]): Issue[] {
       (label) =>
         !label.startsWith(CATEGORY_PREFIX) &&
         !label.startsWith(STEP_PREFIX) &&
-        !label.startsWith(SIZE_PREFIX),
+        !label.startsWith(SIZE_PREFIX) &&
+        !label.startsWith(BRANCH_PREFIX),
     ),
     updatedAt: row.updated_at ?? row.created_at ?? null,
     blockedBy: blockedBy.get(row.id) ?? [],

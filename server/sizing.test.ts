@@ -34,6 +34,8 @@ const issue = (id: string, over: Partial<Issue> = {}) =>
     parentId: null,
     step: null,
     size: null,
+    branch: null,
+    conversationId: null,
     status: "open",
     commentCount: 0,
     priority: 2,

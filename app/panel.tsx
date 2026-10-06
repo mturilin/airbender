@@ -39,8 +39,10 @@ import { useFilters } from "./use-filters.ts";
 import { useIssueTree } from "./use-issue-tree.ts";
 import { useIssues } from "./use-issues.ts";
 import type { Scope } from "./use-issues.ts";
+import { movesFor, stateOf } from "../shared/workflow.ts";
 import { DEFAULT_WORKFLOW_ID, workflowFor } from "../shared/workflows.ts";
 import { WorkflowProvider } from "./workflow-controls.tsx";
+import { askPanelOnArrival } from "./arrival.ts";
 import { EpicBand, EpicReturn } from "./epic-band.tsx";
 import { useFocus } from "./use-focus.ts";
 import {
@@ -136,6 +138,27 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
   // while it is not finished. The band then offers to close the epic.
   const focusedDone =
     focused === null ? 0 : finishedEpicSize(tree.byId, focused.id);
+  // The epic holds a branch its issues are worked on (bead-bb-ty5.2), and,
+  // when this folder is on that branch, the move that closes and merges it.
+  const workflowNow = workflowFor(result?.workflow ?? DEFAULT_WORKFLOW_ID);
+  const focusedHolds =
+    focused !== null &&
+    workflowNow !== null &&
+    (focused.branch !== null ||
+      stateOf(workflowNow, focused.step).holdsBranch === true);
+  const landingMove =
+    focused === null || workflowNow === null
+      ? undefined
+      : movesFor(workflowNow, stateOf(workflowNow, focused.step).id, "user").find(
+          (move) => move.needsSubIssuesClosed === true,
+        );
+  const focusedLanding =
+    focusedHolds &&
+    landingMove !== undefined &&
+    focused.branch !== null &&
+    focused.branch === (result?.branch ?? null)
+      ? { move: landingMove, branch: focused.branch }
+      : null;
   useEffect(() => {
     setNewIssueParentId(focusedId);
   }, [focusedId]);
@@ -202,6 +225,10 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
     askSwitch: setSwitching,
     askWarn: setWarning,
     openThread: (threadId) => {
+      // The conversation's own message box opens the tab on arrival
+      // (arrival.ts); what follows the jump below is the older way, kept
+      // as a second try.
+      askPanelOnArrival(threadId);
       navigate.toThread(threadId);
       // The user wants the Airbender tab open in the new conversation. The
       // server has put the tab among that conversation's tabs; this asks
@@ -327,15 +354,21 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
                 (issue) => issue.parentId === focused.id,
               )}
               onGo={actions.focus}
+              // An epic whose issues were worked on its own branch is
+              // closed by merging that branch, from a folder that is on
+              // it; in any other folder the band offers nothing, since a
+              // plain close would leave the branch unmerged.
+              merging={focusedLanding !== null}
               onClose={
-                focusedDone === 0
+                focusedDone === 0 || (focusedHolds && focusedLanding === null)
                   ? undefined
                   : () =>
                       setClosing({
                         issue: focused,
-                        moveId: null,
-                        label: null,
+                        moveId: focusedLanding?.move.id ?? null,
+                        label: focusedLanding?.move.label ?? null,
                         epicDone: focusedDone,
+                        mergeBranch: focusedLanding?.branch,
                       })
               }
             />

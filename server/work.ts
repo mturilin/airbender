@@ -42,8 +42,8 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { CLOSED_STATUS } from "../shared/constants.ts";
 import { descendantsOf } from "../shared/tree.ts";
-import { CLOSED, checkMove, stateOf } from "../shared/workflow.ts";
-import type { Actor, WorkflowState } from "../shared/workflow.ts";
+import { CLOSED, checkMove, epicOver, stateOf } from "../shared/workflow.ts";
+import type { Actor, Workflow, WorkflowState } from "../shared/workflow.ts";
 import { NO_STEPS_MESSAGE } from "../shared/workflows.ts";
 import { workflowLine } from "./agent-tools.ts";
 import type { WorkTrees } from "./work-trees.ts";
@@ -72,6 +72,11 @@ export interface MoveOutcome extends Outcome {
    */
   openThreadId?: string;
   /**
+   * The move set an epic up to be worked issue by issue (in the
+   * conversation opened, when there is one): the tab enters epic mode.
+   */
+  enterEpic?: boolean;
+  /**
    * For the agent: what to do next, when the new state is the agent's.
    * Null when the issue now waits for the user, or was closed.
    */
@@ -92,6 +97,7 @@ export function createWork({
   workflowChoice,
   onUserSize,
   hasUncommittedChanges,
+  currentBranch,
   workTrees,
 }: {
   bb: BbPluginApi;
@@ -105,11 +111,20 @@ export function createWork({
   onUserSize: (path: string, beadId: string) => void;
   /** Whether a folder has uncommitted changes to tracked files. */
   hasUncommittedChanges: (path: string) => Promise<boolean>;
+  /** The branch a folder is on; null when it cannot be told. */
+  currentBranch: (path: string) => Promise<string | null>;
   /** Conversations opened for one issue in a work tree of its own. */
   workTrees: WorkTrees;
 }) {
-  const { issuesIn, setIssueOpen, setStep, setSize, addComment, changed } =
-    store;
+  const {
+    issuesIn,
+    setIssueOpen,
+    setStep,
+    setSize,
+    setBranch,
+    addComment,
+    changed,
+  } = store;
 
   /**
    * Puts the thread's agent to work: the one place that decides how a step
@@ -125,15 +140,62 @@ export function createWork({
     });
   }
 
+  /**
+   * The epic an issue belongs to that holds a branch for its issues
+   * (bead-bb-ty5.2), or null. See epicOver.
+   */
+  const homeOf = (workflow: Workflow, issue: Issue, issues: Issue[]) =>
+    epicOver(workflow, issue, (id) =>
+      issues.find((candidate) => candidate.id === id),
+    );
+
+  /**
+   * Why an issue cannot be worked on from this folder: it belongs to an
+   * epic whose issues are worked on that epic's branch, and the folder is
+   * not on it (the user's rule: "its issues are worked on only in a folder
+   * on that branch"). The same for the epic itself, which is landed from
+   * its branch.
+   *
+   * @returns The reason in plain words, or null when there is none.
+   * Side effects: one read-only git command when the issue has such an epic.
+   */
+  async function wrongPlace(
+    workflow: Workflow,
+    issue: Issue,
+    issues: Issue[],
+    path: string,
+  ): Promise<string | null> {
+    const own = stateOf(workflow, issue.step).holdsBranch === true;
+    const home = own ? issue : homeOf(workflow, issue, issues);
+    if (home === null) return null;
+    const what = own
+      ? `${issue.id} is an epic whose issues are worked`
+      : `${issue.id} belongs to the epic ${home.id} (${JSON.stringify(home.title)}), whose issues are worked`;
+    if (home.branch === null) {
+      return `${what} in a work tree that is still being set up. Try again in a moment.`;
+    }
+    const here = await currentBranch(path);
+    if (here === home.branch) return null;
+    return `${what} on the branch ${home.branch}. This folder is on ${here ?? "no branch"}: work on it in a folder that is on ${home.branch}.`;
+  }
+
   /** What the workflow may say about an issue: itself and its open sub-issues. */
   const describe = (
     issue: Issue,
     issues: Issue[],
     threadId: string | null = null,
+    workflow: Workflow | null = null,
   ) => ({
     id: issue.id,
     title: issue.title,
     size: issue.size,
+    holdsBranch: issue.branch !== null,
+    epic: (() => {
+      const home = workflow === null ? null : homeOf(workflow, issue, issues);
+      return home === null || home.branch === null
+        ? undefined
+        : { id: home.id, title: home.title, branch: home.branch };
+    })(),
     // Whether the conversation that will read this is one the plugin
     // opened for an issue in a work tree: its landing is told differently.
     workTree: workTrees.isOurs(threadId),
@@ -192,13 +254,20 @@ export function createWork({
         message: `Issue ${beadId} is at "${state.label}", which waits for you, not the agent.`,
       };
     }
+    const elsewhere = await wrongPlace(
+      workflow,
+      found.issue,
+      found.issues,
+      found.path,
+    );
+    if (elsewhere !== null) return { message: elsewhere };
     try {
       await currentBead.write(threadId, beadId);
       await deliver(
         threadId,
         workflow.instruction(
           state,
-          describe(found.issue, found.issues, threadId),
+          describe(found.issue, found.issues, threadId, workflow),
         ),
       );
     } catch (cause) {
@@ -238,6 +307,77 @@ export function createWork({
     const from = stateOf(workflow, issue.step);
     const checked = checkMove(workflow, issue.step, input.moveId, by, input.note);
     if ("message" in checked) return fail(checked.message);
+    const warn = (message: string) => ({ ...fail(message), warning: true });
+    const openSubIssues = descendantsOf(issue.id, issues).filter(
+      (candidate) => candidate.status !== CLOSED_STATUS,
+    );
+    // An issue of an epic that holds a branch (bead-bb-ty5.2) is worked
+    // only on that branch, never gets a place of its own, and is never
+    // merged by itself.
+    const home = homeOf(workflow, issue, issues);
+    if (home !== null && checked.ownPlace === true) {
+      return warn(
+        `${beadId} belongs to the epic ${home.id} (${JSON.stringify(home.title)}), which has a branch of its own${home.branch === null ? "" : ` (${home.branch})`}. Its issues are worked there, not in a branch or work tree of their own.`,
+      );
+    }
+    // Not asked of the move that gives the branch up: it is made when the
+    // branch could not be created, so the folder is not on it.
+    const elsewhere =
+      checked.dropsBranch === true
+        ? null
+        : await wrongPlace(workflow, issue, issues, path);
+    if (elsewhere !== null) return warn(elsewhere);
+    if (home !== null && checked.merges === true) {
+      return fail(
+        `${beadId} belongs to the epic ${home.id}, whose branch is merged once, when the epic is closed. Commit this issue's work only.`,
+      );
+    }
+    if (checked.needsSubIssuesClosed === true && openSubIssues.length > 0) {
+      return warn(
+        `${beadId} still has ${openSubIssues.length === 1 ? "an open issue" : `${openSubIssues.length} open issues`} under it (${openSubIssues.map((sub) => sub.id).join(", ")}). Close ${openSubIssues.length === 1 ? "it" : "them"} first.`,
+      );
+    }
+    // Setting a place up for an epic's issues: not while one of them is
+    // being worked on somewhere (the user: "we just check that ... the sub
+    // issues of the epic are not worked on, so they're not current in any
+    // of the chats. If there is any ... we will stop.").
+    const forEpic =
+      checked.epic !== undefined && openSubIssues.length > 0
+        ? checked.epic
+        : null;
+    if (forEpic !== null) {
+      // A branch is made by the conversation's agent; without a
+      // conversation (the new-conversation screen) there is nobody to make
+      // it, and the epic would be left pointing at a branch that is not
+      // there. A work tree brings its own conversation.
+      if (checked.ownConversation !== true && threadId === null) {
+        return warn(
+          "Open a conversation first: its agent creates the epic's branch. Or start the epic in a work tree, which opens a conversation of its own.",
+        );
+      }
+      let projectId = input.projectId;
+      try {
+        if (threadId !== null) {
+          projectId = (await bb.sdk.threads.get({ threadId })).projectId;
+        }
+        const held =
+          projectId === null
+            ? []
+            : await currentBead.heldAmong(
+                projectId,
+                new Set(openSubIssues.map((sub) => sub.id)),
+              );
+        if (held.length > 0) {
+          return warn(
+            `${held.join(", ")} ${held.length === 1 ? "is" : "are"} being worked on: ${held.length === 1 ? "it is the current issue of a conversation" : "they are current issues of conversations"}. Finish or release ${held.length === 1 ? "it" : "them"} before giving the epic a branch or a work tree.`,
+          );
+        }
+      } catch (cause) {
+        return fail(
+          `Could not check whether the epic's issues are being worked on: ${reason(cause)}`,
+        );
+      }
+    }
     // A move may need the folder to be clean (starting in a new branch):
     // refused with the move's own warning, and nothing is changed.
     if (
@@ -259,6 +399,11 @@ export function createWork({
       // Recorded only when the issue really was closed.
       if (closed.message === null) {
         await record("closed");
+        // A landed epic's branch is gone: the record of it goes too, so
+        // that an issue of it reopened later is not sent to that branch.
+        if (issue.branch !== null) {
+          await setBranch(path, threadId, beadId, null, false);
+        }
         // Landed from a conversation opened for it in a work tree: that
         // conversation, its tree and its branch are closed up.
         if (threadId !== null) workTrees.landed(threadId, beadId);
@@ -266,7 +411,71 @@ export function createWork({
       return { ...closed, state: null, instruction: null };
     }
 
+    if (forEpic !== null) {
+      const holding = stateOf(workflow, forEpic.to);
+      const about = describe(issue, issues);
+      const text = forEpic.opening(about).join("\n");
+      let openThreadId: string | undefined;
+      if (checked.ownConversation === true) {
+        const started = await workTrees.open({
+          from: input,
+          home: path,
+          beadId,
+          title: issue.title,
+          prompt: text,
+        });
+        if ("message" in started) return fail(started.message);
+        openThreadId = started.threadId;
+        // The new conversation is on no issue: its issues are started one
+        // by one. BB names the tree's branch itself, a moment later; it is
+        // recorded on the epic when it is known.
+        const opened = started.threadId;
+        void workTrees.branchOf(opened).then(async (branch) => {
+          if (branch === null) {
+            bb.log.warn(`the work tree branch of epic ${beadId} could not be read`);
+            return;
+          }
+          await setBranch(path, threadId, beadId, branch);
+        });
+      } else {
+        const named = await setBranch(
+          path,
+          threadId,
+          beadId,
+          forEpic.branch?.(about) ?? null,
+          false,
+        );
+        if (named.message !== null) return fail(named.message);
+      }
+      const moved = await setStep(path, threadId, beadId, holding.id, false);
+      if (moved.message !== null) return fail(moved.message);
+      await record(
+        `${holding.label}${openThreadId === undefined ? "" : ", in a conversation and work tree of its own"}`,
+      );
+      let message: string | null = null;
+      if (openThreadId === undefined && by === "user" && threadId !== null) {
+        try {
+          await deliver(threadId, text);
+        } catch (cause) {
+          message = `The epic is now at "${holding.label}", but the agent could not be asked to create the branch: ${reason(cause)}`;
+        }
+      }
+      changed(threadId);
+      return {
+        message,
+        state: holding,
+        instruction: by === "agent" ? text : null,
+        openThreadId,
+        enterEpic: true,
+      };
+    }
+
     const to = stateOf(workflow, checked.to);
+    // Leaving the epic's step without landing it: the branch is forgotten.
+    if (checked.dropsBranch === true) {
+      const dropped = await setBranch(path, threadId, beadId, null, false);
+      if (dropped.message !== null) return fail(dropped.message);
+    }
     // A move that is made in a conversation of its own: the conversation
     // is opened first, with what the agent is to do as its first message,
     // and only when that worked is anything recorded on the issue. Nothing
@@ -321,7 +530,7 @@ export function createWork({
       to.actor === "agent"
         ? workflow.instruction(
             to,
-            describe(sized, issues, threadId),
+            describe(sized, issues, threadId, workflow),
             // A note is passed on only with a move back; a move that sets
             // the size is the agent's own and its note is for the record.
             order(to) < order(from) && checked.size === undefined

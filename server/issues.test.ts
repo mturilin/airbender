@@ -11,6 +11,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  branchOf,
   categoryOf,
   cleanCategory,
   toIssues,
@@ -207,4 +208,15 @@ test("cleanCategory lower-cases and tidies, and refuses bad names", () => {
   assert.ok("reason" in cleanCategory("  "));
   assert.ok("reason" in cleanCategory("a,b"));
   assert.ok("reason" in cleanCategory("x".repeat(41)));
+});
+
+test("an epic's branch is read from its label and kept out of the plain labels", () => {
+  assert.equal(branchOf(["step:on-branch", "branch:x-1-kanban-board"]), "x-1-kanban-board");
+  assert.equal(branchOf(["step:plan"]), null);
+  assert.equal(branchOf(["branch: "]), null);
+  const [epic] = toIssues([
+    row("x-1", null, "open", [], { labels: ["branch:x-1-kanban-board", "ui"] }),
+  ]);
+  assert.equal(epic!.branch, "x-1-kanban-board");
+  assert.deepEqual(epic!.labels, ["ui"]);
 });

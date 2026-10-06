@@ -43,6 +43,7 @@ import type { Issue, IssueComment, IssuesResult } from "./contract.ts";
 import type { CurrentBead } from "./current-bead.ts";
 import type { Folders } from "./folder.ts";
 import {
+  BRANCH_PREFIX,
   CATEGORY_PREFIX,
   RELATES_TO,
   SIZE_PREFIX,
@@ -102,8 +103,14 @@ export function createStore({
   watchFolder: (path: string) => void;
   workflowChoice: WorkflowChoice;
 }) {
-  const { folderFor, runBdIn, runIn, onOwnBranch, BD_NOT_FOUND_MESSAGE } =
-    folders;
+  const {
+    folderFor,
+    runBdIn,
+    runIn,
+    onOwnBranch,
+    currentBranch,
+    BD_NOT_FOUND_MESSAGE,
+  } = folders;
 
   /** Tells every open tab to reload. */
   const changed = (threadId: string | null) =>
@@ -172,6 +179,7 @@ export function createStore({
       issues: [],
       currentBeadId,
       ownBranch: false,
+      branch: null,
       workflow:
         folder.path === null
           ? DEFAULT_WORKFLOW_ID
@@ -207,6 +215,7 @@ export function createStore({
       issues,
       currentBeadId,
       ownBranch: await onOwnBranch(path),
+      branch: await currentBranch(path),
       workflow: workflowChoice.idFor(path),
     };
     const current = issues.find((issue) => issue.id === currentBeadId);
@@ -595,6 +604,32 @@ export function createStore({
   }
 
   /**
+   * Records the branch an epic's issues are worked on, or forgets it
+   * (null).
+   *
+   * Pre-condition: the issue is known to be in the folder; `branch`, when
+   *   given, has no comma in it (bd splits a label on commas; git branch
+   *   names made by this plugin and by BB have none).
+   */
+  function setBranch(
+    path: string,
+    threadId: string | null,
+    beadId: string,
+    branch: string | null,
+    publish = true,
+  ): Promise<Outcome> {
+    return setPrefixedLabel(
+      path,
+      threadId,
+      beadId,
+      BRANCH_PREFIX,
+      branch,
+      "bd update (branch)",
+      publish,
+    );
+  }
+
+  /**
    * Adds a comment to an issue. Used for the record of workflow moves, which
    * is where the tab already shows an issue's history.
    *
@@ -743,6 +778,7 @@ export function createStore({
     listComments,
     setStep,
     setSize,
+    setBranch,
     addComment,
     changed,
   };

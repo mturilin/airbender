@@ -34,6 +34,8 @@ import { cn } from "@/lib/utils";
 import type { rpcContract } from "../server/contract.ts";
 import { QUICK_REPLIES } from "../shared/constants.ts";
 import { IssueCard, useHoverCard } from "./issue-card.tsx";
+import { usePanelOnArrival } from "./arrival.ts";
+import { placesIn } from "./place.ts";
 import { useIssues } from "./use-issues.ts";
 import {
   CLOSED,
@@ -222,6 +224,9 @@ function StatusLine({ threadId }: { threadId: string }) {
 /** The status line for whichever thread the message box belongs to, if any. */
 export function ComposerStatusLine() {
   const threadId = useComposerThreadId();
+  // Always drawn in a conversation's message box, so this is where a
+  // conversation the user was just taken to shows the Airbender tab.
+  usePanelOnArrival(threadId);
   return threadId === null ? null : <StatusLine threadId={threadId} />;
 }
 
@@ -298,9 +303,12 @@ function StepButton({ threadId }: { threadId: string }) {
   // for the side panel: moves that close the issue, and forward moves that
   // need a reason (skipping a step).
   const stepIndex = workflow.states.indexOf(state);
-  const offered = offeredMoves(workflow, state.id, "user", {
-    ownBranch: result.ownBranch,
-  }).filter(
+  // Where the issue's work belongs decides what is offered: an issue of
+  // an epic that has a branch is only committed there, and is not worked
+  // from a folder that is not on that branch (place.ts).
+  const place = placesIn(workflow, result)(issue);
+  if (place.elsewhere !== null) return agree;
+  const offered = offeredMoves(workflow, state.id, "user", place.context).filter(
     (move) =>
       move.to !== CLOSED &&
       (move.needsNote !== true ||

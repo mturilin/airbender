@@ -17,7 +17,7 @@
 //   the component that uses it, and nothing in between.
 
 import { experimental_useSidebarThreads } from "@get-bb/plugin-sdk/app";
-import { createContext, useCallback, useContext, useState } from "react";
+import { createContext, useCallback, useContext, useMemo, useState } from "react";
 import type {
   Issue,
   IssueComment,
@@ -30,6 +30,9 @@ import { CLOSED, movesFor, stateOf } from "../shared/workflow.ts";
 import { DEFAULT_WORKFLOW_ID, workflowFor } from "../shared/workflows.ts";
 import type { PendingClose } from "./close-dialog.tsx";
 import { focusBlock } from "./issue-model.ts";
+import { placesIn } from "./place.ts";
+import type { Place } from "./place.ts";
+import { rememberFocus } from "./use-focus.ts";
 import type { IssueTree } from "./issue-model.ts";
 import type { Scope, useIssues } from "./use-issues.ts";
 
@@ -43,6 +46,15 @@ export interface IssueLookups {
    * main one; the workflow words some buttons by it.
    */
   ownBranch: boolean;
+  /**
+   * Where an issue's work belongs: whether it is part of an epic that has
+   * a branch, and whether this folder is on it (see place.ts).
+   */
+  placeOf: (issue: Issue) => Place;
+  /** The conversation the tab is in; null on the new-conversation screen. */
+  threadId: string | null;
+  /** Takes the user to another conversation, with the Airbender tab open. */
+  goToThread: (threadId: string) => void;
   /** Id of the bead this thread works on; null when none. */
   currentBeadId: string | null;
   /**
@@ -233,6 +245,15 @@ export function useActions(): IssueActions {
   return actions;
 }
 
+/**
+ * The same, where there may be no provider: null then. For a piece that is
+ * also drawn outside the tab (an issue's card above the message box) and
+ * only loses a convenience there.
+ */
+export function useOptionalActions(): IssueActions | null {
+  return useContext(ActionsContext);
+}
+
 /** What useIssueActions hands back to the panel. */
 export interface IssueActionsView {
   actions: IssueActions;
@@ -380,9 +401,17 @@ export function useIssueActions({
           return;
         }
         settle(outcome);
+        // An epic was set up to be worked issue by issue: epic mode is
+        // entered on it (the user: "then the epic mode is activated"), here
+        // or in the conversation that was opened for it.
+        if (outcome.enterEpic && outcome.openThreadId === null) {
+          closeDetails();
+          setFocus(beadId);
+        }
         // The move opened a conversation of its own for the issue (a work
         // tree start): go there, as the user chose ("jump").
-        if (outcome.message === null && outcome.openThreadId !== null) {
+        if (outcome.openThreadId !== null) {
+          if (outcome.enterEpic) rememberFocus(outcome.openThreadId, beadId);
           openThread(outcome.openThreadId);
         }
       }, reportProblem);
@@ -392,6 +421,7 @@ export function useIssueActions({
       ? applyOpen(pending.issue.id, false)
       : applyMove(pending.issue.id, pending.moveId, "");
   const currentBeadId = result?.currentBeadId ?? null;
+  const placeOf = useMemo(() => placesIn(workflow, result), [workflow, result]);
   /** Sets or releases the thread's current issue; nothing without a thread. */
   const setCurrentTo = (beadId: string | null) => {
     if (threadId === null) return;
@@ -418,6 +448,9 @@ export function useIssueActions({
     return { blocked: focusBlock(tree.byId, beadId, currentBeadId) };
   };
   const actions: IssueActions = {
+    placeOf,
+    threadId,
+    goToThread: openThread,
     currentBeadId,
     agentBusy,
     focusId,

@@ -36,6 +36,7 @@ import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import type { Issue } from "../server/contract.ts";
 import { IssueCard, useHoverCard } from "./issue-card.tsx";
+import { EpicPlaceTag } from "./workflow-controls.tsx";
 
 /** Shared look of the two outline icons below. */
 const STROKE = {
@@ -91,6 +92,7 @@ export function EpicBand({
   subIssues,
   onGo,
   onClose,
+  merging = false,
 }: {
   path: Issue[];
   subIssues: Issue[];
@@ -100,6 +102,11 @@ export function EpicBand({
    * band then offers to close it, and this is called on a press.
    */
   onClose?: () => void;
+  /**
+   * The epic's issues were worked on a branch of its own (bead-bb-ty5.2):
+   * closing it also merges that branch, and the button says so.
+   */
+  merging?: boolean;
 }) {
   const card = useHoverCard("below");
   const epic = path[path.length - 1]!;
@@ -175,6 +182,9 @@ export function EpicBand({
           ) : null}
         </div>
       </div>
+      {/* Where the epic's issues are worked, when it has a branch or a
+          work tree of its own; a link to its conversation from another. */}
+      <EpicPlaceTag issue={epic} />
       {/* Everything under the epic is closed: nothing is left to do here
           but close the epic itself (bead-bb-ty5.1). It asks first. */}
       {onClose === undefined ? null : (
@@ -182,11 +192,15 @@ export function EpicBand({
           variant="outline"
           size="sm"
           className="h-7 shrink-0 px-2"
-          tip="Every issue in this epic is closed. Close the epic itself."
+          tip={
+            merging
+              ? "Every issue in this epic is closed. The agent merges the epic's branch into the main one, and the epic closes."
+              : "Every issue in this epic is closed. Close the epic itself."
+          }
           onClick={onClose}
         >
           <Icon name="CircleCheck" className="size-4" />
-          Close epic
+          {merging ? "Close & merge" : "Close epic"}
         </Button>
       )}
     </div>

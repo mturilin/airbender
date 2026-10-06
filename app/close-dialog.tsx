@@ -49,6 +49,12 @@ export interface PendingClose {
    * its sub-issues'.
    */
   epicDone?: number;
+  /**
+   * With `epicDone`, for an epic whose issues were worked on a branch of
+   * its own (bead-bb-ty5.2): that branch. Closing the epic then goes
+   * through the workflow (`moveId` is set) and merges the branch.
+   */
+  mergeBranch?: string;
 }
 
 /**
@@ -77,6 +83,7 @@ export function CloseDialog({
 }) {
   const finishing = closing !== null && closing.moveId !== null;
   const epicDone = closing?.epicDone ?? 0;
+  const mergeBranch = closing?.mergeBranch ?? null;
   return (
     <Dialog
       open={closing !== null}
@@ -88,7 +95,9 @@ export function CloseDialog({
         <DialogHeader>
           <DialogTitle>
             {epicDone > 0
-              ? "Close this epic?"
+              ? mergeBranch === null
+                ? "Close this epic?"
+                : "Close and merge this epic?"
               : plain
                 ? "Close this issue?"
                 : finishing
@@ -113,8 +122,17 @@ export function CloseDialog({
               <strong className="font-medium text-foreground">
                 {closing?.issue.title}
               </strong>
-              {epicDone === 1 ? " is closed." : " are closed."} You can
-              reopen the epic later.
+              {epicDone === 1 ? " is closed." : " are closed."}{" "}
+              {mergeBranch === null ? (
+                "You can reopen the epic later."
+              ) : (
+                // The same short form, for an epic with a branch: what
+                // happens to the branch, in the place of "you can reopen".
+                <>
+                  Its branch <span className="font-mono">{mergeBranch}</span>{" "}
+                  is merged into the main branch and deleted.
+                </>
+              )}
             </>
           ) : plain || finishing ? (
             "The issue is closed."
@@ -136,7 +154,9 @@ export function CloseDialog({
             }}
           >
             {epicDone > 0
-              ? "Close epic"
+              ? mergeBranch === null
+                ? "Close epic"
+                : "Close & merge"
               : finishing
                 ? (closing?.label ?? "Close")
                 : "Close issue"}
