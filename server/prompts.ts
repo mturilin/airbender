@@ -88,7 +88,9 @@ example "\`bd close <id>\` to complete work"), these rules take precedence.
   subject line. A merge only when the user chose "Commit & merge": then
   also push the main branch and, after that, delete the issue's branch
   locally and on the remote. An issue the user starts "in a new branch"
-  tells you the branch to create first.
+  tells you the branch to create first. In a conversation opened for one
+  issue in a work tree, follow the landing order that step gives you, and
+  leave the work tree and its local branch to Airbender.
 - **On the simple workflow, commit only when the user asks.**
 ${RULES_END}
 `;

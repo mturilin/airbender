@@ -67,6 +67,16 @@
 //   in the menu always; after the merge the main branch is pushed and the
 //   branch deleted, locally and on the remote. Rejected: the plugin making
 //   the branch (it never changes git), and a step of its own for it.
+// - An issue can be started in a work tree of its own (bead-bb-ak0), so
+//   that several are worked at once: a third move out of Not started. It
+//   opens a new top-level conversation in a work tree that BB makes, and
+//   the agent works there. The user's decisions: one conversation per
+//   issue, visible; BB places the tree; it is started from the issue's
+//   menu, never the row; and when it has landed, everything is closed
+//   (their option A of three): the conversation is archived, the tree
+//   removed, the branch deleted. Landing itself is the agent's: it brings
+//   the main branch into its own first, so a conflict is settled in its
+//   work tree and never on the main branch.
 // - Dropping an issue (Cancel) is not a move here. It is always possible and
 //   is the tab's own action, outside the workflow.
 //
@@ -282,6 +292,25 @@ const moves: WorkflowMove[] = [
       `The user started this issue in a branch of its own. Before anything else, create and switch to a new branch named \`${branchName(issue)}\` from where the folder is now (\`git switch -c ${branchName(issue)}\`), and tell the user in one line that the work is on that branch.`,
       "If a branch of that name already exists, or the branch cannot be created, stop and tell the user: do not reuse or overwrite a branch, and do not go on in the branch you were in.",
       "All of this issue's work is done on that branch. At the end the user chooses whether it is merged.",
+      "",
+    ],
+  },
+  {
+    id: "start-worktree",
+    from: "not-started",
+    to: "define",
+    // The user's only: an agent does not open conversations for other
+    // issues by its own judgment.
+    by: ["user"],
+    label: "Start in a work tree",
+    hint: "Start on this issue in a conversation and a work tree of its own, so it can be worked alongside others. Commit & merge at the end brings it to the main branch and closes that conversation.",
+    icon: "play-tree",
+    alsoInMenu: true,
+    menuOnly: true,
+    ownConversation: true,
+    opening: (issue) => [
+      `This conversation was opened for one issue, ${issue.id}, in a git work tree of its own, on a branch of its own, so that it can be worked while other issues are worked elsewhere. Tell the user in one line which branch this is (\`git branch --show-current\`); do not rename it.`,
+      "All of this issue's work is done here. Do not switch branches, and do not touch the repository's main folder until the issue is to be landed.",
       "",
     ],
   },
@@ -640,7 +669,12 @@ function defineText(id: string, size: string | null): string[] {
 }
 
 /** What the agent does in each of its states. */
-function stepText(stateId: string, id: string, size: string | null): string[] {
+function stepText(
+  stateId: string,
+  id: string,
+  size: string | null,
+  workTree: boolean,
+): string[] {
   switch (stateId) {
     case "define":
       return defineText(id, size);
@@ -694,6 +728,22 @@ function stepText(stateId: string, id: string, size: string | null): string[] {
         `If it cannot be done as it is, ${report(id, "send-back")} saying why.`,
       ];
     case "commit-merge":
+      if (workTree) {
+        return [
+          "The user has accepted this work and chosen to commit it and merge it. This conversation works in a work tree of its own, so landing it takes a few steps, in this order.",
+          "",
+          "- Commit the changes that belong to this issue, following the commit rules in AGENTS.md if it has any: only this issue's files, with the issue's id and title in the subject line.",
+          "- Bring the main branch into your branch, here in the work tree: `git merge main`. Other issues may have landed since you started. If there are conflicts and they are straightforward, settle them, make sure the work still does what the issue asks (run what can be run), and commit the merge.",
+          `- If you cannot settle the conflicts cleanly, abort the merge (\`git merge --abort\`) and ${report(id, "send-back")} saying which files conflict and why: the issue goes back to the work step.`,
+          "- Then move the main branch forward to your branch. The main branch is normally checked out in the repository's main folder (`git worktree list` shows where): run `git -C <that folder> merge --ff-only <your branch>`. If the main branch is checked out nowhere, `git fetch . <your branch>:main` does it. Never force either: if git refuses, for example because that folder has uncommitted changes in the same files, stop and tell the user what is in the way.",
+          "- Push the main branch to its remote, if it has one (`git push origin main`): the user's choice of Commit & merge is their approval of that push. Then delete your branch on the remote if it is there (`git push origin --delete <your branch>`).",
+          "- Do not remove this work tree or delete the local branch yourself. When you report this step done, Airbender archives this conversation, and removes the work tree and the branch. Tell the user that in one line first: this conversation moves to the archive, where it can still be read.",
+          "- Tell the user plainly if any step fails; what has been committed is safe in this work tree.",
+          "",
+          `When the work is on the main branch and pushed, ${report(id, "done")} naming the commit. That closes the issue and this conversation.`,
+          `If it cannot be done as it is, ${report(id, "send-back")} saying why.`,
+        ];
+      }
       return [
         "The user has accepted this work and chosen to commit it and merge it. Your job now is to get it into git and onto the main branch.",
         "",
@@ -739,7 +789,7 @@ function instruction(
     ...epic,
     ...back,
     "",
-    ...stepText(state.id, issue.id, issue.size),
+    ...stepText(state.id, issue.id, issue.size, issue.workTree === true),
   ].join("\n");
 }
 

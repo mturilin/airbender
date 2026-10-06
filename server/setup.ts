@@ -159,8 +159,18 @@ export function createSetup({
       for (const agent of SETUP_AGENTS) {
         if (!met.agents.includes(agent.id)) {
           // bd's own check: it exits 0 when its files for that agent are
-          // in place, and non-zero otherwise.
-          const check = await runBd(bd, ["setup", agent.id, "--check"], path);
+          // in place, and non-zero otherwise. Asked of the repository's
+          // main folder, not of a work tree (the user's choice,
+          // bead-bb-ak0): whether an agent is set up is a fact about the
+          // repository, and a fresh work tree holds only what git tracks,
+          // so a setup file that was never committed (Claude Code's hooks
+          // in .claude/settings.json) is missing there and the tab offered
+          // to set the agent up again in every new work tree.
+          const check = await runBd(
+            bd,
+            ["setup", agent.id, "--check"],
+            (await folders.mainFolder(path)) ?? path,
+          );
           if (check.kind === "ok") met.agents.push(agent.id);
         }
         agents.push({ ...agent, configured: met.agents.includes(agent.id) });

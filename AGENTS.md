@@ -174,6 +174,13 @@ not at the end.
   of the deletion. Push first, delete after: a merge that makes no commit
   does not set off the hook below, and until the main branch is pushed the
   branch on the remote is the only copy there.
+- In a conversation that Airbender opened for one bead in a work tree, the
+  Commit & merge step tells you its own order: bring the main branch into
+  your branch first and settle conflicts there (send the bead back if you
+  cannot), move the main branch forward from the folder where it is checked
+  out, push it, delete your branch on the remote, and leave the work tree
+  and the local branch alone: Airbender archives the conversation and
+  removes both when you report the step done.
 - When the work is in git, report the step done with the
   `beads_workflow_move` tool, naming the commit. That closes the bead.
 - One commit per bead. Stage only the files that belong to it; never
