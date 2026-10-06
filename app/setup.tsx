@@ -26,6 +26,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Icon } from "@/components/ui/icon";
+import { cn } from "@/lib/utils";
 import type {
   IssuesResult,
   SetupStatus,
@@ -34,6 +35,8 @@ import type {
 import { CHANGED_CHANNEL, SETUP_AGENTS } from "../shared/constants.ts";
 import { MenuPanel, useMenu } from "./menus.tsx";
 import type { Scope } from "./use-issues.ts";
+import { WORKFLOW_CHOICES } from "../shared/workflows.ts";
+import type { WorkflowId } from "../shared/workflows.ts";
 
 /**
  * One thing that can be set up for a folder (bead-bb-80e), worked out from
@@ -291,16 +294,28 @@ export function SetupCard({
  * A step that is already done, or cannot be done yet, is greyed out with
  * the reason beside it (the user's rule), so the menu doubles as a view of
  * what is in place.
+ *
+ * It also holds the choice of workflow for the repository (the user: "as a
+ * part of the menu ... because it's not gonna be often"), above the setup
+ * steps, with a tick on the one in use.
+ *
+ * @param workflow The workflow in use, or null when there is no folder with
+ *   beads to choose one for; the choice is then not shown.
+ * @param onChooseWorkflow Called with the choice the user picked.
  */
 export function SetupMenu({
   status,
   onOpen,
   onStart,
+  workflow,
+  onChooseWorkflow,
 }: {
   status: SetupStatus | null;
   /** Called when the menu opens, to fetch a fresh status. */
   onOpen: () => void;
   onStart: (step: SetupStep) => void;
+  workflow: WorkflowId | null;
+  onChooseWorkflow: (id: WorkflowId) => void;
 }) {
   const { open, setOpen, root } = useMenu();
   return (
@@ -309,8 +324,8 @@ export function SetupMenu({
         variant="ghost"
         size="icon"
         className="size-8"
-        tip="Set up beads and Airbender for this folder"
-        aria-label="Setup menu"
+        tip="Workflow and setup for this folder"
+        aria-label="Workflow and setup menu"
         aria-expanded={open}
         onClick={() => {
           if (!open) onOpen();
@@ -331,6 +346,43 @@ export function SetupMenu({
       </Button>
       {open ? (
         <MenuPanel className="w-80 max-w-[85vw]">
+          {workflow === null ? null : (
+            <>
+              <div className="px-2 pb-1 text-xs font-medium text-muted-foreground">
+                Workflow
+              </div>
+              {WORKFLOW_CHOICES.map((choice) => (
+                <button
+                  key={choice.id}
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={choice.id === workflow}
+                  onClick={() => {
+                    setOpen(false);
+                    if (choice.id !== workflow) onChooseWorkflow(choice.id);
+                  }}
+                  className="flex w-full cursor-pointer items-start gap-2 rounded px-2 py-1 text-left text-sm hover:bg-state-hover"
+                >
+                  {/* The tick's place is kept on the other entry, so the
+                      two labels line up. */}
+                  <Icon
+                    name="Check"
+                    className={cn(
+                      "mt-0.5 size-4 shrink-0",
+                      choice.id !== workflow && "invisible",
+                    )}
+                  />
+                  <span className="min-w-0">
+                    {choice.label}
+                    <span className="block text-xs text-muted-foreground">
+                      {choice.hint}
+                    </span>
+                  </span>
+                </button>
+              ))}
+              <div className="my-1 border-t border-border" />
+            </>
+          )}
           <div className="px-2 pb-1 text-xs font-medium text-muted-foreground">
             Setup
           </div>

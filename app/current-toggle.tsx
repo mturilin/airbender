@@ -12,9 +12,17 @@
 // current."
 //
 // Design notes:
-// - One button, two states: a quiet outlined target on an issue that is not
-//   current, a filled one on the issue that is. A toggle shows at a glance
-//   which issue is current and that pressing it undoes that.
+// - One button, two states, and two clearly different icons that show what
+//   pressing will do, as the words beside them do: a target on an issue
+//   that is not current ("aim at this"), an exit door on the issue that is
+//   ("leave this"). Tried before and found "the same - too confusing" by
+//   the user: a target with its centre filled for the current issue; then a
+//   target struck through. The exit door was the user's idea.
+// - The door is the "door-exit" icon of Tabler Icons (the user asked for
+//   Tabler or Font Awesome instead of a home-made drawing), copied in as
+//   its four paths. Tabler Icons is MIT licensed (c) Pawel Kuna. Copied,
+//   not installed: one icon does not justify a package, and it is drawn
+//   with the same stroke as the target so the two match.
 // - It moves no workflow step. The backend tells the agent with a short
 //   note, so the agent and the status line above the message box agree.
 // - Confirmation only when another issue is current and would be replaced
@@ -36,11 +44,14 @@ import { CLOSED_STATUS } from "../shared/constants.ts";
 import { useActions } from "./actions.ts";
 
 /**
- * A target: rings around a centre. Drawn here because BB's icon set has
- * none (checked in its bundle), and an unknown name would show BB's
- * fallback icon. The centre is filled when `on`.
+ * The icon for the current-issue button: a target when pressing makes the
+ * issue current, an exit door when pressing releases it (`on`).
+ *
+ * Drawn here because BB's icon set has neither (checked in its bundle), and
+ * an unknown name would show BB's fallback icon. The door's paths are
+ * Tabler Icons' "door-exit", unchanged (see the design notes).
  */
-export function TargetIcon({ on, className }: { on: boolean; className?: string }) {
+export function CurrentIcon({ on, className }: { on: boolean; className?: string }) {
   return (
     <svg
       viewBox="0 0 24 24"
@@ -52,9 +63,20 @@ export function TargetIcon({ on, className }: { on: boolean; className?: string 
       aria-hidden="true"
       className={className}
     >
-      <circle cx="12" cy="12" r="10" />
-      <circle cx="12" cy="12" r="6" />
-      <circle cx="12" cy="12" r="2" fill={on ? "currentColor" : "none"} />
+      {on ? (
+        <>
+          <path d="M13 12v.01" />
+          <path d="M3 21h18" />
+          <path d="M5 21v-16a2 2 0 0 1 2 -2h7.5m2.5 10.5v7.5" />
+          <path d="M14 7h7m-3 -3l3 3l-3 3" />
+        </>
+      ) : (
+        <>
+          <circle cx="12" cy="12" r="10" />
+          <circle cx="12" cy="12" r="6" />
+          <circle cx="12" cy="12" r="2" />
+        </>
+      )}
     </svg>
   );
 }
@@ -98,7 +120,7 @@ export function CurrentToggle({
         tip={tip}
         onClick={toggle}
       >
-        <TargetIcon on={on} className="size-4" />
+        <CurrentIcon on={on} className="size-4" />
         {on ? "Release" : "Make current"}
       </Button>
     );
@@ -121,7 +143,7 @@ export function CurrentToggle({
       }
       onClick={toggle}
     >
-      <TargetIcon on={on} className="size-4" />
+      <CurrentIcon on={on} className="size-4" />
     </Button>
   );
 }

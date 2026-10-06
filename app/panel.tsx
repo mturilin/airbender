@@ -36,6 +36,8 @@ import { useFilters } from "./use-filters.ts";
 import { useIssueTree } from "./use-issue-tree.ts";
 import { useIssues } from "./use-issues.ts";
 import type { Scope } from "./use-issues.ts";
+import { DEFAULT_WORKFLOW_ID, workflowFor } from "../shared/workflows.ts";
+import { WorkflowProvider } from "./workflow-controls.tsx";
 
 /**
  * The tab body: current bead, create line, then the grouped issues or a
@@ -128,6 +130,8 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
     },
   });
   const ok = result?.state === "ok";
+  // Null on the simple workflow: no steps are drawn anywhere below.
+  const workflow = workflowFor(result?.workflow ?? DEFAULT_WORKFLOW_ID);
   // The scrolling band loses the width of its scrollbar; the pinned bands
   // above and below have no scrollbar, so without this their cards would be
   // that much wider than the cards in the list. Measuring is used rather
@@ -151,20 +155,18 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
   // 12px is the bands' own padding (p-3), kept and added to.
   const pinnedStyle = { paddingRight: 12 + scrollbarWidth };
   return (
-    // The rows, at any depth, pick their actions up from here.
+    // The rows, at any depth, pick their actions and the repository's
+    // workflow up from here.
+    <WorkflowProvider value={workflow}>
     <IssueActionsProvider value={actions}>
       <div className="flex h-full min-h-0 flex-col">
-        {/* Top band, pinned: Current, then the toolbar. */}
+        {/* Top band, pinned: the toolbar first (the user's layout,
+            bead-bb-8j6: folder, refresh and the menu that holds the choice
+            of workflow sit above everything), then Current. */}
         <div
           className="shrink-0 space-y-3 border-b border-border p-3"
           style={pinnedStyle}
         >
-          {ok ? <CurrentSection issue={currentIssue} /> : null}
-          {actionProblem === null ? null : (
-            <p role="alert" className="text-sm text-destructive">
-              That did not work: {actionProblem}
-            </p>
-          )}
           <div className="flex items-center gap-1">
             <p
               className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground"
@@ -196,8 +198,23 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
               status={setup.status}
               onOpen={setup.reload}
               onStart={setConfirmingStep}
+              workflow={ok ? result.workflow : null}
+              onChooseWorkflow={(workflow) => {
+                rpc
+                  .call("workflow_set", { threadId, projectId, workflow })
+                  .then((outcome) => {
+                    setActionProblem(outcome.message);
+                    refresh();
+                  }, reportProblem);
+              }}
             />
           </div>
+          {ok ? <CurrentSection issue={currentIssue} /> : null}
+          {actionProblem === null ? null : (
+            <p role="alert" className="text-sm text-destructive">
+              That did not work: {actionProblem}
+            </p>
+          )}
         </div>
         {/* Middle band, the only part that scrolls: the grouped issues. */}
         {/* Dropping a dragged sub-issue anywhere in this band that is not a
@@ -350,9 +367,11 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
         <CloseDialog
           closing={closing}
           // Finishing an issue with sub-issues closes the open ones too; the
-          // dialog says how many. Cancelling leaves them alone.
+          // dialog says how many. Cancelling leaves them alone, except on
+          // the simple workflow, where a close is the only close there is.
+          plain={workflow === null}
           openSubIssues={
-            closing === null || closing.moveId === null
+            closing === null || (closing.moveId === null && workflow !== null)
               ? 0
               : [...descendantIds(closing.issue.id)].filter(
                   (id) => tree.byId.get(id)?.status !== CLOSED_STATUS,
@@ -392,5 +411,6 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
         ) : null}
       </div>
     </IssueActionsProvider>
+    </WorkflowProvider>
   );
 }

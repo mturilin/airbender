@@ -20,9 +20,11 @@ panel, beside a thread or on the New thread screen.
   in `app/issue-model.ts` and `app/quick-tags.ts`.
 - `shared/` — what both halves use: `constants.ts` (the values they must
   agree on), `tree.ts` (walking sub-issues), and the workflow:
-  `workflow.ts` says what a workflow is, `standard-workflow.ts` is the one
-  in use (its steps, button labels and wording for agents), and
-  `current-workflow.ts` names which one is followed. To change how issues
+  `workflow.ts` says what a workflow is, `standard-workflow.ts` is the
+  standard one (its steps, button labels and wording for agents), and
+  `workflows.ts` lists the choices a repository has: Standard, or Simple,
+  which is no workflow at all. Which one a repository uses is remembered by
+  `server/workflow-choice.ts`. To change how issues
   are worked, change `standard-workflow.ts`; nothing else names a step. These files have no imports,
   so they are safe to bundle on either side.
 - `*.test.ts` — tests for the logic without React or BB; run `npm test`.
@@ -44,9 +46,15 @@ compact layout; the status line stays.
 
 From top to bottom the tab shows:
 
-1. **Current** (pinned): the bead this thread is working on, as one row that
+1. **Toolbar** (pinned): the folder, a refresh button and a "⋯" menu. The
+   menu chooses the repository's workflow: **Standard** (every issue goes
+   through the steps below) or **Simple** (no steps: each row has Make
+   current / Release and Close buttons, and you direct the agent yourself).
+   The choice is remembered per repository, its work trees follow it, and
+   issues keep their steps while it is on Simple. The menu also holds the
+   setup steps.
+2. **Current** (pinned): the bead this thread is working on, as one row that
    opens on its chevron.
-2. **Toolbar** (pinned): the folder and a refresh button.
 3. **Every other issue**, grouped by status; this part scrolls. The Ready
    heading carries two menus, both remembered per folder: Group (divides
    Ready into collapsible sub-groups by priority, type or category) and

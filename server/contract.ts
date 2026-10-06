@@ -14,6 +14,7 @@
 import { defineRpcContract } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 import { ISSUE_TYPES, LINK_KINDS, SETUP_ACTIONS } from "../shared/constants.ts";
+import { WORKFLOW_IDS } from "../shared/workflows.ts";
 
 const issueRefSchema = z.object({ id: z.string(), title: z.string() });
 
@@ -145,6 +146,12 @@ const issuesResultSchema = z.object({
    * folder, no branch checked out, no main branch found).
    */
   ownBranch: z.boolean(),
+  /**
+   * Which workflow the folder's repository uses: "standard" (every issue
+   * goes through its steps) or "simple" (no steps). The default when the
+   * repository never chose, and when there is no folder.
+   */
+  workflow: z.enum(WORKFLOW_IDS),
 });
 
 export type IssuesResult = z.infer<typeof issuesResultSchema>;
@@ -253,7 +260,8 @@ export const rpcContract = defineRpcContract({
   },
   issue_close: {
     // Cancel: closes the issue in beads without finishing it. Finishing goes
-    // through the workflow (workflow_move). If it was the thread's current
+    // through the workflow (workflow_move). On the simple workflow this is
+    // the one way to close, and it closes the open sub-issues too. If it was the thread's current
     // bead, that choice is cleared too.
     input: z.object({
       threadId: z.string().nullable(),
@@ -355,6 +363,16 @@ export const rpcContract = defineRpcContract({
       moveId: z.string(),
       /** Why: required by some moves, optional for the rest. */
       note: z.string().max(2000),
+    }),
+    output: z.object({ message: z.string().nullable() }),
+  },
+  workflow_set: {
+    // Chooses the workflow for the folder's repository. Its work trees
+    // follow. Issues keep their steps; on "simple" they are only not shown.
+    input: z.object({
+      threadId: z.string().nullable(),
+      projectId: z.string().nullable(),
+      workflow: z.enum(WORKFLOW_IDS),
     }),
     output: z.object({ message: z.string().nullable() }),
   },

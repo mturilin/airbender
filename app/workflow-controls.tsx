@@ -17,10 +17,13 @@
 //   issue while the thread has none. With an issue already chosen, a stray
 //   click elsewhere would redirect an agent mid-task; that rule was the play
 //   button's and is kept.
+// - Which workflow is in force comes from the repository's choice, handed
+//   down by WorkflowProvider. On the simple workflow there is none, and
+//   everything in this file draws nothing (bead-bb-8j6).
 // - A move that needs a reason (send back, skip) is not made on the click:
 //   the opened issue shows a small field for the reason first (NoteForm).
 
-import { useState } from "react";
+import { createContext, useContext, useState } from "react";
 import type { FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
@@ -28,16 +31,40 @@ import { Input } from "@/components/ui/input";
 import { Tip } from "@/components/ui/tip";
 import type { Issue } from "../server/contract.ts";
 import { CLOSED_STATUS } from "../shared/constants.ts";
-import { workflow } from "../shared/current-workflow.ts";
 import {
   nextWorkOf,
   offeredMoves,
   stateOf,
 } from "../shared/workflow.ts";
-import type { WorkflowMove, WorkflowState } from "../shared/workflow.ts";
+import type {
+  Workflow,
+  WorkflowMove,
+  WorkflowState,
+} from "../shared/workflow.ts";
 import { useActions } from "./actions.ts";
 import type { IssueActions } from "./actions.ts";
 import { PersonIcon, RobotIcon } from "./bits.tsx";
+
+/** The workflow of the repository being shown; null when it has none. */
+const WorkflowContext = createContext<Workflow | null>(null);
+
+/**
+ * Hands the repository's workflow to everything drawn inside it: the tab's
+ * rows and the message box's status line each wrap their content in one.
+ * A context of its own, apart from the row actions, because the status
+ * line's card draws an issue's facts where there are no row actions.
+ */
+export const WorkflowProvider = WorkflowContext.Provider;
+
+/**
+ * The workflow in force where this component is drawn.
+ *
+ * @returns Null on the simple workflow, which has no steps, and outside any
+ *   WorkflowProvider.
+ */
+export function useWorkflow(): Workflow | null {
+  return useContext(WorkflowContext);
+}
 
 /**
  * Whether the workflow buttons are offered on an issue: it is open, and it
@@ -65,7 +92,8 @@ function canAct(actions: IssueActions, issue: Issue): boolean {
  * user only to say "go", and what follows is the agent's work.
  */
 export function StateTag({ issue }: { issue: Issue }) {
-  if (issue.status === CLOSED_STATUS) return null;
+  const workflow = useWorkflow();
+  if (workflow === null || issue.status === CLOSED_STATUS) return null;
   const state = stateOf(workflow, issue.step);
   const human = nextWorkOf(state) === "user";
   return (
@@ -128,7 +156,8 @@ export function WorkflowButton({
   className?: string;
 }) {
   const actions = useActions();
-  if (!canAct(actions, issue)) return null;
+  const workflow = useWorkflow();
+  if (workflow === null || !canAct(actions, issue)) return null;
   const state = stateOf(workflow, issue.step);
   if (state.actor === "agent") {
     const { run } = actions;
@@ -192,7 +221,8 @@ export function WorkflowMoves({
   onNeedNote: (move: WorkflowMove) => void;
 }) {
   const actions = useActions();
-  if (!canAct(actions, issue)) return null;
+  const workflow = useWorkflow();
+  if (workflow === null || !canAct(actions, issue)) return null;
   const state = stateOf(workflow, issue.step);
   return (
     <>

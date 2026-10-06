@@ -40,7 +40,7 @@ import type { Issue } from "../server/contract.ts";
 import { CLOSED_STATUS } from "../shared/constants.ts";
 import { useActions } from "./actions.ts";
 import { LinkIcon } from "./bits.tsx";
-import { TargetIcon } from "./current-toggle.tsx";
+import { CurrentIcon } from "./current-toggle.tsx";
 import { useMenu } from "./menus.tsx";
 
 /** What the menu can ask the opened issue to show. */
@@ -76,15 +76,20 @@ function Entry({
  *
  * @param onAsk Called for Edit, Move to and Link: the row opens the issue
  *   and passes the request on to it.
+ * @param lean Leave out "Make current" and "Close": on the simple
+ *   workflow they are buttons on the row itself (the user's decision,
+ *   bead-bb-8j6), and listing them twice side by side would be noise.
  * @param className Extra classes, for the row's spacing.
  */
 export function RowMenu({
   issue,
   onAsk,
+  lean = false,
   className,
 }: {
   issue: Issue;
   onAsk: (what: RowAsk) => void;
+  lean?: boolean;
   className?: string;
 }) {
   const actions = useActions();
@@ -110,7 +115,13 @@ export function RowMenu({
         variant="ghost"
         size="icon"
         className="size-7 text-muted-foreground"
-        tip={open ? undefined : "More: make current, edit, move, link, close"}
+        tip={
+          open
+            ? undefined
+            : lean
+              ? "More: edit, add a sub-issue, move, link"
+              : "More: make current, edit, move, link, close"
+        }
         aria-label={`More actions for ${issue.id}`}
         aria-expanded={open}
         onClick={(event) => {
@@ -167,9 +178,9 @@ export function RowMenu({
                 </Entry>
               ) : (
                 <>
-                  {setCurrent === null || makeCurrent === null ? null : (
+                  {lean || setCurrent === null || makeCurrent === null ? null : (
                     <Entry
-                      icon={<TargetIcon on={current} />}
+                      icon={<CurrentIcon on={current} />}
                       onPick={pick(() =>
                         current ? setCurrent(null) : makeCurrent(issue.id),
                       )}
@@ -195,13 +206,17 @@ export function RowMenu({
                     icon={<LinkIcon />}
                     onPick={pick(() => onAsk("link"))}
                   >Link…</Entry>
-                  <div className="my-1 border-t border-border" />
-                  <Entry
-                    icon={<Icon name="CircleX" className="size-4 shrink-0 text-muted-foreground" />}
-                    onPick={pick(() => actions.close(issue.id))}
-                  >
-                    Close
-                  </Entry>
+                  {lean ? null : (
+                    <>
+                      <div className="my-1 border-t border-border" />
+                      <Entry
+                        icon={<Icon name="CircleX" className="size-4 shrink-0 text-muted-foreground" />}
+                        onPick={pick(() => actions.close(issue.id))}
+                      >
+                        Close
+                      </Entry>
+                    </>
+                  )}
                 </>
               )}
             </div>,

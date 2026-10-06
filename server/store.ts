@@ -51,6 +51,8 @@ import {
   toIssues,
 } from "./issues.ts";
 import type { BdIssue } from "./issues.ts";
+import { DEFAULT_WORKFLOW_ID } from "../shared/workflows.ts";
+import type { WorkflowChoice } from "./workflow-choice.ts";
 
 /** Which folder a request is about: a thread's, or a project's. */
 export interface FolderRef {
@@ -91,11 +93,13 @@ export function createStore({
   folders,
   currentBead,
   watchFolder,
+  workflowChoice,
 }: {
   bb: BbPluginApi;
   folders: Folders;
   currentBead: CurrentBead;
   watchFolder: (path: string) => void;
+  workflowChoice: WorkflowChoice;
 }) {
   const { folderFor, runBdIn, runIn, onOwnBranch, BD_NOT_FOUND_MESSAGE } =
     folders;
@@ -162,8 +166,16 @@ export function createStore({
    */
   async function listIssues(input: FolderRef): Promise<IssuesResult> {
     const currentBeadId = await currentBead.read(input.threadId);
-    const empty = { issues: [], currentBeadId, ownBranch: false };
     const folder = await folderFor(input);
+    const empty = {
+      issues: [],
+      currentBeadId,
+      ownBranch: false,
+      workflow:
+        folder.path === null
+          ? DEFAULT_WORKFLOW_ID
+          : workflowChoice.idFor(folder.path),
+    };
     if ("message" in folder) {
       return {
         state: "unavailable",
@@ -194,6 +206,7 @@ export function createStore({
       issues,
       currentBeadId,
       ownBranch: await onOwnBranch(path),
+      workflow: workflowChoice.idFor(path),
     };
     const current = issues.find((issue) => issue.id === currentBeadId);
     if (

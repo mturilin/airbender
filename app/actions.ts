@@ -25,8 +25,8 @@ import type {
 } from "../server/contract.ts";
 import { CLOSED_STATUS } from "../shared/constants.ts";
 import type { IssueType, LinkKind } from "../shared/constants.ts";
-import { workflow } from "../shared/current-workflow.ts";
 import { CLOSED, movesFor, stateOf } from "../shared/workflow.ts";
+import { DEFAULT_WORKFLOW_ID, workflowFor } from "../shared/workflows.ts";
 import type { PendingClose } from "./close-dialog.tsx";
 import type { IssueTree } from "./issue-model.ts";
 import type { Scope, useIssues } from "./use-issues.ts";
@@ -265,6 +265,8 @@ export function useIssueActions({
   addSubIssue: (parentId: string) => void;
 }): IssueActionsView {
   const { threadId, projectId } = scope;
+  // The repository's workflow; null on the simple one, which has no moves.
+  const workflow = workflowFor(result?.workflow ?? DEFAULT_WORKFLOW_ID);
   const [actionProblem, setActionProblem] = useState<string | null>(null);
   const reportProblem = (cause: unknown) =>
     setActionProblem(cause instanceof Error ? cause.message : String(cause));
@@ -317,7 +319,7 @@ export function useIssueActions({
     },
     move: (beadId, moveId, note) => {
       const issue = tree.byId.get(beadId);
-      if (issue === undefined) return;
+      if (issue === undefined || workflow === null) return;
       // The workflow is asked only whether this move closes the issue: a
       // closing move is confirmed first, like any other close. Whether the
       // move is allowed at all is the backend's check.

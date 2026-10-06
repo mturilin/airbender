@@ -49,10 +49,11 @@ is a view of that tracker, not a second tracker.
 
 Four bands, top to bottom. `[pp7]`
 
-1. **Current** — the issue this conversation is working on. Stays in place
+1. **Toolbar** — the repository folder, a refresh button and, at the right
+   end, a "⋯" menu for the choice of workflow (see "Choosing the workflow")
+   and for setup (see "Getting a folder ready"). Stays in place. `[8j6]`
+2. **Current** — the issue this conversation is working on. Stays in place
    when the list scrolls.
-2. **Toolbar** — the repository folder, a refresh button and, at the right
-   end, a "⋯" menu for setup (see "Getting a folder ready"). Stays in place.
 3. **Groups** — all other issues. The only part that scrolls.
 4. **New issue** — an entry field that is always there, fixed at the bottom.
 
@@ -338,9 +339,34 @@ One conversation works on at most one issue at a time: its current issue.
   panel, by the agent, or from a terminal. The panel must show this on its
   own, without the owner pressing refresh. `[p49]` `[m4b]`
 
+## Choosing the workflow
+
+**The owner chooses how issues are worked: Standard or Simple.** `[8j6]`
+
+- **Standard**: every issue goes through the steps under "The workflow".
+- **Simple**: no workflow at all. There is no step, no apply, no "not
+  started" or "review plan"; nothing. An issue can be made current,
+  released and closed, and that is all: fully manual. `[8j6]`
+- **The choice is made in the toolbar's "⋯" menu**, since it is not made
+  often. It can be changed at any time. `[8j6]`
+- **The choice belongs to the repository.** Each repository remembers its
+  own. `[8j6]`
+- **A work tree continues its repository's workflow.** `[8j6]`
+- **A repository that has never chosen is on Standard.** `[8j6]`
+- **Switching keeps each issue's step.** On Simple the step is not shown;
+  back on Standard the issue is where it was. `[8j6]`
+- **On Simple, make current, release and close are prominent buttons on the
+  issue's row, not entries in its menu.** `[8j6]`
+- **On Simple the agent is not told to move issues through steps**, and a
+  step it reports anyway is refused in plain words. `[8j6]`
+
+Everything under "The workflow", and every mention of a step or a step's
+button elsewhere in this document, applies on Standard only.
+
 ## The workflow
 
-**Every issue goes through a fixed sequence of steps to be closed.** At each
+**On Standard, every issue goes through a fixed sequence of steps to be
+closed.** At each
 step it waits either for the agent or for the owner. `[e2b]`
 
 The steps, in order: `[e2b]`
@@ -509,8 +535,9 @@ today, recorded so a rebuild matches. Any of it may be changed without
 breaking a requirement above.
 
 - Current: inside an opened issue the target button is one toggle, with the
-  words "Make current" or "Release", outlined and grey on an issue that is
-  not current, with a filled centre on the one that is. In the row's menu
+  words "Make current" or "Release". Its icon is a target on an issue that
+  is not current and an exit door on the one that is, so the two cannot be
+  mistaken for each other. In the row's menu
   the entry reads "Make current" or "Release from current". A closed issue
   has neither, and there is none where there is no conversation.
 - The row's menu: it opens under its button, or above it near the bottom of
@@ -520,6 +547,24 @@ breaking a requirement above.
   action has as a button inside the opened issue. The menu and the opened issue call
   cancelling "Close"; inside the opened issue it is a labelled button, as
   is Reopen on a closed issue.
+- Choosing the workflow: the menu lists Standard and Simple above the setup
+  steps, each with a line saying what it means and a tick on the one in
+  use. It is offered only where the folder has issues to show. The choice
+  takes effect at once, in every open tab and at the message box.
+- The choice is kept on this machine. A separate copy (clone) of a
+  repository has its own choice.
+- On Simple: a row of an open issue shows "Make current" (or "Release" on
+  the current issue) as a button with words and Close as an icon with a
+  tooltip; the row's menu keeps Edit, Add sub-issue, Move to and Link. A
+  closed issue keeps Reopen in the menu. A sub-issue's row stays without
+  buttons. Inside an opened issue the buttons are the same as on Standard,
+  without the step's.
+- On Simple: closing asks "Close this issue?" and also closes the issue's
+  open sub-issues, saying how many. The line above the message box shows
+  the current issue's id and title, and inside the box only "Agree &
+  continue" is offered.
+- On Simple: a step asked for anyway is refused with "This folder uses the
+  simple workflow, which has no steps."
 - A choice of Edit, Move to or Link from the menu shows one of the three at
   a time, replacing any of the others that was showing.
 - Current: the note to the agent says which issue is current now and which

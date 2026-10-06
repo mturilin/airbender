@@ -43,14 +43,14 @@ import { IssueFacts } from "./issue-facts.tsx";
 import { formatWhen } from "./issue-model.ts";
 import { useMenu } from "./menus.tsx";
 import { useIssues } from "./use-issues.ts";
-import { workflow } from "../shared/current-workflow.ts";
 import {
   CLOSED,
   offeredMoves,
   nextWorkOf,
   stateOf,
 } from "../shared/workflow.ts";
-import { StateChip } from "./workflow-controls.tsx";
+import { DEFAULT_WORKFLOW_ID, workflowFor } from "../shared/workflows.ts";
+import { StateChip, WorkflowProvider } from "./workflow-controls.tsx";
 
 /** How long the pointer must rest on the status line before its card opens. */
 const HOVER_OPEN_MS = 100;
@@ -224,8 +224,12 @@ function StatusLine({ threadId }: { threadId: string }) {
       : null;
   if (issue === null || result === null) return null;
   const issues = result.issues;
-  const state = stateOf(workflow, issue.step);
+  // On the simple workflow there is no step: the line then names the issue
+  // by its title instead of saying what the step asks for (bead-bb-8j6).
+  const workflow = workflowFor(result.workflow);
+  const state = workflow === null ? null : stateOf(workflow, issue.step);
   return (
+    <WorkflowProvider value={workflow}>
     <div
       ref={root}
       className="relative min-w-0"
@@ -258,7 +262,7 @@ function StatusLine({ threadId }: { threadId: string }) {
           setOpen((current) => !current);
         }}
       >
-        <StateChip state={state} />
+        {state === null ? null : <StateChip state={state} />}
         <span className="shrink-0 font-mono text-muted-foreground">
           {issue.id}
         </span>
@@ -266,12 +270,12 @@ function StatusLine({ threadId }: { threadId: string }) {
           className={cn(
             // A little more room after the id than between the other parts.
             "ml-1.5 min-w-0 truncate",
-            nextWorkOf(state) === "user"
+            state !== null && nextWorkOf(state) === "user"
               ? "text-foreground"
               : "text-muted-foreground",
           )}
         >
-          {state.ask}
+          {state === null ? issue.title : state.ask}
         </span>
       </Button>
       {open ? (
@@ -290,6 +294,7 @@ function StatusLine({ threadId }: { threadId: string }) {
         />
       ) : null}
     </div>
+    </WorkflowProvider>
   );
 }
 
@@ -468,6 +473,9 @@ function StepButton({ threadId }: { threadId: string }) {
     <QuickReplyButton kind="agree" label="Agree & continue" icon="Check" />
   );
   if (issue === null || result === null) return agree;
+  // No steps, so no answers to a step, on the simple workflow.
+  const workflow = workflowFor(result.workflow ?? DEFAULT_WORKFLOW_ID);
+  if (workflow === null) return agree;
   const state = stateOf(workflow, issue.step);
   /** Shows a refusal, or reloads after a move that worked. */
   const settle = (asked: Promise<{ message: string | null }>) => {

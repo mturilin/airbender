@@ -11,6 +11,8 @@
 //   its button carries that move's own label. Cancelling says the issue is closed without
 //   being finished; its buttons read "Close issue" and "Keep it", matching
 //   the "Close" entry and button that lead here.
+// - On the simple workflow there is nothing to finish or cancel: closing is
+//   just closing (`plain`), and the dialog says only that.
 // - Finishing an issue with sub-issues closes the open ones too; the dialog
 //   says how many, so it is never a surprise.
 
@@ -42,18 +44,22 @@ export interface PendingClose {
  *
  * @param closing The issue waiting to be closed; null keeps the dialog shut.
  * @param openSubIssues How many open sub-issues will be closed with it
- *   (only when finishing; cancelling leaves them alone).
+ *   (0 when cancelling on the standard workflow, which leaves them alone).
+ * @param plain The repository is on the simple workflow: a close is neither
+ *   finishing nor cancelling.
  * @param onConfirm Called with the pending close when the user agrees;
  *   `onCancel` is called afterwards as well, to shut the dialog.
  */
 export function CloseDialog({
   closing,
   openSubIssues,
+  plain = false,
   onConfirm,
   onCancel,
 }: {
   closing: PendingClose | null;
   openSubIssues: number;
+  plain?: boolean;
   onConfirm: (closing: PendingClose) => void;
   onCancel: () => void;
 }) {
@@ -68,9 +74,11 @@ export function CloseDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>
-            {finishing
-              ? "Close this issue as finished?"
-              : "Close this issue without finishing it?"}
+            {plain
+              ? "Close this issue?"
+              : finishing
+                ? "Close this issue as finished?"
+                : "Close this issue without finishing it?"}
           </DialogTitle>
           <DialogDescription>
             <span className="font-mono">{closing?.issue.id}</span>{" "}
@@ -78,10 +86,10 @@ export function CloseDialog({
           </DialogDescription>
         </DialogHeader>
         <p className="text-sm text-muted-foreground">
-          {finishing
+          {plain || finishing
             ? "The issue is closed."
             : "The issue is closed without being finished. Nothing is committed."}
-          {!finishing || openSubIssues === 0
+          {openSubIssues === 0
             ? ""
             : ` Its ${openSubIssues} open ${openSubIssues === 1 ? "sub-issue is" : "sub-issues are"} closed with it.`}
         </p>

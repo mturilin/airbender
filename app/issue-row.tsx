@@ -27,9 +27,14 @@ import { StatusTag, Tag } from "./bits.tsx";
 import { getDragged, setDragged } from "./drag.ts";
 import { IssueDetails } from "./issue-details.tsx";
 import { IssueFacts } from "./issue-facts.tsx";
-import { StateTag, WorkflowButton } from "./workflow-controls.tsx";
+import {
+  StateTag,
+  WorkflowButton,
+  useWorkflow,
+} from "./workflow-controls.tsx";
 import { RowMenu } from "./row-menu.tsx";
 import type { RowAsk } from "./row-menu.tsx";
+import { CurrentToggle } from "./current-toggle.tsx";
 
 /**
  * One issue: a compact line that opens to show its details, with its
@@ -94,6 +99,8 @@ export function IssueRow({
   // What the "more" menu has asked the opened issue to show (its edit form,
   // or the Move to or Link box); null once the opened issue has taken it.
   const [asked, setAsked] = useState<RowAsk | null>(null);
+  // The repository is on the simple workflow, which has no steps.
+  const simple = useWorkflow() === null;
   // An issue that gains its first sub-issue while on screen opens too;
   // otherwise the new sub-issue would be created out of sight.
   useEffect(() => {
@@ -294,9 +301,34 @@ export function IssueRow({
             decision, for now): there everything is inside the opened
             sub-issue. Edit, Move to and Link open the row and are shown
             there. */}
+        {/* On the simple workflow there is no step button, and making an
+            issue current, releasing it and closing it are all there is to
+            do with one: they are buttons on the row, not menu entries (the
+            user: "select and release and close should be prominent, not on
+            menu"). Close is an icon so the title keeps its room. */}
+        {compact || !simple ? null : (
+          <CurrentToggle
+            issue={issue}
+            withLabel
+            className="m-1 h-7 shrink-0 px-2"
+          />
+        )}
+        {compact || !simple || closed ? null : (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="m-1 size-7 shrink-0 text-muted-foreground"
+            tip="Close this issue"
+            aria-label={`Close ${issue.id}: ${issue.title}`}
+            onClick={() => actions.close(issue.id)}
+          >
+            <Icon name="CircleX" className="size-4" />
+          </Button>
+        )}
         {compact ? null : (
           <RowMenu
             issue={issue}
+            lean={simple}
             className="m-1"
             onAsk={(what) => {
               setOpen(true);

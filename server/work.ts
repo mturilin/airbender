@@ -26,6 +26,10 @@
 // - Which issue a thread is on is separate from the workflow: setCurrent
 //   moves no step. It still tells the agent, with a note that asks for
 //   nothing.
+// - Which workflow applies is asked per folder (server/workflow-choice.ts):
+//   a repository can be on the simple workflow, which has no steps. There
+//   play and every move are refused in plain words, and closing an issue is
+//   the plain close, done here so that it takes the open sub-issues along.
 // - Problems are returned as a message in plain words, like every other
 //   operation, so the tab (and the agent's tool) can show them.
 //
@@ -38,7 +42,9 @@ import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { CLOSED_STATUS } from "../shared/constants.ts";
 import { descendantsOf } from "../shared/tree.ts";
 import { CLOSED, checkMove, stateOf } from "../shared/workflow.ts";
-import type { Actor, Workflow, WorkflowState } from "../shared/workflow.ts";
+import type { Actor, WorkflowState } from "../shared/workflow.ts";
+import { NO_STEPS_MESSAGE } from "../shared/workflows.ts";
+import type { WorkflowChoice } from "./workflow-choice.ts";
 import type { Issue } from "./contract.ts";
 import type { CurrentBead } from "./current-bead.ts";
 import type { FolderRef, Outcome, Store } from "./store.ts";
@@ -61,20 +67,20 @@ export interface MoveOutcome extends Outcome {
 /**
  * Builds the workflow operations for this plugin instance.
  *
- * @param workflow The workflow every issue follows.
- * @returns `run`, `move` and `setCurrent`.
+ * @param workflowChoice Answers which workflow a folder's issues follow.
+ * @returns `run`, `move`, `close` and `setCurrent`.
  * Side effects: none until one of them is called.
  */
 export function createWork({
   bb,
   store,
   currentBead,
-  workflow,
+  workflowChoice,
 }: {
   bb: BbPluginApi;
   store: Store;
   currentBead: CurrentBead;
-  workflow: Workflow;
+  workflowChoice: WorkflowChoice;
 }) {
   const { issuesIn, setIssueOpen, setStep, addComment, changed } = store;
 
@@ -143,6 +149,8 @@ export function createWork({
   }): Promise<Outcome> {
     const found = await openIssue({ threadId, projectId: null }, beadId);
     if ("message" in found) return found;
+    const workflow = workflowChoice.workflowFor(found.path);
+    if (workflow === null) return { message: NO_STEPS_MESSAGE };
     const state = stateOf(workflow, found.issue.step);
     if (state.actor !== "agent") {
       return {
@@ -187,6 +195,8 @@ export function createWork({
     const found = await openIssue(input, beadId);
     if ("message" in found) return fail(found.message);
     const { issue, issues, path } = found;
+    const workflow = workflowChoice.workflowFor(path);
+    if (workflow === null) return fail(NO_STEPS_MESSAGE);
     const from = stateOf(workflow, issue.step);
     const checked = checkMove(workflow, issue.step, input.moveId, by, input.note);
     if ("message" in checked) return fail(checked.message);
@@ -281,6 +291,23 @@ export function createWork({
   }
 
   /**
+   * The close button: closes an issue that is not being finished through a
+   * workflow.
+   *
+   * On the standard workflow this is cancelling, and it closes that one
+   * issue (beads refuses while it has open sub-issues, and says so). On the
+   * simple workflow it is the only way an issue is closed, so it closes the
+   * open sub-issues first, as finishing does on the standard one.
+   */
+  async function close(input: FolderRef & { beadId: string }): Promise<Outcome> {
+    const found = await openIssue(input, input.beadId);
+    if ("message" in found) return found;
+    return workflowChoice.workflowFor(found.path) === null
+      ? finish(input, found.issues)
+      : setIssueOpen("close", input);
+  }
+
+  /**
    * Sets the thread's current issue, or releases it (null), without moving
    * any workflow step and without starting any work.
    *
@@ -330,5 +357,5 @@ export function createWork({
     return { message: null };
   }
 
-  return { run, move, setCurrent };
+  return { run, move, close, setCurrent };
 }

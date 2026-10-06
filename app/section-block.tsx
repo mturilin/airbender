@@ -15,6 +15,7 @@ import type { Issue } from "../server/contract.ts";
 import { useActions } from "./actions.ts";
 import type { Section, SubGroup } from "./issue-model.ts";
 import { IssueRow } from "./issue-row.tsx";
+import { useWorkflow } from "./workflow-controls.tsx";
 
 /**
  * One titled group of issues. `headerActions` puts buttons at the right end
@@ -138,6 +139,8 @@ export function CurrentSection({
 }: {
   issue: Issue | null;
 }) {
+  // The simple workflow has no step button to point the user at.
+  const simple = useWorkflow() === null;
   const actions = useActions();
   const { currentBeadId, setCurrent } = actions;
   if (setCurrent === null) return null;
@@ -205,8 +208,9 @@ export function CurrentSection({
       <div className="mt-2 rounded-lg border border-dashed border-border px-3 py-2 text-sm text-muted-foreground">
         {currentBeadId === null ? (
           <>
-            None yet. Make an issue current from its "⋯" menu, or start
-            one with its step button.
+            {simple
+              ? 'None yet. Make an issue current with its "Make current" button.'
+              : 'None yet. Make an issue current from its "⋯" menu, or start one with its step button.'}
           </>
         ) : (
           <>

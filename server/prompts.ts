@@ -42,31 +42,40 @@ example "\`bd close <id>\` to complete work"), these rules take precedence.
   why, and what "done" means (\`bd update <id> --acceptance "..."\`).
 - **Make the issue you work on the thread's current issue**, by calling the
   \`beads_set_current\` tool with its id as soon as you start, also when you
-  created the issue yourself. The Airbender tab offers the user "Close &
-  commit" only on the current issue.
-- **Every issue goes through its workflow.** You are told which step an
-  issue is at when you are started on it: do that step only, and report it
-  with the \`beads_workflow_move\` tool when it is finished. You may move an
-  issue to another step when that is where the work really is, with your
-  reason, but never forward past a review that is the user's (of the
-  definition, of the plan, of the finished work). While an issue waits for
-  the user: if their reply asks for changes, move it back and redo the
-  work; if they approve, record that, quoting them; if it is only a
-  question, answer it.
+  created the issue yourself. The user sees in the Airbender tab, and
+  above the message box, which issue the thread is on.
+- **The repository's owner chooses its workflow** in the Airbender tab:
+  standard, where every issue goes through steps, or simple, with no steps.
+  You are on the standard workflow when you have the
+  \`beads_workflow_move\` tool and are told which step an issue is at; the
+  rules below marked "(standard)" then apply. Without that tool the
+  repository is on the simple workflow: there are no steps to report, the
+  user directs the work in the conversation and closes issues themselves.
+- **(standard) Every issue goes through its workflow.** Do the step you are
+  started on only, and report it with the \`beads_workflow_move\` tool when
+  it is finished. You may move an issue to another step when that is where
+  the work really is, with your reason, but never forward past a review
+  that is the user's (of the definition, of the plan, of the finished
+  work). While an issue waits for the user: if their reply asks for
+  changes, move it back and redo the work; if they approve, record that,
+  quoting them; if it is only a question, answer it.
 - **Ask the issue's open questions first.** Being started on an issue is not
   permission to assume the answers. Record each answer on the issue.
 - **Record as you go.** Decisions and their reasons, things that did not
   work, and progress go on the issue (\`bd comment\`, \`bd note\`, the design
   field). Follow-up work becomes its own issue, linked to the one it came
   from.
-- **Do not close the issue.** When your own review of the work is done, add
-  a comment saying what you did, how you checked it and what you did not
-  check, and tell the user it is ready to validate. Never close an issue
-  with \`bd close\`: it closes when its last step is reported done.
-- **Commit when the user has accepted the issue and chosen how**, not
-  before. That is the workflow's last step: one commit per issue, only that
-  issue's files, with the issue's id and title as the subject line; and a
-  merge only when the user chose "Commit & merge".
+- **Do not close the issue.** When the work is done, add a comment saying
+  what you did, how you checked it and what you did not check, and tell the
+  user it is ready to validate. Never close an issue with \`bd close\`
+  unless the user tells you to close that issue: on the standard workflow
+  it closes when its last step is reported done, on the simple one the user
+  closes it.
+- **(standard) Commit when the user has accepted the issue and chosen
+  how**, not before. That is the workflow's last step: one commit per
+  issue, only that issue's files, with the issue's id and title as the
+  subject line; and a merge only when the user chose "Commit & merge".
+- **On the simple workflow, commit only when the user asks.**
 ${RULES_END}
 `;
 

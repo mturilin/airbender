@@ -88,13 +88,13 @@ import { createSetup } from "./server/setup.ts";
 import { createStore } from "./server/store.ts";
 import { createWatcher } from "./server/watch.ts";
 import { createWork } from "./server/work.ts";
+import { createWorkflowChoice } from "./server/workflow-choice.ts";
 import {
   BEAD_ID_PATTERN,
   CLOSED_STATUS,
   QUICK_REPLIES,
 } from "./shared/constants.ts";
-import { workflow } from "./shared/current-workflow.ts";
-import { MOVE_TOOL } from "./shared/standard-workflow.ts";
+import { MOVE_TOOL, standardWorkflow } from "./shared/standard-workflow.ts";
 
 /**
  * The plugin's backend entry point: reads the settings, builds the pieces
@@ -134,8 +134,15 @@ export default async function plugin(bb: BbPluginApi) {
   const folders = createFolders({ bb, bdCandidates });
   const currentBead = createCurrentBead(bb);
   const { watchFolder } = await createWatcher(bb);
-  const store = createStore({ bb, folders, currentBead, watchFolder });
-  const work = createWork({ bb, store, currentBead, workflow });
+  const workflowChoice = await createWorkflowChoice(bb);
+  const store = createStore({
+    bb,
+    folders,
+    currentBead,
+    watchFolder,
+    workflowChoice,
+  });
+  const work = createWork({ bb, store, currentBead, workflowChoice });
   const { setupStatus, runSetup } = createSetup({ bb, folders, store });
 
   // Every handler is one call into a module: what each does, and how it
@@ -146,8 +153,9 @@ export default async function plugin(bb: BbPluginApi) {
     issues_list: (input) => store.listIssues(input),
     issue_comments: (input) => store.listComments(input),
     issue_create: (input) => store.createIssue(input),
-    // Cancel: closing without finishing. Finishing is a workflow move.
-    issue_close: (input) => store.setIssueOpen("close", input),
+    // Cancel: closing without finishing. Finishing is a workflow move. On
+    // the simple workflow it is the one way to close.
+    issue_close: (input) => work.close(input),
     issue_reopen: (input) => store.setIssueOpen("reopen", input),
     issue_update: (input) => store.updateIssue(input),
     issue_set_parent: (input) => store.setParent(input),
@@ -158,6 +166,20 @@ export default async function plugin(bb: BbPluginApi) {
     workflow_move: async (input) => ({
       message: (await work.move(input, "user")).message,
     }),
+    workflow_set: async (input) => {
+      const folder = await folders.folderFor(input);
+      if ("message" in folder) return { message: folder.message };
+      try {
+        await workflowChoice.set(folder.path, input.workflow);
+      } catch (cause) {
+        return {
+          message: `The workflow could not be saved: ${cause instanceof Error ? cause.message : String(cause)}`,
+        };
+      }
+      // Every tab on this repository draws its rows from the choice.
+      store.changed(input.threadId);
+      return { message: null };
+    },
     current_set: (input) => work.setCurrent(input),
     setup_status: (input) => setupStatus(input),
     setup_run: (input) => runSetup(input),
@@ -242,7 +264,7 @@ export default async function plugin(bb: BbPluginApi) {
     name: MOVE_TOOL,
     description:
       "Move a beads issue to the next step of its workflow: report the step you were asked to do as finished, skip it with a reason, or send your own review back. The answer says what comes next.",
-    instructions: workflow.describeForAgents(),
+    instructions: standardWorkflow.describeForAgents(),
     presentation: {
       label: { pending: "Moving the issue on", completed: "Moved the issue on" },
     },
@@ -278,15 +300,23 @@ export default async function plugin(bb: BbPluginApi) {
     },
   });
 
-  // Offer the tool only to threads whose folder uses beads, so threads in
-  // other repositories get no extra tool or instructions. The callback must be
+  // Offer the tools only to threads whose folder uses beads, so threads in
+  // other repositories get no extra tool or instructions. The step tool,
+  // and with it the instructions about steps, only where the repository is
+  // on a workflow that has steps; BB may have settled a running thread's
+  // tools before a switch, which is why the tool also refuses when called
+  // on the simple workflow (see work.move). The callback must be
   // synchronous, hence the direct look for a .beads folder; a thread on
   // another machine simply does not get the tool.
   bb.agents.configure((context) => {
     const path = context.environment.path;
     const usesBeads = path !== null && existsSync(join(path, ".beads"));
     return {
-      tools: usesBeads ? ["beads_set_current", MOVE_TOOL] : [],
+      tools: !usesBeads
+        ? []
+        : workflowChoice.workflowFor(path) === null
+          ? ["beads_set_current"]
+          : ["beads_set_current", MOVE_TOOL],
       skills: [],
     };
   });
