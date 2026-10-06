@@ -123,6 +123,18 @@ export interface WorkflowMove {
    */
   alsoInMenu?: boolean;
   /**
+   * Never offered on a row: only in the issue's menu and among the opened
+   * issue's buttons (with `alsoInMenu`).
+   */
+  menuOnly?: boolean;
+  /**
+   * The move is not made in the conversation it was asked from: a new
+   * conversation is opened for the issue, in a work tree of its own, and
+   * the agent is started there. For that reason it is offered whatever this
+   * conversation's own current issue is.
+   */
+  ownConversation?: boolean;
+  /**
    * The move is refused while the folder has uncommitted changes to
    * tracked files; this is the warning shown instead.
    */
@@ -162,6 +174,11 @@ export interface WorkflowIssue {
   title: string;
   /** The issue's size (an id from `sizes`); null when it has none yet. */
   size: string | null;
+  /**
+   * The conversation being instructed was opened for this issue in a work
+   * tree of its own (see `ownConversation`). Left out or false otherwise.
+   */
+  workTree?: boolean;
   /** Its open sub-issues, at any depth; worked together with it. */
   openSubIssues: readonly { id: string; title: string }[];
 }
@@ -238,6 +255,7 @@ export function offeredMoves(
 ): WorkflowMove[] {
   return movesFor(workflow, stateId, by).filter(
     (move) =>
+      move.menuOnly !== true &&
       (move.ownBranchOnly !== true || context.ownBranch) &&
       (move.mainBranchOnly !== true || !context.ownBranch),
   );

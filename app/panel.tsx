@@ -50,6 +50,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { useBbNavigate } from "@get-bb/plugin-sdk/app";
 
 /**
  * The tab body: current bead, create line, then the grouped issues or a
@@ -69,6 +70,7 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
   const [switching, setSwitching] = useState<Issue | null>(null);
   // A warning waiting to be read in its message box; null when none is.
   const [warning, setWarning] = useState<string | null>(null);
+  const navigate = useBbNavigate();
   const { threadId, projectId } = scope;
   const { currentIssue, tree, descendantIds, types, categories } =
     useIssueTree(result);
@@ -173,6 +175,21 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
     askClose: setClosing,
     askSwitch: setSwitching,
     askWarn: setWarning,
+    openThread: (threadId) => {
+      navigate.toThread(threadId);
+      // The user wants the Airbender tab open in the new conversation. The
+      // server has put the tab among that conversation's tabs; this asks
+      // BB to show it, once the app has had a moment to get there. BB
+      // opens panels "in the current thread surface", so it must come
+      // after the jump; asked twice because how long the jump takes is
+      // not known. A refusal is harmless: the tab is in the strip.
+      for (const delay of [400, 1500]) {
+        window.setTimeout(
+          () => navigate.openThreadPanel({ actionId: "issues" }),
+          delay,
+        );
+      }
+    },
     openDetails: setDetailsId,
     closeDetails: () => setDetailsId(null),
     addSubIssue: (parentId) => {

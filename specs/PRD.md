@@ -439,6 +439,24 @@ The steps, in order: `[e2b]`
     branch.
   - After "Commit & merge" the main branch is pushed and the issue's branch
     is deleted, here and on the remote.
+- **An issue can also be started in a work tree of its own**, for working
+  on several issues in parallel. `[ak0]`
+  - It opens **a new top-level conversation** for that issue, in a work
+    tree and on a branch of its own; the agent works there. The
+    conversation it was started from is left alone.
+  - The app chooses where the work tree is kept.
+  - **It is started from the issue's menu**, not from the row. Its icon is a
+    play button with a little fir tree beside it.
+  - After it is started, the panel goes to the new conversation, **and the
+    panel is open there**.
+  - Issues being worked in another conversation are not marked.
+  - **Landing:** at "Commit & merge" the agent first brings the main branch
+    into its own branch and settles conflicts in its work tree; if it
+    cannot, the issue goes back to the work. Then the work goes onto the
+    main branch, which is pushed.
+  - **Then everything is closed**: the conversation is archived, the work
+    tree removed, the branch deleted. To keep chatting, the owner opens
+    another conversation themselves.
 - **The agent sizes the issue first**, and says which size in one line.
   The sizes are T-shirt sizes: `[4mb]`
   - **S, small**: definition, the work and the agent's own review in one
@@ -723,6 +741,27 @@ breaking a requirement above.
   and an OK button. The title's part of the name is cut at a word after
   about forty characters. Committing without merging leaves the branch.
   The branch on the remote is deleted only once the main branch is there.
+- Starting in a work tree: the entry reads "Start in a work tree", in the
+  menu and among the buttons of an opened issue, on every issue that is
+  not started, also while the conversation has another current issue. The
+  work tree is cut from the main branch as it is on this computer,
+  including what has not been pushed; uncommitted changes are not taken
+  along and do not prevent it. The app names the branch, from the issue's
+  id and title and the conversation. The new conversation is titled with
+  the issue's id and title, and the issue is its current issue. Only the
+  owner can start one; an agent cannot.
+- In a work tree, whether a coding agent is set up is asked of the
+  repository's main folder, so a new work tree does not offer to set an
+  agent up again. The new conversation's side tabs are the app's own two
+  and the panel's.
+- Closing up after a landing from a work tree: it happens once the agent
+  has finished speaking, by itself, and takes a little while. The archived
+  conversation can still be read. The branch on this computer is the one
+  thing the product itself removes from git, and only after checking that
+  everything on it is on the main branch; if any part of the closing up
+  fails, what is left stays in place. "Commit" without merging leaves the
+  conversation, the work tree and the branch. If the work tree or the
+  conversation cannot be made, nothing is started and the panel says why.
 - The small step button on a row: lower than the icon buttons beside it,
   small text, no border, a soft grey fill that darkens under the pointer;
   it keeps its icon, label and tooltip. On the current issue it is the

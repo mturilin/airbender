@@ -373,7 +373,13 @@ export const rpcContract = defineRpcContract({
     // `warning` true: the message is a warning the user can act on (the
     // folder has uncommitted changes), to be shown in a message box, and
     // nothing was moved.
-    output: z.object({ message: z.string().nullable(), warning: z.boolean() }),
+    // `openThreadId`: the move opened a conversation of its own for the
+    // issue (a work tree start); the tab goes there. Null otherwise.
+    output: z.object({
+      message: z.string().nullable(),
+      warning: z.boolean(),
+      openThreadId: z.string().nullable(),
+    }),
   },
   issue_set_size: {
     // The user sets or changes an issue's size. Allowed until the work

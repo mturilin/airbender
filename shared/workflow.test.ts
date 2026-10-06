@@ -432,7 +432,7 @@ test("on a row the two starts are icons; the branch one only on the main branch,
   assert.deepEqual(icons(true), ["play"]);
   assert.deepEqual(
     menuMoves(flow, "not-started", "user").map((move) => move.id),
-    ["start-branch"],
+    ["start-branch", "start-worktree"],
   );
   // Nothing else is put in the menu, and no later step draws icons.
   for (const state of flow.states.filter((s) => s.id !== "not-started")) {
@@ -502,4 +502,57 @@ test("Commit & merge pushes the main branch before it deletes the issue's branch
     flow.instruction(stateOf(flow, "commit"), { id: "x-1", title: "T", size: null, openSubIssues: [] }),
     /delete the branch/u,
   );
+});
+
+test("an issue can be started in a work tree: from the menu only, by the user only, in a conversation of its own", () => {
+  const move = checkMove(flow, null, "start-worktree", "user", "");
+  assert.ok(!("message" in move));
+  if ("message" in move) return;
+  assert.equal(move.to, "define");
+  assert.equal(move.label, "Start in a work tree");
+  assert.equal(move.icon, "play-tree");
+  assert.equal(move.ownConversation, true);
+  // The agent does not open conversations for other issues by itself.
+  assert.match(go(null, "start-worktree", "agent", ""), /^refused/u);
+  // Never on a row, on either kind of branch; always in the menu.
+  for (const ownBranch of [false, true]) {
+    assert.ok(
+      !offeredMoves(flow, "not-started", "user", { ownBranch }).some(
+        (offered) => offered.id === "start-worktree",
+      ),
+    );
+  }
+  assert.ok(
+    menuMoves(flow, "not-started", "user").some((listed) => listed.id === "start-worktree"),
+  );
+  // It does not need a clean folder: nothing of this folder goes along.
+  assert.equal(move.needsCleanFolder, undefined);
+  const first = (move.opening?.({ id: "x-1", title: "T", size: null, openSubIssues: [] }) ?? []).join("\n");
+  assert.match(first, /opened for one issue, x-1, in a git work tree of its own/u);
+  assert.match(first, /do not rename it/u);
+});
+
+test("landing from a work tree: main comes into the branch first, conflicts go back to the work, and the agent leaves the closing up alone", () => {
+  const issue = { id: "x-1", title: "T", size: null, openSubIssues: [] };
+  const text = flow.instruction(stateOf(flow, "commit-merge"), { ...issue, workTree: true });
+  const order = [
+    "Commit the changes",
+    "Bring the main branch into your branch",
+    "move the main branch forward",
+    "Push the main branch",
+    "delete your branch on the remote",
+  ].map((part) => text.indexOf(part));
+  assert.ok(order.every((at) => at >= 0), JSON.stringify(order));
+  assert.deepEqual([...order].sort((left, right) => left - right), order);
+  assert.match(text, /git merge --abort.*move `send-back`/u);
+  assert.match(text, /merge --ff-only/u);
+  assert.match(text, /Never force either/u);
+  assert.match(text, /Do not remove this work tree or delete the local branch yourself/u);
+  assert.match(text, /moves to the archive/u);
+  // The ordinary landing, in a plain folder, is told the other way.
+  const plain = flow.instruction(stateOf(flow, "commit-merge"), issue);
+  assert.doesNotMatch(plain, /work tree of its own/u);
+  assert.match(plain, /delete the branch the work was on/u);
+  // A conflict can be sent back from that step.
+  assert.equal(go("commit-merge", "send-back", "agent", "conflict in a.ts"), "implement");
 });

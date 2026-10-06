@@ -97,6 +97,13 @@ From top to bottom the tab shows:
    title before anything else; it is refused, with a message box, while
    the folder has uncommitted changes. "Commit & merge" then merges,
    pushes the main branch and deletes that branch.
+   "Start in a work tree", in the issue's menu, opens a new conversation
+   for the issue in a work tree BB makes, cut from your local main branch,
+   so several issues can be worked at once. There "Commit & merge" has the
+   agent bring main into its branch first, then move main forward and push
+   it; after that Airbender archives that conversation, has BB remove the
+   work tree, and deletes the branch (the one git change the plugin makes
+   itself, and only once the branch is fully on main).
    An issue takes only the steps its size needs. Starting one has the
    agent size it first: S (done in one go, you see it once, at the end), M
    (definition and plan together, one review, then the result) or L (every
