@@ -326,7 +326,23 @@ export function IssueRow({
             plan", "Accept"). Not on a compact sub-issue row, which
             has no buttons; there it is inside the opened sub-issue. */}
         {compact ? null : (
-          <WorkflowButton issue={issue} className="m-1 h-7 shrink-0 px-2" />
+          <WorkflowButton
+            issue={issue}
+            // Full size on the thread's current issue, where it is the one
+            // thing to press. Everywhere else it is small and quiet (the
+            // user's request, bead-bb-q9v): when the thread has no current
+            // issue every open row carries one, and as bordered, full-size
+            // buttons they crowded the titles and made rows grow. The quiet
+            // look is the one the buttons inside an opened issue have: low,
+            // small text, no border, a soft fill. The top margin puts its
+            // middle on the title's line, level with the icon buttons
+            // beside it, and its height keeps it inside a one-line row.
+            className={
+              actions.currentBeadId === issue.id
+                ? "m-1 h-7 shrink-0 px-2"
+                : "mx-1 mt-1.5 h-6 shrink-0 gap-1 rounded border-0 bg-foreground/[0.06] px-1.5 text-xs font-normal text-muted-foreground shadow-none hover:bg-foreground/[0.12] hover:text-foreground [&_[data-icon-root]]:size-3.5"
+            }
+          />
         )}
         {/* Everything else one does to an issue is in the "more" menu:
             make current, edit, add a sub-issue, move, link, close; reopen

@@ -178,6 +178,8 @@ its category.
 - **Clicking the issue's id copies it** to the clipboard. `[c58]`
 - **It also shows the step of the workflow the issue is at**, and one main
   button for that step. See "The workflow". `[e2b]`
+- **That button is small and nimble** on every row but the current issue's,
+  so that it fits in the row and does not make it bigger. `[q9v]`
 - **Besides that button, a row has one "more" menu, three dots**, and
   nothing else, because closing is not the most frequent thing done to an
   issue. The menu holds: make current (or release), edit, add sub-issue,
@@ -611,6 +613,10 @@ breaking a requirement above.
   dropped on empty space in the list goes directly under the epic, where
   outside epic mode it goes to the top level. An epic with nothing to list
   says so.
+- The small step button on a row: lower than the icon buttons beside it,
+  small text, no border, a soft grey fill that darkens under the pointer;
+  it keeps its icon, label and tooltip. On the current issue it is the
+  full-size bordered button.
 - Choosing the workflow: the menu lists Standard and Simple above the setup
   steps, each with a line saying what it means and a tick on the one in
   use. It is offered only where the folder has issues to show. The choice
