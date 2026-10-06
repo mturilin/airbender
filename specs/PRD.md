@@ -357,8 +357,9 @@ One conversation works on at most one issue at a time: its current issue.
   back on Standard the issue is where it was. `[8j6]`
 - **On Simple, make current, release and close are prominent buttons on the
   issue's row, not entries in its menu.** `[8j6]`
-- **On Simple the agent is not told to move issues through steps**, and a
-  step it reports anyway is refused in plain words. `[8j6]`
+- **On Simple the agent is not to move issues through steps**: what it is
+  told about steps says they exist only on Standard, and a step it reports
+  anyway is refused in plain words. `[8j6]` `[8fm]`
 
 Everything under "The workflow", and every mention of a step or a step's
 button elsewhere in this document, applies on Standard only.
@@ -501,6 +502,14 @@ These rules apply to any agent working in a repository that uses the product.
   Chat is lost; the issue is not. `[—]`
 - **Take an issue through its workflow one step at a time**, as under "The
   workflow", and report each finished step. `[e2b]`
+- **Every agent always has the means to say which issue it is on and to
+  move an issue's step**, whatever the folder held when its conversation
+  started and whichever workflow is chosen. Where they do not apply (the
+  folder has no issues, or the repository is on Simple) they refuse in plain
+  words and change nothing. `[8fm]`
+- **The agent is told which workflow applies**, at the moments it matters:
+  when it says which issue it is on, when the owner makes an issue current
+  for it, and when the owner switches the workflow. `[8fm]`
 - **Do not close issues by hand.** The owner validates and accepts; the
   issue closes when its last step, the commit, is reported done. `[e1d]`
   `[0uh]`
@@ -563,6 +572,19 @@ breaking a requirement above.
   open sub-issues, saying how many. The line above the message box shows
   the current issue's id and title, and inside the box only "Agree &
   continue" is offered.
+- What agents are told about those two means begins with when they apply
+  ("only if the folder tracks its work in beads", and for steps "and its
+  repository is on the standard workflow"), since they are told it in every
+  folder.
+- What the agent is told about the workflow: on Standard, that the
+  repository is on it, the step the issue is at and whose turn it is; on
+  Simple, that issues have no steps and that the owner directs the work and
+  closes issues. A switch is told only to the conversation whose panel made
+  it, as a short message that asks for nothing; other conversations on the
+  same repository learn it when they next say which issue they are on.
+  Choosing the workflow already in use tells nobody.
+- An agent cannot make an issue current where the folder's issues cannot be
+  read at that moment, including when the tracker's program fails.
 - On Simple: a step asked for anyway is refused with "This folder uses the
   simple workflow, which has no steps."
 - A choice of Edit, Move to or Link from the menu shows one of the three at

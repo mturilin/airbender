@@ -46,11 +46,12 @@ example "\`bd close <id>\` to complete work"), these rules take precedence.
   above the message box, which issue the thread is on.
 - **The repository's owner chooses its workflow** in the Airbender tab:
   standard, where every issue goes through steps, or simple, with no steps.
-  You are on the standard workflow when you have the
-  \`beads_workflow_move\` tool and are told which step an issue is at; the
-  rules below marked "(standard)" then apply. Without that tool the
-  repository is on the simple workflow: there are no steps to report, the
-  user directs the work in the conversation and closes issues themselves.
+  You are told which one applies when you set your current issue with
+  \`beads_set_current\`, and again if the user switches it. On the standard
+  workflow the rules below marked "(standard)" apply. On the simple
+  workflow there are no steps to report (the \`beads_workflow_move\` tool
+  refuses and says so): the user directs the work in the conversation and
+  closes issues themselves.
 - **(standard) Every issue goes through its workflow.** Do the step you are
   started on only, and report it with the \`beads_workflow_move\` tool when
   it is finished. You may move an issue to another step when that is where

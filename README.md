@@ -104,8 +104,12 @@ From top to bottom the tab shows:
 4. **New issue field** (pinned at the bottom): type a title and press Enter;
    the chevron adds type, priority and description.
 
-The agent can set the thread's bead itself with the `beads_set_current` tool,
-which BB offers to threads whose folder has a `.beads` directory.
+The agent can set the thread's bead itself with the `beads_set_current` tool
+and move an issue's step with `beads_workflow_move`. Both are offered to
+every thread, in any folder: BB fixes a thread's tools when its session
+starts, so offering them only where beads was already set up left some
+agents without them. Where a tool does not apply (no beads in the folder,
+or the repository on the simple workflow) it refuses and says why.
 
 The list refreshes when the tab opens, when you press Refresh, when the BB
 window regains focus, and after any change to the issues: one made through

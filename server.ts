@@ -77,10 +77,16 @@
 // - Settings are read once per load: reload the plugin after changing one.
 
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
-import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
+import {
+  CURRENT_TOOL_INSTRUCTIONS,
+  currentRefusal,
+  moveToolInstructions,
+  switchNote,
+  workflowLine,
+} from "./server/agent-tools.ts";
 import { rpcContract } from "./server/contract.ts";
 import { createCurrentBead } from "./server/current-bead.ts";
 import { createFolders } from "./server/folder.ts";
@@ -91,10 +97,10 @@ import { createWork } from "./server/work.ts";
 import { createWorkflowChoice } from "./server/workflow-choice.ts";
 import {
   BEAD_ID_PATTERN,
-  CLOSED_STATUS,
   QUICK_REPLIES,
 } from "./shared/constants.ts";
 import { MOVE_TOOL, standardWorkflow } from "./shared/standard-workflow.ts";
+import { workflowFor } from "./shared/workflows.ts";
 
 /**
  * The plugin's backend entry point: reads the settings, builds the pieces
@@ -169,6 +175,7 @@ export default async function plugin(bb: BbPluginApi) {
     workflow_set: async (input) => {
       const folder = await folders.folderFor(input);
       if ("message" in folder) return { message: folder.message };
+      const before = workflowChoice.idFor(folder.path);
       try {
         await workflowChoice.set(folder.path, input.workflow);
       } catch (cause) {
@@ -178,6 +185,26 @@ export default async function plugin(bb: BbPluginApi) {
       }
       // Every tab on this repository draws its rows from the choice.
       store.changed(input.threadId);
+      // The thread this tab belongs to is told, so an agent in the middle
+      // of work does not go on by the old rules. Other threads on the same
+      // repository learn it when they next set their current issue. Sent
+      // like the other notes: it starts a short turn when the agent is
+      // idle and queues behind a running one.
+      if (input.threadId !== null && before !== input.workflow) {
+        try {
+          await bb.sdk.threads.send({
+            threadId: input.threadId,
+            mode: "auto",
+            input: [
+              { type: "text", mentions: [], text: switchNote(input.workflow) },
+            ],
+          });
+        } catch (cause) {
+          return {
+            message: `The workflow was changed, but the agent could not be told: ${cause instanceof Error ? cause.message : String(cause)}`,
+          };
+        }
+      }
       return { message: null };
     },
     current_set: (input) => work.setCurrent(input),
@@ -203,8 +230,7 @@ export default async function plugin(bb: BbPluginApi) {
     name: "beads_set_current",
     description:
       "Tell BB which beads issue this thread is working on, so the user sees it highlighted in the Airbender tab. Pass an empty id to clear it.",
-    instructions:
-      "This repository tracks work in beads. When you start working on a beads issue, or switch to another one, call beads_set_current with its id so the user can see what this thread is working on. Call it with an empty id when the thread is no longer working on any issue. It does not change the issue itself: still claim issues with bd. Do not close an issue when you finish it; the user validates the work and closes it.",
+    instructions: CURRENT_TOOL_INSTRUCTIONS,
     presentation: {
       label: { pending: "Setting current bead", completed: "Set current bead" },
     },
@@ -225,34 +251,20 @@ export default async function plugin(bb: BbPluginApi) {
           isError: true,
         };
       }
-      // Reject ids that do not exist, so a typo is reported to the agent
-      // instead of showing the user a highlight that points nowhere.
+      // Reject ids that point at nothing (a typo, a closed issue, a folder
+      // without beads), so the agent is told instead of the user being
+      // shown a highlight that points nowhere.
       const listed = await store.listIssues({ threadId, projectId: null });
-      const target = listed.issues.find((issue) => issue.id === beadId);
-      if (target?.status === CLOSED_STATUS) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: `${beadId} is closed, so it cannot be this thread's current bead. Reopen it first if work on it continues.`,
-            },
-          ],
-          isError: true,
-        };
-      }
-      if (listed.state === "ok" && target === undefined) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: `No beads issue with id ${beadId} in ${listed.path}. Run bd list to see ids.`,
-            },
-          ],
-          isError: true,
-        };
+      const refusal = currentRefusal(listed, beadId);
+      if (refusal !== null) {
+        return { content: [{ type: "text", text: refusal }], isError: true };
       }
       await currentBead.write(threadId, beadId);
-      return `This thread's current bead is now ${beadId}.`;
+      // The agent is starting on this issue: the moment to tell it which
+      // workflow applies and where the issue stands (see agent-tools.ts).
+      const step =
+        listed.issues.find((issue) => issue.id === beadId)?.step ?? null;
+      return `This thread's current bead is now ${beadId}. ${workflowLine(workflowFor(listed.workflow), step)}`;
     },
   });
 
@@ -264,7 +276,7 @@ export default async function plugin(bb: BbPluginApi) {
     name: MOVE_TOOL,
     description:
       "Move a beads issue to the next step of its workflow: report the step you were asked to do as finished, skip it with a reason, or send your own review back. The answer says what comes next.",
-    instructions: standardWorkflow.describeForAgents(),
+    instructions: moveToolInstructions(standardWorkflow.describeForAgents()),
     presentation: {
       label: { pending: "Moving the issue on", completed: "Moved the issue on" },
     },
@@ -300,24 +312,16 @@ export default async function plugin(bb: BbPluginApi) {
     },
   });
 
-  // Offer the tools only to threads whose folder uses beads, so threads in
-  // other repositories get no extra tool or instructions. The step tool,
-  // and with it the instructions about steps, only where the repository is
-  // on a workflow that has steps; BB may have settled a running thread's
-  // tools before a switch, which is why the tool also refuses when called
-  // on the simple workflow (see work.move). The callback must be
-  // synchronous, hence the direct look for a .beads folder; a thread on
-  // another machine simply does not get the tool.
-  bb.agents.configure((context) => {
-    const path = context.environment.path;
-    const usesBeads = path !== null && existsSync(join(path, ".beads"));
-    return {
-      tools: !usesBeads
-        ? []
-        : workflowChoice.workflowFor(path) === null
-          ? ["beads_set_current"]
-          : ["beads_set_current", MOVE_TOOL],
-      skills: [],
-    };
-  });
+  // Offer both tools to every thread, whatever its folder holds and
+  // whichever workflow its repository is on (bead-bb-8fm). BB settles a
+  // thread's tools when its session starts and adds none to a running one,
+  // so offering them only where the folder already used beads, and the step
+  // tool only on the standard workflow, left agents without them: a thread
+  // started before beads was set up, or running across a switch of
+  // workflow. Where a tool does not apply it refuses in plain words, and
+  // its instructions begin with when it applies (server/agent-tools.ts).
+  bb.agents.configure(() => ({
+    tools: ["beads_set_current", MOVE_TOOL],
+    skills: [],
+  }));
 }

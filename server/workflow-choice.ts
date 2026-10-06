@@ -11,12 +11,13 @@
 // - Kept in the plugin's own storage, on this machine. A file inside the
 //   repository was rejected: it would show up in git for what is a personal
 //   preference. beads' own settings were rejected too: reading them takes a
-//   `bd` call, and the place that decides which tools an agent gets
-//   (bb.agents.configure) cannot wait for one.
-// - For the same reason `get` is synchronous: the choices are loaded once
-//   at start and kept in memory.
+//   `bd` call on every look, where this answers from memory.
+// - `get` is synchronous: the choices are loaded once at start and kept in
+//   memory. It was first needed that way to decide an agent's tools, which
+//   cannot wait; the tools are now offered everywhere (bead-bb-8fm), and
+//   the quick answer is kept because every list and every move asks.
 // - The key is the repository's shared git directory, found by reading
-//   git's own files rather than running git (again: no waiting). A main
+//   git's own files rather than running git, so it needs no waiting. A main
 //   checkout has a `.git` directory. A work tree has a `.git` file,
 //   "gitdir: <its entry inside the main repository>", and that entry holds
 //   a `commondir` file pointing at the shared git directory.

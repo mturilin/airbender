@@ -44,6 +44,7 @@ import { descendantsOf } from "../shared/tree.ts";
 import { CLOSED, checkMove, stateOf } from "../shared/workflow.ts";
 import type { Actor, WorkflowState } from "../shared/workflow.ts";
 import { NO_STEPS_MESSAGE } from "../shared/workflows.ts";
+import { workflowLine } from "./agent-tools.ts";
 import type { WorkflowChoice } from "./workflow-choice.ts";
 import type { Issue } from "./contract.ts";
 import type { CurrentBead } from "./current-bead.ts";
@@ -329,10 +330,13 @@ export function createWork({
     beadId: string | null;
   }): Promise<Outcome> {
     let title = "";
+    // Which workflow applies to the issue and where it stands, for the note.
+    let applies = "";
     if (beadId !== null) {
       const found = await openIssue({ threadId, projectId: null }, beadId);
       if ("message" in found) return found;
       title = found.issue.title;
+      applies = ` ${workflowLine(workflowChoice.workflowFor(found.path), found.issue.step)}`;
     }
     let previous: string | null;
     try {
@@ -346,7 +350,7 @@ export function createWork({
     const note =
       beadId === null
         ? `FYI: the user released this thread's current issue (${previous}). The thread is on no issue now. No action is needed.`
-        : `FYI: the user made ${beadId} (${JSON.stringify(title)}) this thread's current issue.${was} This only changes which issue the thread is on: do not start work on it until you are asked to. No action is needed.`;
+        : `FYI: the user made ${beadId} (${JSON.stringify(title)}) this thread's current issue.${was}${applies} This only changes which issue the thread is on: do not start work on it until you are asked to. No action is needed.`;
     try {
       await deliver(threadId, note);
     } catch (cause) {
