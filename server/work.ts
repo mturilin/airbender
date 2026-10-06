@@ -22,7 +22,8 @@
 //   the note given: the issue's own history, shown in the tab.
 // - A move to "closed" is the only way the workflow ends. It closes the
 //   issue's open sub-issues first. Committing is not done here: it is a
-//   step of the workflow, done by the agent. The plugin never changes git.
+//   step of the workflow, done by the agent. The plugin changes git in one
+//   place only: a merged branch left by a work tree (server/work-trees.ts).
 // - Which issue a thread is on is separate from the workflow: setCurrent
 //   moves no step. It still tells the agent, with a note that asks for
 //   nothing.
@@ -45,6 +46,7 @@ import { CLOSED, checkMove, stateOf } from "../shared/workflow.ts";
 import type { Actor, WorkflowState } from "../shared/workflow.ts";
 import { NO_STEPS_MESSAGE } from "../shared/workflows.ts";
 import { workflowLine } from "./agent-tools.ts";
+import type { WorkTrees } from "./work-trees.ts";
 import type { WorkflowChoice } from "./workflow-choice.ts";
 import type { Issue } from "./contract.ts";
 import type { CurrentBead } from "./current-bead.ts";
@@ -64,6 +66,11 @@ export interface MoveOutcome extends Outcome {
    * message box. Left out otherwise.
    */
   warning?: boolean;
+  /**
+   * The move opened a conversation of its own for the issue: its id, so
+   * the tab can go there. Left out otherwise.
+   */
+  openThreadId?: string;
   /**
    * For the agent: what to do next, when the new state is the agent's.
    * Null when the issue now waits for the user, or was closed.
@@ -85,6 +92,7 @@ export function createWork({
   workflowChoice,
   onUserSize,
   hasUncommittedChanges,
+  workTrees,
 }: {
   bb: BbPluginApi;
   store: Store;
@@ -97,6 +105,8 @@ export function createWork({
   onUserSize: (path: string, beadId: string) => void;
   /** Whether a folder has uncommitted changes to tracked files. */
   hasUncommittedChanges: (path: string) => Promise<boolean>;
+  /** Conversations opened for one issue in a work tree of its own. */
+  workTrees: WorkTrees;
 }) {
   const { issuesIn, setIssueOpen, setStep, setSize, addComment, changed } =
     store;
@@ -116,10 +126,17 @@ export function createWork({
   }
 
   /** What the workflow may say about an issue: itself and its open sub-issues. */
-  const describe = (issue: Issue, issues: Issue[]) => ({
+  const describe = (
+    issue: Issue,
+    issues: Issue[],
+    threadId: string | null = null,
+  ) => ({
     id: issue.id,
     title: issue.title,
     size: issue.size,
+    // Whether the conversation that will read this is one the plugin
+    // opened for an issue in a work tree: its landing is told differently.
+    workTree: workTrees.isOurs(threadId),
     openSubIssues: descendantsOf(issue.id, issues).filter(
       (candidate) => candidate.status !== CLOSED_STATUS,
     ),
@@ -179,7 +196,10 @@ export function createWork({
       await currentBead.write(threadId, beadId);
       await deliver(
         threadId,
-        workflow.instruction(state, describe(found.issue, found.issues)),
+        workflow.instruction(
+          state,
+          describe(found.issue, found.issues, threadId),
+        ),
       );
     } catch (cause) {
       return {
@@ -237,11 +257,48 @@ export function createWork({
     if (checked.to === CLOSED) {
       const closed = await finish(input, issues);
       // Recorded only when the issue really was closed.
-      if (closed.message === null) await record("closed");
+      if (closed.message === null) {
+        await record("closed");
+        // Landed from a conversation opened for it in a work tree: that
+        // conversation, its tree and its branch are closed up.
+        if (threadId !== null) workTrees.landed(threadId, beadId);
+      }
       return { ...closed, state: null, instruction: null };
     }
 
     const to = stateOf(workflow, checked.to);
+    // A move that is made in a conversation of its own: the conversation
+    // is opened first, with what the agent is to do as its first message,
+    // and only when that worked is anything recorded on the issue. Nothing
+    // is sent to the conversation the move was asked from.
+    if (checked.ownConversation === true) {
+      const told = workflow.instruction(to, {
+        ...describe(issue, issues),
+        workTree: true,
+      });
+      const started = await workTrees.open({
+        from: input,
+        home: path,
+        beadId,
+        title: issue.title,
+        prompt: [
+          ...(checked.opening?.(describe(issue, issues)) ?? []),
+          told,
+        ].join("\n"),
+      });
+      if ("message" in started) return fail(started.message);
+      await currentBead.store(started.threadId, beadId);
+      const moved = await setStep(path, threadId, beadId, to.id, false);
+      if (moved.message !== null) return fail(moved.message);
+      await record(`${to.label}, in a conversation and work tree of its own`);
+      changed(threadId);
+      return {
+        message: null,
+        state: to,
+        instruction: null,
+        openThreadId: started.threadId,
+      };
+    }
     // Not published yet: the comment and a possible message follow, and the
     // tabs should reload once, on the finished move.
     const stepped = await setStep(path, threadId, beadId, to.id, false);
@@ -264,7 +321,7 @@ export function createWork({
       to.actor === "agent"
         ? workflow.instruction(
             to,
-            describe(sized, issues),
+            describe(sized, issues, threadId),
             // A note is passed on only with a move back; a move that sets
             // the size is the agent's own and its note is for the record.
             order(to) < order(from) && checked.size === undefined

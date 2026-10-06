@@ -157,14 +157,21 @@ function withMenuMoves(
 
 /**
  * The moves an issue's menu lists: the ones its workflow marks for the
- * menu, at the step it is at. None where the step's buttons are not offered
- * on this issue (see canAct), on a closed issue, or without a workflow.
+ * menu, at the step it is at. None on a closed issue or without a
+ * workflow. Where the step's buttons are not offered on this issue (see
+ * canAct), only the moves that run in a conversation of their own.
  */
 export function useMenuMoves(issue: Issue): WorkflowMove[] {
   const actions = useActions();
   const workflow = useWorkflow();
-  if (workflow === null || !canAct(actions, issue)) return [];
-  return menuMoves(workflow, stateOf(workflow, issue.step).id, "user");
+  if (workflow === null || issue.status === CLOSED_STATUS) return [];
+  const listed = menuMoves(workflow, stateOf(workflow, issue.step).id, "user");
+  // A move made in a conversation of its own does not touch this one, so
+  // it is offered whatever this conversation's current issue is: starting
+  // another issue alongside is what it is for.
+  return canAct(actions, issue)
+    ? listed
+    : listed.filter((move) => move.ownConversation === true);
 }
 
 /**
@@ -206,7 +213,18 @@ export function MoveIcon({
       aria-hidden="true"
       className={className}
     >
-      {name === "play-branch" ? (
+      {name === "play-tree" ? (
+        <>
+          {/* The same triangle, a little smaller still, and a small fir:
+              two tiers and a trunk. The user's choice for "start in a
+              work tree" ("triangle with a little tree on the side instead
+              of a branch"; of three trees, the fir). */}
+          <path d="M2 6v12l9 -6l-9 -6" />
+          <path d="M18 3l-3.2 5h6.4z" />
+          <path d="M18 8l-4.4 7.5h8.8z" />
+          <path d="M18 15.5v5" />
+        </>
+      ) : name === "play-branch" ? (
         <>
           {/* The triangle below, scaled by 0.75 and moved to the left. */}
           <path d="M2.5 6v12l9.75 -6l-9.75 -6" />
@@ -433,15 +451,18 @@ export function WorkflowMoves({
 }) {
   const actions = useActions();
   const workflow = useWorkflow();
-  if (workflow === null || !canAct(actions, issue)) return null;
+  const always = useMenuMoves(issue);
+  if (workflow === null || issue.status === CLOSED_STATUS) return null;
   const state = stateOf(workflow, issue.step);
   return (
     <>
       {withMenuMoves(
-        offeredMoves(workflow, state.id, "user", {
-          ownBranch: actions.ownBranch,
-        }),
-        menuMoves(workflow, state.id, "user"),
+        canAct(actions, issue)
+          ? offeredMoves(workflow, state.id, "user", {
+              ownBranch: actions.ownBranch,
+            })
+          : [],
+        always,
       )
         .filter((move) => move.primary !== true)
         .map((move) => (

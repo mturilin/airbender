@@ -260,6 +260,8 @@ export interface IssueActionsView {
  *   `confirmClose`.
  * @param askWarn Called with a warning to show in a message box (a move
  *   that was not made because of something the user can put right).
+ * @param openThread Takes the user to another conversation, with the
+ *   Airbender tab open there.
  * @param askSwitch Called when making an issue current would replace
  *   another current issue; the panel confirms and then sets it.
  * @param openDetails Opens the details window on an issue.
@@ -280,6 +282,7 @@ export function useIssueActions({
   askClose,
   askSwitch,
   askWarn,
+  openThread,
   openDetails,
   closeDetails,
   addSubIssue,
@@ -296,6 +299,7 @@ export function useIssueActions({
   askClose: (pending: PendingClose) => void;
   askSwitch: (to: Issue) => void;
   askWarn: (warning: string) => void;
+  openThread: (threadId: string) => void;
   openDetails: (beadId: string) => void;
   closeDetails: () => void;
   addSubIssue: (parentId: string) => void;
@@ -349,6 +353,11 @@ export function useIssueActions({
           return;
         }
         settle(outcome);
+        // The move opened a conversation of its own for the issue (a work
+        // tree start): go there, as the user chose ("jump").
+        if (outcome.message === null && outcome.openThreadId !== null) {
+          openThread(outcome.openThreadId);
+        }
       }, reportProblem);
   };
   const confirmClose = (pending: PendingClose) =>

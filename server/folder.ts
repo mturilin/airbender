@@ -24,6 +24,7 @@
 //   of candidate locations is tried.
 
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
+import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { readGit, runBd } from "./bd.ts";
 import type { BdRun } from "./bd.ts";
@@ -182,6 +183,18 @@ export function createFolders({
     const current = await readGit(path, ["rev-parse", "--abbrev-ref", "HEAD"]);
     // "HEAD" is what git answers when no branch is checked out.
     if (current === null || current === "" || current === "HEAD") return false;
+    const main = await mainBranch(path);
+    return main !== null && main !== current;
+  }
+
+  /**
+   * The name of the repository's main branch: the remote's default where
+   * git knows it, else a local branch called main or master.
+   *
+   * @returns Null when it cannot be told (not a git folder, neither found).
+   * Side effects: up to two read-only git commands.
+   */
+  async function mainBranch(path: string): Promise<string | null> {
     const remoteDefault = await readGit(path, [
       "symbolic-ref",
       "--quiet",
@@ -199,7 +212,73 @@ export function createFolders({
       ]);
       main = local?.split("\n")[0]?.trim() ?? null;
     }
-    return main !== null && main !== "" && main !== current;
+    return main === null || main === "" ? null : main;
+  }
+
+  /**
+   * The repository's main folder: the one a work tree belongs to, or the
+   * folder itself when it is the main one. It outlives every work tree, so
+   * it is the place to run something from later.
+   *
+   * @returns Null when it cannot be told (not a git folder).
+   * Side effects: one read-only git command.
+   */
+  async function mainFolder(path: string): Promise<string | null> {
+    // The main work tree is always listed first.
+    const listed = await readGit(path, ["worktree", "list", "--porcelain"]);
+    const first = listed?.split("\n")[0] ?? "";
+    return first.startsWith("worktree ") ? first.slice("worktree ".length) : null;
+  }
+
+  /**
+   * Deletes a local branch whose every commit is already on the main
+   * branch. The one git command of the plugin's that changes anything (see
+   * server/work-trees.ts for why it cannot be left to the agent).
+   *
+   * The check is made here, against the main branch, and not left to
+   * `git branch -d`: that one compares with whatever branch the folder
+   * happens to be on, and would refuse a branch that is fully on main
+   * whenever the folder is on some other branch. So: only when git confirms
+   * the branch is an ancestor of the main branch is it deleted; nothing
+   * that is not on main can be lost. Never the main branch itself; git
+   * still refuses a branch a work tree holds.
+   *
+   * @returns Null when the branch is gone (deleted now, or not there);
+   *   otherwise why it was left.
+   * Side effects: up to four git commands; at most one branch deleted.
+   */
+  async function deleteMergedBranch(
+    path: string,
+    branch: string,
+  ): Promise<string | null> {
+    const main = await mainBranch(path);
+    if (main === null) return "the main branch could not be found";
+    if (branch === "" || branch === main) return "that is the main branch";
+    const exists = await readGit(path, [
+      "branch",
+      "--list",
+      "--format=%(refname:short)",
+      branch,
+    ]);
+    if (exists === null) return "git could not be run in that folder";
+    if (exists === "") return null;
+    // Exit status 0 (an answer, though an empty one) means "is an ancestor".
+    const onMain = await readGit(path, [
+      "merge-base",
+      "--is-ancestor",
+      branch,
+      main,
+    ]);
+    if (onMain === null) return `${branch} is not fully on ${main}`;
+    return new Promise((resolve) => {
+      execFile(
+        "git",
+        ["branch", "-D", "--", branch],
+        { cwd: path, timeout: 10_000, maxBuffer: 64 * 1024 },
+        (error, _stdout, stderr) =>
+          resolve(error === null ? null : stderr.trim() || error.message),
+      );
+    });
   }
 
   /**
@@ -222,6 +301,9 @@ export function createFolders({
 
   return {
     onOwnBranch,
+    mainBranch,
+    mainFolder,
+    deleteMergedBranch,
     hasUncommittedChanges,
     BD_NOT_FOUND_MESSAGE,
     resolveFolder,

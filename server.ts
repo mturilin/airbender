@@ -95,6 +95,7 @@ import { REPORT_TOOL, createSizing } from "./server/sizing.ts";
 import { createStore } from "./server/store.ts";
 import { createWatcher } from "./server/watch.ts";
 import { createWork } from "./server/work.ts";
+import { createWorkTrees } from "./server/work-trees.ts";
 import { createWorkflowChoice } from "./server/workflow-choice.ts";
 import {
   BEAD_ID_PATTERN,
@@ -189,6 +190,12 @@ export default async function plugin(bb: BbPluginApi) {
     addComment: store.addComment,
     workflowFor: workflowChoice.workflowFor,
   });
+  const workTrees = await createWorkTrees({
+    bb,
+    mainBranch: folders.mainBranch,
+    mainFolder: folders.mainFolder,
+    deleteMergedBranch: folders.deleteMergedBranch,
+  });
   const work = createWork({
     bb,
     store,
@@ -196,6 +203,7 @@ export default async function plugin(bb: BbPluginApi) {
     workflowChoice,
     onUserSize: sizing.forget,
     hasUncommittedChanges: folders.hasUncommittedChanges,
+    workTrees,
   });
   const { setupStatus, runSetup } = createSetup({ bb, folders, store });
 
@@ -227,7 +235,11 @@ export default async function plugin(bb: BbPluginApi) {
     workflow_run: (input) => work.run(input),
     workflow_move: async (input) => {
       const outcome = await work.move(input, "user");
-      return { message: outcome.message, warning: outcome.warning === true };
+      return {
+        message: outcome.message,
+        warning: outcome.warning === true,
+        openThreadId: outcome.openThreadId ?? null,
+      };
     },
     issue_set_size: (input) => work.resize(input),
     issue_request_sizing: async (input) => {
