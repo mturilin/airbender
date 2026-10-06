@@ -103,6 +103,10 @@ const states: WorkflowState[] = [
     label: "Define",
     actor: "agent",
     runLabel: "Define",
+    // An icon of its own, not the play triangle of the other steps (the
+    // user: "define icon should be diff", meaning different; which icon was
+    // left to the agent): a written page, for writing up what is wanted.
+    runIcon: "define",
     hint: "The agent writes up what is wanted, why, and what done means.",
     ask: "The agent is defining this issue.",
   },

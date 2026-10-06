@@ -78,6 +78,12 @@ export interface WorkflowState {
    * are the user's own moves.
    */
   runLabel?: string;
+  /**
+   * For an agent's state: the icon on that button, by name ("define"; the
+   * tab knows how to draw it). Left out, the button carries the play
+   * triangle, as a button that sets the agent going does.
+   */
+  runIcon?: string;
 }
 
 /** One allowed change of state. */

@@ -208,6 +208,13 @@ test("the user's main button comes first, and agent states have none", () => {
   }
 });
 
+test("only the Define button has an icon of its own; the others keep play", () => {
+  const withIcon = flow.states
+    .filter((state) => state.runIcon !== undefined)
+    .map((state) => [state.id, state.runIcon]);
+  assert.deepEqual(withIcon, [["define", "define"]]);
+});
+
 test("the agent is told its step, how to report it, and about sub-issues", () => {
   const issue = {
     id: "x-1",

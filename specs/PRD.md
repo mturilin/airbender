@@ -480,6 +480,8 @@ Rules:
   to look at what was written. `[e2b]`
 - **Each step has one main button.** At an agent's step it starts the agent
   on that step. At the owner's step it is the owner's approval. `[e2b]`
+- **The Define button has an icon of its own**, different from the play
+  triangle on the buttons of the other steps. `[0xy]`
 - **Starting never begins again from the first step.** The agent is asked to
   do the step the issue is at, and only that. `[e2b]`
 - **A step named after the agent's work means that work is under way.**
@@ -787,6 +789,7 @@ breaking a requirement above.
   agent is started on it straight away, and told the reason if it was sent
   back. When the agent finishes a step and the next one is also its own,
   it carries on; otherwise it tells the owner and stops.
+- Workflow: the "Define" button's icon is a page with two written lines.
 - Workflow: the main buttons read "Define", "Plan", "Implement", "Review",
   "Approve definition", "Approve plan", "Accept", "Commit" and "Commit &
   merge". "Send back",

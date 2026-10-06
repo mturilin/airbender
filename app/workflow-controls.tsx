@@ -181,6 +181,12 @@ export function useMenuMoves(issue: Issue): WorkflowMove[] {
  * The first version took "play" from BB's own icons and drew only the
  * second; the user saw at once that the two triangles were in different
  * hands. A name this does not know gets the plain triangle.
+ *
+ * "define" is the icon of the Define step's button (bead-bb-0xy): a page
+ * with two written lines, Tabler Icons' "file-description" outline. The
+ * user asked only that it differ from the play triangle and left the
+ * choice open. Drawn here, not taken from BB's icons by name: a name BB
+ * does not have draws its fallback, a lightning bolt, without any error.
  */
 export function MoveIcon({
   name,
@@ -209,6 +215,13 @@ export function MoveIcon({
           <path d="M16 6.7v10.6" />
           <path d="M17.7 19h1.3a2 2 0 0 0 2 -2v-5" />
           <path d="M18.8 13.6l2.2 -2.2l2.2 2.2" />
+        </>
+      ) : name === "define" ? (
+        <>
+          <path d="M14 3v4a1 1 0 0 0 1 1h4" />
+          <path d="M17 21h-10a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2h7l5 5v11a2 2 0 0 1 -2 2z" />
+          <path d="M9 17h6" />
+          <path d="M9 13h6" />
         </>
       ) : (
         <path d="M7 4v16l13 -8l-13 -8" />
@@ -324,7 +337,7 @@ export function WorkflowButton({
   if (state.actor === "agent") {
     const { run } = actions;
     if (run === null) return null;
-    const { runLabel } = state;
+    const { runLabel, runIcon } = state;
     return (
       <Button
         variant="outline"
@@ -334,7 +347,13 @@ export function WorkflowButton({
         aria-label={`${runLabel}: ${issue.id} ${issue.title}`}
         onClick={() => run(issue.id)}
       >
-        <Icon name="Play" className="size-4" />
+        {/* The step's own icon where it has one (Define); otherwise the
+            play triangle of a button that sets the agent going. */}
+        {runIcon === undefined ? (
+          <Icon name="Play" className="size-4" />
+        ) : (
+          <MoveIcon name={runIcon} className="size-4" />
+        )}
         {runLabel}
       </Button>
     );
