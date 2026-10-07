@@ -180,6 +180,8 @@ export function createStore({
       currentBeadId,
       ownBranch: false,
       branch: null,
+      // Filled in by the server's handler, which knows autopilot.
+      autopilot: null,
       workflow:
         folder.path === null
           ? DEFAULT_WORKFLOW_ID
@@ -216,6 +218,7 @@ export function createStore({
       currentBeadId,
       ownBranch: await onOwnBranch(path),
       branch: await currentBranch(path),
+      autopilot: null,
       workflow: workflowChoice.idFor(path),
     };
     const current = issues.find((issue) => issue.id === currentBeadId);

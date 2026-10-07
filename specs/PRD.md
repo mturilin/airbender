@@ -351,6 +351,17 @@ that epic's issues, and the current issue is picked from among them. `[ha9]`
   was left**, without looking for it among all the issues. `[fmg]`
 - A new issue created in epic mode goes into the epic unless the owner
   chooses otherwise. The details window stays as it is. `[ha9]`
+- **Autopilot: an epic with many sub-issues can be worked one issue after
+  another without the owner starting each one.** `[8ff]`
+  - It is the supervised kind: **every review stays the owner's**. The
+    issues are only strung together. (A kind where the reviews are
+    automated too is wanted later, built on this one.)
+  - It is turned on in epic mode, for that epic in that conversation.
+  - Whenever the conversation is on no issue, the epic's next ready issue
+    is started; when that issue is closed, the next one starts by itself.
+  - **A stuck issue makes it fail fast**: it stops and tells the owner that
+    it could not do it, and the owner goes on by hand. It is deliberately
+    not persistent for now.
 
 ## Creating an issue
 
@@ -862,6 +873,24 @@ breaking a requirement above.
   In the epic's own conversation, and on an issue's card above the message
   box, the work tree's tag is not a link. The step still reads "On its
   branch" in both cases.
+- Autopilot: its switch is a button in the epic band, lit while on, shown
+  only in a conversation and where issues have steps. The next issue is
+  the epic's most urgent direct sub-issue that is open, not blocked and
+  not the current issue of another conversation; among equals, the oldest.
+  An issue already under way is taken up from its step; one that waits for
+  the owner is only made current. The agent is told that autopilot started
+  the issue and that the reviews are still the owner's. Under the band one
+  line says what the run is doing, which issue waits for the owner and at
+  which step, or why it stopped. Stuck means: the agent's turn ended with
+  the issue still at one of the agent's steps (it asked something, gave up
+  or failed); the agent sent the issue back from the commit step; or the
+  issue could not be started. It also stops, saying so, when every issue
+  is closed and when only blocked or elsewhere-worked issues are left.
+  Turning it off does not interrupt the agent. Making another issue
+  current, or releasing the current one, by hand turns it off. Turning it
+  on again resumes. Leaving epic mode leaves it on. It is remembered
+  across restarts, and it works with the panel closed. On an epic that has
+  a branch it only starts issues in a folder on that branch.
 - The small step button on a row: lower than the icon buttons beside it,
   small text, no border, a soft grey fill that darkens under the pointer;
   it keeps its icon, label and tooltip. On the current issue it is the

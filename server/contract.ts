@@ -101,6 +101,8 @@ const issueSchema = z.object({
   /** The issue's labels, without the ones for its category and its step. */
   labels: z.array(z.string()),
   updatedAt: z.string().nullable(),
+  /** When the issue was created (ISO); null when bd reported none. */
+  createdAt: z.string().nullable(),
   /**
    * Unfinished issues this one waits on. Empty for closed issues. Includes
    * what the issues it sits inside wait on: a sub-issue of a blocked issue
@@ -173,6 +175,19 @@ const issuesResultSchema = z.object({
    * is the folder that epic's issues are worked in.
    */
   branch: z.string().nullable(),
+  /**
+   * Autopilot in this conversation (bead-bb-8ff): the epic it is on for,
+   * or was last, whether it is on, and why it last turned itself off (null
+   * when the owner turned it off or it never stopped). Null when the
+   * conversation never had it, and without a conversation.
+   */
+  autopilot: z
+    .object({
+      epicId: z.string(),
+      on: z.boolean(),
+      reason: z.string().nullable(),
+    })
+    .nullable(),
   /**
    * Which workflow the folder's repository uses: "standard" (every issue
    * goes through its steps) or "simple" (no steps). The default when the
@@ -436,6 +451,13 @@ export const rpcContract = defineRpcContract({
       projectId: z.string().nullable(),
       workflow: z.enum(WORKFLOW_IDS),
     }),
+    output: z.object({ message: z.string().nullable() }),
+  },
+  autopilot_set: {
+    // Turns autopilot on for an epic in a conversation, or off (epicId
+    // null). On: the epic's next ready issue is started whenever the
+    // conversation is on none; every review stays the user's.
+    input: z.object({ threadId: z.string(), epicId: z.string().nullable() }),
     output: z.object({ message: z.string().nullable() }),
   },
   current_set: {

@@ -36,6 +36,7 @@ const issue = (id: string, over: Partial<Issue> = {}) =>
     size: null,
     branch: null,
     conversationId: null,
+    createdAt: null,
     status: "open",
     commentCount: 0,
     priority: 2,

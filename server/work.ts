@@ -42,7 +42,13 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { CLOSED_STATUS } from "../shared/constants.ts";
 import { descendantsOf } from "../shared/tree.ts";
-import { CLOSED, checkMove, epicOver, stateOf } from "../shared/workflow.ts";
+import {
+  CLOSED,
+  checkMove,
+  epicOver,
+  movesFor,
+  stateOf,
+} from "../shared/workflow.ts";
 import type { Actor, Workflow, WorkflowState } from "../shared/workflow.ts";
 import { NO_STEPS_MESSAGE } from "../shared/workflows.ts";
 import { workflowLine } from "./agent-tools.ts";
@@ -84,10 +90,27 @@ export interface MoveOutcome extends Outcome {
 }
 
 /**
+ * What happens here that autopilot (server/autopilot.ts) acts on. The
+ * fields are set after both are built, since each needs the other; until
+ * then, and in tests, nothing listens.
+ */
+export interface WorkEvents {
+  /** The agent of a conversation was handed something to do. */
+  delivered?: (threadId: string) => void;
+  /** An issue was closed from a conversation, which may now be free. */
+  closed?: (threadId: string) => void;
+  /** The agent sent an issue back from the step that would have closed it. */
+  stuck?: (threadId: string, beadId: string, why: string) => void;
+  /** The owner made an issue current, or released one, by hand. */
+  ownerCurrent?: (threadId: string) => void;
+}
+
+/**
  * Builds the workflow operations for this plugin instance.
  *
  * @param workflowChoice Answers which workflow a folder's issues follow.
- * @returns `run`, `move`, `resize`, `close` and `setCurrent`.
+ * @param events Told what happens; see WorkEvents.
+ * @returns `run`, `begin`, `move`, `resize`, `close` and `setCurrent`.
  * Side effects: none until one of them is called.
  */
 export function createWork({
@@ -99,6 +122,7 @@ export function createWork({
   hasUncommittedChanges,
   currentBranch,
   workTrees,
+  events = {},
 }: {
   bb: BbPluginApi;
   store: Store;
@@ -115,6 +139,7 @@ export function createWork({
   currentBranch: (path: string) => Promise<string | null>;
   /** Conversations opened for one issue in a work tree of its own. */
   workTrees: WorkTrees;
+  events?: WorkEvents;
 }) {
   const {
     issuesIn,
@@ -138,6 +163,7 @@ export function createWork({
       mode: "auto",
       input: [{ type: "text", mentions: [], text }],
     });
+    events.delivered?.(threadId);
   }
 
   /**
@@ -240,9 +266,12 @@ export function createWork({
   async function run({
     threadId,
     beadId,
+    preface,
   }: {
     threadId: string;
     beadId: string;
+    /** A line put in front of what the agent is told (autopilot's). */
+    preface?: string;
   }): Promise<Outcome> {
     const found = await openIssue({ threadId, projectId: null }, beadId);
     if ("message" in found) return found;
@@ -263,17 +292,74 @@ export function createWork({
     if (elsewhere !== null) return { message: elsewhere };
     try {
       await currentBead.write(threadId, beadId);
+      const told = workflow.instruction(
+        state,
+        describe(found.issue, found.issues, threadId, workflow),
+      );
       await deliver(
         threadId,
-        workflow.instruction(
-          state,
-          describe(found.issue, found.issues, threadId, workflow),
-        ),
+        preface === undefined ? told : `${preface}\n\n${told}`,
       );
     } catch (cause) {
       return {
         message: `The agent could not be started on ${beadId}: ${reason(cause)}`,
       };
+    }
+    return { message: null };
+  }
+
+  /**
+   * Starts an issue in a conversation, or takes it up again, as the tab's
+   * buttons would: autopilot's way to get on with the next issue
+   * (server/autopilot.ts). Knows no step by name:
+   * - at one of the agent's steps, it is play (`run`);
+   * - not started, it is the workflow's own starting move, the user's main
+   *   move at the first step;
+   * - waiting for the owner, the issue is only made the conversation's
+   *   current one, so that its buttons show.
+   *
+   * @param preface A line put in front of what the agent is told.
+   * @returns `message` null on success, else why not, in plain words.
+   */
+  async function begin({
+    threadId,
+    beadId,
+    preface,
+  }: {
+    threadId: string;
+    beadId: string;
+    preface: string;
+  }): Promise<Outcome> {
+    const found = await openIssue({ threadId, projectId: null }, beadId);
+    if ("message" in found) return found;
+    const workflow = workflowChoice.workflowFor(found.path);
+    if (workflow === null) return { message: NO_STEPS_MESSAGE };
+    const state = stateOf(workflow, found.issue.step);
+    if (state.actor === "agent") return run({ threadId, beadId, preface });
+    if (state.id === workflow.initial) {
+      const start = movesFor(workflow, state.id, "user").find(
+        (candidate) => candidate.primary === true,
+      );
+      if (start === undefined) {
+        return { message: "This workflow has no move that starts an issue." };
+      }
+      const moved = await move(
+        { threadId, projectId: null, beadId, moveId: start.id, note: "", preface },
+        "user",
+      );
+      return { message: moved.message };
+    }
+    const elsewhere = await wrongPlace(
+      workflow,
+      found.issue,
+      found.issues,
+      found.path,
+    );
+    if (elsewhere !== null) return { message: elsewhere };
+    try {
+      await currentBead.write(threadId, beadId);
+    } catch (cause) {
+      return { message: reason(cause) };
     }
     return { message: null };
   }
@@ -294,7 +380,13 @@ export function createWork({
    *   tool passes "agent". The workflow decides what each may do.
    */
   async function move(
-    input: FolderRef & { beadId: string; moveId: string; note: string },
+    input: FolderRef & {
+      beadId: string;
+      moveId: string;
+      note: string;
+      /** A line put in front of what the agent is told (autopilot's). */
+      preface?: string;
+    },
     by: Actor,
   ): Promise<MoveOutcome> {
     const fail = (message: string) => ({ message, state: null, instruction: null });
@@ -407,6 +499,7 @@ export function createWork({
         // Landed from a conversation opened for it in a work tree: that
         // conversation, its tree and its branch are closed up.
         if (threadId !== null) workTrees.landed(threadId, beadId);
+        if (threadId !== null) events.closed?.(threadId);
       }
       return { ...closed, state: null, instruction: null };
     }
@@ -548,10 +641,24 @@ export function createWork({
     if (text !== null && by === "user" && threadId !== null) {
       try {
         await currentBead.store(threadId, beadId);
-        await deliver(threadId, text);
+        await deliver(
+          threadId,
+          input.preface === undefined ? text : `${input.preface}\n\n${text}`,
+        );
       } catch (cause) {
         message = `The issue is now at "${to.label}", but the agent could not be started: ${reason(cause)}`;
       }
+    }
+    // The agent gave up on the step that would have closed the issue (it
+    // could not commit or merge): for autopilot that is a stuck issue.
+    if (
+      by === "agent" &&
+      threadId !== null &&
+      workflow.moves.some(
+        (candidate) => candidate.from === from.id && candidate.to === CLOSED,
+      )
+    ) {
+      events.stuck?.(threadId, beadId, note === "" ? `it went back to "${to.label}".` : note);
     }
     changed(threadId);
     return { message, state: to, instruction: by === "agent" ? text : null };
@@ -688,9 +795,13 @@ export function createWork({
   async function close(input: FolderRef & { beadId: string }): Promise<Outcome> {
     const found = await openIssue(input, input.beadId);
     if ("message" in found) return found;
-    return workflowChoice.workflowFor(found.path) === null
+    const outcome = await (workflowChoice.workflowFor(found.path) === null
       ? finish(input, found.issues)
-      : setIssueOpen("close", input);
+      : setIssueOpen("close", input));
+    if (outcome.message === null && input.threadId !== null) {
+      events.closed?.(input.threadId);
+    }
+    return outcome;
   }
 
   /**
@@ -727,6 +838,8 @@ export function createWork({
     try {
       previous = await currentBead.read(threadId);
       if (previous === beadId) return { message: null };
+      // The owner has taken over: autopilot, if on here, turns off.
+      events.ownerCurrent?.(threadId);
       await currentBead.write(threadId, beadId);
     } catch (cause) {
       return { message: reason(cause) };
@@ -746,5 +859,5 @@ export function createWork({
     return { message: null };
   }
 
-  return { run, move, resize, close, setCurrent };
+  return { run, begin, move, resize, close, setCurrent };
 }

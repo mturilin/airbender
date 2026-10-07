@@ -34,6 +34,7 @@
 
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
+import { cn } from "@/lib/utils";
 import type { Issue } from "../server/contract.ts";
 import { IssueCard, useHoverCard } from "./issue-card.tsx";
 import { EpicPlaceTag } from "./workflow-controls.tsx";
@@ -77,6 +78,29 @@ export function EnterEpicIcon({ className }: { className?: string }) {
 }
 
 /**
+ * Autopilot's icon: two play triangles, one after the other, for "start
+ * them one after another". Tabler Icons' "player-track-next" outline
+ * (MIT, (c) Pawel Kuna), drawn here like the plugin's other icons.
+ */
+function AutopilotIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      className={className}
+    >
+      <path d="M3 5v14l8 -7z" />
+      <path d="M14 5v14l8 -7z" />
+    </svg>
+  );
+}
+
+/**
  * The epic band.
  *
  * @param path The issues from the top level down to the epic, the epic
@@ -93,6 +117,7 @@ export function EpicBand({
   onGo,
   onClose,
   merging = false,
+  autopilot,
 }: {
   path: Issue[];
   subIssues: Issue[];
@@ -107,13 +132,21 @@ export function EpicBand({
    * closing it also merges that branch, and the button says so.
    */
   merging?: boolean;
+  /**
+   * Autopilot for this epic in this conversation (bead-bb-8ff); left out
+   * where there is none to offer (no conversation, the simple workflow).
+   * `note` is the one line under the band: what the run is doing or
+   * waiting for, or why it stopped; null for nothing to say.
+   */
+  autopilot?: { on: boolean; note: string | null; onToggle: () => void };
 }) {
   const card = useHoverCard("below");
   const epic = path[path.length - 1]!;
   const above = path.slice(0, -1);
   const parent = above[above.length - 1] ?? null;
   return (
-    <div className="flex items-center gap-1.5 rounded-lg bg-foreground/[0.05] py-1 pl-1 pr-2">
+    <div className="rounded-lg bg-foreground/[0.05]">
+    <div className="flex items-center gap-1.5 py-1 pl-1 pr-2">
       <Button
         variant="ghost"
         size="icon"
@@ -202,6 +235,35 @@ export function EpicBand({
           <Icon name="CircleCheck" className="size-4" />
           {merging ? "Close & merge" : "Close epic"}
         </Button>
+      )}
+      {/* Autopilot: the epic's issues are started one after another, each
+          review still the owner's. A switch, lit while it is on. */}
+      {autopilot === undefined ? null : (
+        <Button
+          variant="outline"
+          size="sm"
+          aria-pressed={autopilot.on}
+          className={cn(
+            "h-7 shrink-0 px-2",
+            autopilot.on &&
+              "border-transparent bg-blue-500/15 text-foreground hover:bg-blue-500/25",
+          )}
+          tip={
+            autopilot.on
+              ? "Autopilot is on: when an issue of this epic is closed, the next ready one starts by itself. Every review is still yours. Click to turn it off; the agent finishes what it is doing."
+              : "Autopilot: start this epic's ready issues one after another, most urgent first. Every review stays yours, and it stops and says so if an issue gets stuck."
+          }
+          onClick={autopilot.onToggle}
+        >
+          <AutopilotIcon className="size-4" />
+          Autopilot
+        </Button>
+      )}
+    </div>
+      {autopilot === undefined || autopilot.note === null ? null : (
+        <div className="px-2 pb-1.5 pl-9 text-xs text-muted-foreground">
+          {autopilot.note}
+        </div>
       )}
     </div>
   );

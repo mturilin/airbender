@@ -301,6 +301,7 @@ export function toIssues(rows: BdIssue[]): Issue[] {
         !label.startsWith(BRANCH_PREFIX),
     ),
     updatedAt: row.updated_at ?? row.created_at ?? null,
+    createdAt: row.created_at ?? null,
     blockedBy: blockedBy.get(row.id) ?? [],
     subIssuesBlocked: isOpen(row) && allSubIssuesBlocked(row.id, new Set()),
     blocks: blocks.get(row.id) ?? [],

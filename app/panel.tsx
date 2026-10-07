@@ -159,6 +159,32 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
     focused.branch === (result?.branch ?? null)
       ? { move: landingMove, branch: focused.branch }
       : null;
+  // Autopilot for the epic the tab is zoomed in on (bead-bb-8ff): whether
+  // it is on, and the one line that says what the run is doing, what it
+  // waits for, or why it stopped.
+  const autopilotHere =
+    focused !== null && result?.autopilot?.epicId === focused.id
+      ? result.autopilot
+      : null;
+  const autopilotOn = autopilotHere?.on === true;
+  const autopilotNote = (() => {
+    if (autopilotHere === null) return null;
+    if (!autopilotOn) {
+      return autopilotHere.reason === null
+        ? null
+        : `Autopilot stopped. ${autopilotHere.reason}`;
+    }
+    if (currentIssue === null || workflowNow === null) {
+      return "Autopilot is on: starting the next ready issue.";
+    }
+    if (currentIssue.parentId !== focused?.id) {
+      return `Autopilot is on, and waits while this conversation is on ${currentIssue.id}.`;
+    }
+    const step = stateOf(workflowNow, currentIssue.step);
+    return step.actor === "user"
+      ? `Autopilot is on. Waiting for you: ${currentIssue.id} is at "${step.label}".`
+      : `Autopilot is on. The agent is on ${currentIssue.id}, at "${step.label}".`;
+  })();
   useEffect(() => {
     setNewIssueParentId(focusedId);
   }, [focusedId]);
@@ -359,6 +385,26 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
               // it; in any other folder the band offers nothing, since a
               // plain close would leave the branch unmerged.
               merging={focusedLanding !== null}
+              autopilot={
+                // Only in a conversation, and only where issues have steps.
+                threadId === null || workflowNow === null
+                  ? undefined
+                  : {
+                      on: autopilotOn,
+                      note: autopilotNote,
+                      onToggle: () => {
+                        rpc
+                          .call("autopilot_set", {
+                            threadId,
+                            epicId: autopilotOn ? null : focused.id,
+                          })
+                          .then((outcome) => {
+                            setActionProblem(outcome.message);
+                            refresh();
+                          }, reportProblem);
+                      },
+                    }
+              }
               onClose={
                 focusedDone === 0 || (focusedHolds && focusedLanding === null)
                   ? undefined
