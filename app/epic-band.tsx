@@ -34,10 +34,10 @@
 
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
+import { Tip } from "@/components/ui/tip";
 import { cn } from "@/lib/utils";
 import type { Issue } from "../server/contract.ts";
 import { IssueCard, useHoverCard } from "./issue-card.tsx";
-import { EpicPlaceTag } from "./workflow-controls.tsx";
 
 /** Shared look of the two outline icons below. */
 const STROKE = {
@@ -73,29 +73,6 @@ export function EnterEpicIcon({ className }: { className?: string }) {
       <path d="M12 3v12" />
       <path d="M16 11l-4 4l-4 -4" />
       <path d="M3 12a9 9 0 0 0 18 0" />
-    </svg>
-  );
-}
-
-/**
- * Autopilot's icon: two play triangles, one after the other, for "start
- * them one after another". Tabler Icons' "player-track-next" outline
- * (MIT, (c) Pawel Kuna), drawn here like the plugin's other icons.
- */
-function AutopilotIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      className={className}
-    >
-      <path d="M3 5v14l8 -7z" />
-      <path d="M14 5v14l8 -7z" />
     </svg>
   );
 }
@@ -215,9 +192,6 @@ export function EpicBand({
           ) : null}
         </div>
       </div>
-      {/* Where the epic's issues are worked, when it has a branch or a
-          work tree of its own; a link to its conversation from another. */}
-      <EpicPlaceTag issue={epic} />
       {/* Everything under the epic is closed: nothing is left to do here
           but close the epic itself (bead-bb-ty5.1). It asks first. */}
       {onClose === undefined ? null : (
@@ -239,25 +213,41 @@ export function EpicBand({
       {/* Autopilot: the epic's issues are started one after another, each
           review still the owner's. A switch, lit while it is on. */}
       {autopilot === undefined ? null : (
-        <Button
-          variant="outline"
-          size="sm"
-          aria-pressed={autopilot.on}
-          className={cn(
-            "h-7 shrink-0 px-2",
-            autopilot.on &&
-              "border-transparent bg-blue-500/15 text-foreground hover:bg-blue-500/25",
-          )}
-          tip={
+        // A switch, not a button (the user's choice, bead-bb-ty5.3): on
+        // or off is a state, and as a bordered button beside a bordered
+        // tag it made the band look like a row of buttons. Drawn by hand:
+        // a pill with a knob, the whole of it, word included, one target.
+        <Tip
+          label={
             autopilot.on
               ? "Autopilot is on: when an issue of this epic is closed, the next ready one starts by itself. Every review is still yours. Click to turn it off; the agent finishes what it is doing."
               : "Autopilot: start this epic's ready issues one after another, most urgent first. Every review stays yours, and it stops and says so if an issue gets stuck."
           }
-          onClick={autopilot.onToggle}
         >
-          <AutopilotIcon className="size-4" />
-          Autopilot
-        </Button>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={autopilot.on}
+            onClick={autopilot.onToggle}
+            className="flex shrink-0 cursor-pointer items-center gap-2 rounded px-1 py-1 text-sm"
+          >
+            Autopilot
+            <span
+              aria-hidden="true"
+              className={cn(
+                "relative h-4 w-7 rounded-full transition-colors",
+                autopilot.on ? "bg-blue-500" : "bg-foreground/25",
+              )}
+            >
+              <span
+                className={cn(
+                  "absolute top-0.5 size-3 rounded-full bg-white shadow-sm transition-[left]",
+                  autopilot.on ? "left-3.5" : "left-0.5",
+                )}
+              />
+            </span>
+          </button>
+        </Tip>
       )}
     </div>
       {autopilot === undefined || autopilot.note === null ? null : (

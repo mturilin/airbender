@@ -428,6 +428,20 @@ export function focusAfter(
 }
 
 /**
+ * A folder's path as shown in the tab: with "~" for the user's home folder
+ * where the path is inside it (the user: "path can use tilda for home
+ * dir"), unchanged otherwise.
+ *
+ * @param home The home folder, without a trailing slash mattering.
+ */
+export function shortPath(path: string, home: string): string {
+  const base = home.replace(/\/+$/u, "");
+  if (base === "") return path;
+  if (path === base) return "~";
+  return path.startsWith(`${base}/`) ? `~${path.slice(base.length)}` : path;
+}
+
+/**
  * How many issues a finished epic has under it; 0 when it is not finished.
  *
  * An epic is finished when it is still open itself, has at least one issue

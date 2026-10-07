@@ -246,6 +246,23 @@ export function createFolders({
   }
 
   /**
+   * Whether a folder is a work tree of its repository and not the
+   * repository's main folder.
+   *
+   * @returns False also when it cannot be told (not a git folder).
+   * Side effects: two read-only git commands.
+   */
+  async function isWorkTree(path: string): Promise<boolean> {
+    // Compared as git itself names them, so that a link in either path
+    // does not make one folder look like two.
+    const [top, main] = await Promise.all([
+      readGit(path, ["rev-parse", "--show-toplevel"]),
+      mainFolder(path),
+    ]);
+    return top !== null && top !== "" && main !== null && top !== main;
+  }
+
+  /**
    * Deletes a local branch whose every commit is already on the main
    * branch. The one git command of the plugin's that changes anything (see
    * server/work-trees.ts for why it cannot be left to the agent).
@@ -317,6 +334,7 @@ export function createFolders({
   return {
     onOwnBranch,
     currentBranch,
+    isWorkTree,
     mainBranch,
     mainFolder,
     deleteMergedBranch,

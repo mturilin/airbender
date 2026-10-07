@@ -47,11 +47,13 @@ function listed(branch: string | null, issues: Issue[]): IssuesResult {
   return {
     state: "ok",
     path: "/repo",
+    home: "/home/someone",
     message: null,
     issues,
     currentBeadId: null,
     ownBranch: branch !== null && branch !== "main",
     branch,
+    workTree: false,
     autopilot: null,
     workflow: "standard",
   };

@@ -509,11 +509,13 @@ The steps, in order: `[e2b]`
   - **Once an epic has a branch, its issues are worked on only in a folder
     that is on that branch.**
   - **Its issues do not propose to merge, only to commit.**
-  - **The epic carries a tag showing where it is worked**: "worktree" when
-    it is opened in a work tree in a parallel conversation, "branch"
-    otherwise. The work tree's tag takes the owner to that conversation.
-    The tag is on the epic's row, in the opened epic and in the band of
-    epic mode.
+  - **An epic opened in a work tree in a parallel conversation shows it**:
+    "worktree" on the epic, which takes the owner to that conversation.
+    `[ty5.2]` It is not a boxed tag, which looked too much like a button,
+    and an epic on a branch carries no tag: **the branch is shown beside
+    the folder's path**, as the branch icon and its name, and **in a work
+    tree the same place says "worktree", with the fir tree icon**.
+    `[ty5.3]`
   - **When all its issues are closed, the epic has the button "Close &
     merge"**: its branch is merged, and the epic is closed. For an epic in
     a work tree, everything is then closed as for a single issue.
@@ -868,12 +870,19 @@ breaking a requirement above.
   and work tree as they are. A merge that fails sends the epic back to the
   work like any issue. Only the owner can start an epic in a work tree; an
   agent may start one in a branch when asked to.
-- The epic's place tag: it sits after the step, carries the fir or the
-  branch icon of the two start commands, and its tooltip names the branch.
-  In the epic's own conversation, and on an issue's card above the message
-  box, the work tree's tag is not a link. The step still reads "On its
-  branch" in both cases.
-- Autopilot: its switch is a button in the epic band, lit while on, shown
+- The epic's "worktree" mark: it sits after the step on the epic's row and
+  in the opened epic, as underlined text with the small fir; its tooltip
+  names the branch. In the epic's own conversation, and on an issue's card
+  above the message box, it is plain text, not a link. The epic band
+  carries no such mark. The step still reads "On its branch".
+- The branch beside the folder's path: plain text in the path's own
+  lettering, shown whenever the branch can be told, also on the main
+  branch. In a work tree "worktree" comes before the branch. When there is no
+  room the path is cut first; a long branch name is cut too, and both show
+  whole in their tooltips. A path inside the owner's home folder is shown
+  with `~` in its place (the owner's request); the tooltip has it in full.
+- Autopilot: it is an on/off switch in the epic band, with its name beside
+  it (the owner chose a switch over a button), shown
   only in a conversation and where issues have steps. The next issue is
   the epic's most urgent direct sub-issue that is open, not blocked and
   not the current issue of another conversation; among equals, the oldest.

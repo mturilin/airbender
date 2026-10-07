@@ -30,6 +30,7 @@
 // - bd reports some errors on standard output as JSON and prints `null`
 //   where an empty list would be expected; both are handled where they occur.
 
+import { homedir } from "node:os";
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 import {
@@ -109,6 +110,7 @@ export function createStore({
     runIn,
     onOwnBranch,
     currentBranch,
+    isWorkTree,
     BD_NOT_FOUND_MESSAGE,
   } = folders;
 
@@ -180,6 +182,8 @@ export function createStore({
       currentBeadId,
       ownBranch: false,
       branch: null,
+      workTree: false,
+      home: homedir(),
       // Filled in by the server's handler, which knows autopilot.
       autopilot: null,
       workflow:
@@ -218,6 +222,8 @@ export function createStore({
       currentBeadId,
       ownBranch: await onOwnBranch(path),
       branch: await currentBranch(path),
+      workTree: await isWorkTree(path),
+      home: homedir(),
       autopilot: null,
       workflow: workflowChoice.idFor(path),
     };

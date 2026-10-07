@@ -26,6 +26,7 @@ import {
   matchesFilters,
   NO_FILTERS,
   pathTo,
+  shortPath,
   toSections,
   toSubGroups,
   toggled,
@@ -343,4 +344,13 @@ test("leaving an epic remembers it; entering one, or dismissing, forgets", () =>
   // The cross forgets the offer and nothing else.
   assert.deepEqual(focusAfter(out, "forget"), none);
   assert.deepEqual(focusAfter({ focus: "epic", last: "x" }, "forget"), inside);
+});
+
+test("a path inside the home folder is shown with a tilde", () => {
+  assert.equal(shortPath("/home/me/Development/x", "/home/me"), "~/Development/x");
+  assert.equal(shortPath("/home/me", "/home/me/"), "~");
+  // Only the folder itself, not one whose name merely starts the same.
+  assert.equal(shortPath("/home/melanie/x", "/home/me"), "/home/melanie/x");
+  assert.equal(shortPath("/srv/x", "/home/me"), "/srv/x");
+  assert.equal(shortPath("/srv/x", ""), "/srv/x");
 });

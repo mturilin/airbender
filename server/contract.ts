@@ -153,6 +153,11 @@ const issuesResultSchema = z.object({
   state: z.enum(["ok", "no-beads", "no-bd", "unavailable", "error"]),
   /** Folder bd ran in; null when none could be resolved. */
   path: z.string().nullable(),
+  /**
+   * The home folder of the user the plugin's server runs as, so that the
+   * tab can show a path inside it with "~" (bead-bb-ty5.3).
+   */
+  home: z.string(),
   /** Plain-language explanation for every state except "ok". */
   message: z.string().nullable(),
   issues: z.array(issueSchema),
@@ -175,6 +180,11 @@ const issuesResultSchema = z.object({
    * is the folder that epic's issues are worked in.
    */
   branch: z.string().nullable(),
+  /**
+   * Whether the folder is a work tree of its repository, not the
+   * repository's main folder. False when that cannot be told.
+   */
+  workTree: z.boolean(),
   /**
    * Autopilot in this conversation (bead-bb-8ff): the epic it is on for,
    * or was last, whether it is on, and why it last turned itself off (null

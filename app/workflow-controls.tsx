@@ -140,55 +140,62 @@ export function StateTag({ issue }: { issue: Issue }) {
 }
 
 /**
- * Where an epic's issues are worked, as a tag beside its step
- * (bead-bb-ty5.2): "worktree" with the fir when Airbender opened a
- * conversation and a work tree for it, "branch" with the branch icon when
- * it holds a branch in a folder. Nothing for any other issue.
+ * On an epic that Airbender opened a conversation and a work tree for:
+ * the word "worktree" with the small fir, beside its step, as the way to
+ * that conversation. Nothing for any other issue.
  *
- * The user asked for it: "Can we show that the epic is opened on a
- * different work tree in a parallel conversation? Has a tag somewhere in
- * epic?" The work tree's tag is a link to that conversation, except in
- * that conversation itself and where the tag is drawn outside the tab (an
- * issue's card above the message box), where it is only a tag.
+ * The user asked for it (bead-bb-ty5.2): "Can we show that the epic is
+ * opened on a different work tree in a parallel conversation? Has a tag
+ * somewhere in epic?" It began as a boxed tag, with a second one, "branch",
+ * for an epic that holds a branch in a folder. The user found the boxes
+ * "too similar to a button" (bead-bb-ty5.3): the branch now stands on the
+ * tab's top line, beside the folder, and this one is plain underlined
+ * text, which reads as the link it is. In the epic's own conversation, and
+ * where it is drawn outside the tab (an issue's card above the message
+ * box), there is nowhere to go and it is plain text.
  *
- * The same box as the tags beside it, and plain inline text for the same
- * reason as the step's chip: the facts are lined up on their baseline.
+ * Inline text for the same reason as the step's chip: the facts are lined
+ * up on their baseline.
  */
 export function EpicPlaceTag({ issue }: { issue: Issue }) {
   const workflow = useWorkflow();
   const actions = useOptionalActions();
-  if (workflow === null || issue.status === CLOSED_STATUS) return null;
-  const holds =
-    issue.branch !== null || stateOf(workflow, issue.step).holdsBranch === true;
-  if (!holds) return null;
-  const tree = issue.conversationId !== null;
+  if (
+    workflow === null ||
+    issue.status === CLOSED_STATUS ||
+    issue.conversationId === null
+  ) {
+    return null;
+  }
   const there =
-    tree && actions !== null && actions.threadId !== issue.conversationId
+    actions !== null && actions.threadId !== issue.conversationId
       ? issue.conversationId
       : null;
   const on = issue.branch === null ? "" : `, on the branch ${issue.branch}`;
-  const label = tree
-    ? there !== null
-      ? `This epic's issues are worked in a conversation and work tree of its own${on}. Click to go there.`
-      : `This epic's issues are worked in this conversation's work tree${on}.`
-    : `This epic's issues are worked on a branch of its own${on}.`;
-  const className =
-    "shrink-0 whitespace-nowrap rounded border border-border px-1.5 py-px text-[11px] leading-4 text-muted-foreground";
+  const className = "shrink-0 whitespace-nowrap text-xs text-muted-foreground";
   const content = (
     <>
       <MoveIcon
-        name={tree ? "epic-tree" : "epic-branch"}
+        name="epic-tree"
         className="mr-1 inline-block size-3 align-[-1.5px]"
       />
-      {tree ? "worktree" : "branch"}
+      <span className={there === null ? undefined : "underline underline-offset-2"}>
+        worktree
+      </span>
     </>
   );
   return (
-    <Tip label={label}>
+    <Tip
+      label={
+        there !== null
+          ? `This epic's issues are worked in a conversation and work tree of its own${on}. Click to go there.`
+          : `This epic's issues are worked in this conversation's work tree${on}.`
+      }
+    >
       {there !== null && actions !== null ? (
         <button
           type="button"
-          className={cn(className, "cursor-pointer hover:bg-foreground/[0.08] hover:text-foreground")}
+          className={cn(className, "cursor-pointer hover:text-foreground")}
           aria-label={`Go to the conversation of ${issue.id}`}
           onClick={(event) => {
             // The row under it opens the issue on a click.
