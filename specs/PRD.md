@@ -678,6 +678,35 @@ These rules apply to any agent working in a repository that uses the product.
   are updated in the same commit. Requests that are not built yet stay in
   the tracker and are not written here. `[wie]`
 
+## The `bend` command
+
+A program for agents to read and change a repository's issues, beside the
+panel. `[bwr]`
+
+- **The agent does not need to know which tracker holds the issues.** The
+  commands, fields and output are the same whatever the tracker; the tracker
+  is found from the folder. Beads is the only tracker supported so far.
+- **It does not depend on the app the panel runs in**, so it can be used, or
+  moved, on its own.
+- **What it can do:** list issues, list those ready to work on, show one,
+  show its comments, search; create, edit, write one of an issue's parts
+  (description, requirements, done, plan, notes), comment, record a
+  decision, close, reopen; move an issue under another or to the top level;
+  link and unlink two issues (blocked by, discovered from, related); hand an
+  issue over; report the repository's status; save and recall standing
+  facts.
+- **It has no notion of a "current" issue.** That belongs to a working
+  session, not to the tracker.
+- **Closing is available to agents.** That agents do not close on their own
+  is a rule for agents, not a missing command.
+- **Status says what applies here:** which tracker is used, what it
+  supports, what is kept another way, and what is not available.
+- **Standing facts are kept in a file in the repository**, not in the
+  tracker.
+- **It can be asked for machine-readable output**, and it ends with a
+  status that tells "refused", "asked wrongly" and "this tracker cannot do
+  that" apart.
+
 ## What it is not
 
 - **Not a second issue tracker.** Issues live in beads; the panel shows and
@@ -964,6 +993,27 @@ breaking a requirement above.
   step again.
 - Workflow: how an issue and its sub-issues move through steps together is
   not worked out; each has its own step.
+- bend: there is also a "start" command, which marks an issue as being
+  worked on and, when the caller names itself, assigns it.
+- bend: a hand-over must say three things: what was done, how it was
+  checked, and what was not checked. Without all three it is refused and
+  nothing is changed. It is recorded as a comment and leaves the issue in
+  progress.
+- bend: a decision is recorded as a comment that begins "Decision:".
+- bend: with beads, requirements are kept as a marked section at the end of
+  the description, since beads has no place of its own for them; the
+  category is the same label the panel uses. Status reports both.
+- bend: facts are kept in a marked section of AGENTS.md, one line per key;
+  saving under a key that exists replaces that fact, and a fact saved
+  without a key gets one from its first words.
+- bend: lists show open issues unless asked otherwise; an issue that waits
+  for an unfinished one is shown as blocked.
+- bend: status warns when the beads database is not synced anywhere.
+- bend: refusals from beads are reworded where they would advise commands
+  bend does not have.
+- bend: every command accepts: run in another folder, read the text from a
+  file or standard input, and who is acting. The ending statuses are 0 done,
+  1 refused, 2 asked wrongly, 3 not supported by this tracker.
 - Setup: every step asks for confirmation first, showing what it will do
   and the exact command. The folder step lists what it adds to the
   repository.

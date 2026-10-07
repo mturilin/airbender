@@ -48,6 +48,9 @@
     "vaul": "^1.1.2"
   },
   "scripts": {
-    "test": "node --test --experimental-strip-types \"shared/*.test.ts\" \"server/*.test.ts\" \"app/*.test.ts\""
+    "test": "node --test --experimental-strip-types \"shared/*.test.ts\" \"server/*.test.ts\" \"app/*.test.ts\" \"tracker/*.test.ts\" \"bend/*.test.ts\""
+  },
+  "bin": {
+    "bend": "./bin/bend"
   }
 }

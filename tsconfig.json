@@ -29,6 +29,8 @@
     "shared",
     "components",
     "lib",
-    "hooks"
+    "hooks",
+    "tracker",
+    "bend"
   ]
 }

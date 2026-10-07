@@ -30,6 +30,9 @@ panel, beside a thread or on the New thread screen.
   `server/workflow-choice.ts`. To change how issues
   are worked, change `standard-workflow.ts`; nothing else names a step. These files have no imports,
   so they are safe to bundle on either side.
+- `tracker/`, `bend/`, `bin/bend` — **bend**, a command for agents to read
+  and change issues without knowing which tracker holds them (see "bend"
+  below). It does not depend on the plugin or on BB.
 - `*.test.ts` — tests for the logic without React or BB; run `npm test`.
 - `PLUGIN_OVERVIEW.md` — the text BB shows on the plugin's detail page.
 
@@ -197,6 +200,27 @@ lists every step, greyed out when done or not yet possible:
 
 Steps 1 to 3 run in a BB terminal you can watch and type into; the tab
 reloads when it ends and shows the last output if it failed.
+
+## bend
+
+`bin/bend` is a command-line program for agents: the same commands whatever
+tracker a repository uses (beads today). Run `bin/bend --help`.
+
+- `tracker/types.ts` — the common shape of an issue and the `Tracker`
+  interface every adapter implements. No imports from the plugin or BB.
+- `tracker/beads.ts` — the beads adapter. `tracker/detect.ts` picks the
+  adapter from the folder. A new tracker is a new adapter plus a line there.
+- `tracker/memory.ts` — standing facts, kept in a marked section of
+  `AGENTS.md`. `tracker/parts.ts` — small text helpers.
+- `bend/` — the command: `commands.ts` (the table the help and the accepted
+  options both come from), `args.ts`, `format.ts`, `main.ts`, `cli.ts`.
+- `.agents/skills/bend/SKILL.md` — tells agents when and how to use it.
+
+It needs node 22.6 or later, which runs the TypeScript directly. To have it
+as plain `bend`, link `bin/bend` into a folder on your PATH. The tests in
+`bend/main.test.ts` run against a real throwaway beads folder and are
+skipped where `bd` is not installed. The Airbender tab does not use
+`tracker/` yet.
 
 ## Limits of this version
 
