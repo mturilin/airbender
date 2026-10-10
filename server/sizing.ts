@@ -532,12 +532,22 @@ export async function createSizing({
 
     let workerId: string;
     try {
-      // In the folder the tab was looking at (it may be a work tree); from
-      // the new-thread screen, in the project's default one.
+      // In the folder the tab was looking at (it may be a work tree): the
+      // thread's own environment where there is a thread, and otherwise
+      // that same folder, used as it is. Never the project's default
+      // environment: where that is a fresh work tree, every run made one,
+      // with a branch that BB left behind when it removed the tree
+      // (bead-bb-2u0). A worker only reads, so it needs no folder of its
+      // own.
       let projectId = scope.projectId;
       let environment:
         | { type: "reuse"; environmentId: string }
-        | { type: "project-default" } = { type: "project-default" };
+        | {
+            type: "host";
+            hostId?: string;
+            workspace: { type: "unmanaged"; path: string };
+          }
+        | null = null;
       if (scope.threadId !== null) {
         const thread = await bb.sdk.threads.get({ threadId: scope.threadId });
         projectId = thread.projectId;
@@ -546,6 +556,17 @@ export async function createSizing({
         }
       }
       if (projectId === null) throw new Error("Pick a project first.");
+      if (environment === null) {
+        // The machine the folder is on: the project's default source,
+        // which is where the folder was found (server/folder.ts).
+        const project = await bb.sdk.projects.get({ projectId });
+        const hostId = project.sources.find((source) => source.isDefault)?.hostId;
+        environment = {
+          type: "host",
+          ...(hostId === undefined ? {} : { hostId }),
+          workspace: { type: "unmanaged", path },
+        };
+      }
       const worker = await bb.sdk.threads.spawn({
         projectId,
         environment,
