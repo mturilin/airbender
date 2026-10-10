@@ -1,20 +1,20 @@
-// server/folder.ts — finding the folder and running bd in it.
+// server/folder.ts — finding the folder, the beads program, and what git
+// says about the folder.
 //
 // What: works out which folder on this machine a thread or project works
-// in, and runs the beads program there, trying the places it may be
-// installed.
+// in, finds the beads program among the places it may be installed, and
+// reads the folder's git state (branch, work tree, uncommitted changes).
 //
-// Why: every request begins with these two questions, and both have several
-// plain-language ways to fail (the thread is on another machine, no project
-// is picked, the folder is gone, beads is not installed). Answered once
-// here, every caller reports them in the same words.
+// Why: every request begins with the first two questions, and both have
+// several plain-language ways to fail (the thread is on another machine, no
+// project is picked, the folder is gone, beads is not installed). Answered
+// once here, every caller reports them in the same words.
 //
 // Design notes:
 // - A thread's own checkout wins over the project's default folder, because
 //   it may be a worktree.
-// - `runBdIn` gives the raw outcome, for the few callers that must tell a
-//   missing program from a failed command. `runIn` turns either into a
-//   message, which is what nearly every caller wants.
+// - Issues are not read or changed here: that goes through the tracker
+//   core (server/trackers.ts), which is handed the program `findBd` finds.
 //
 // Gotchas:
 // - A missing folder and a missing program look the same to the operating
@@ -27,7 +27,6 @@ import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { readGit, runBd } from "./bd.ts";
-import type { BdRun } from "./bd.ts";
 
 /**
  * Builds the folder and bd helpers for this plugin instance.
@@ -114,45 +113,6 @@ export function createFolders({
       };
     }
     return folder;
-  }
-
-  /**
-   * Runs `bd` in a folder, trying each known install location until one
-   * exists.
-   *
-   * @returns The first run that found a program, or "not-found" if none did.
-   */
-  async function runBdIn(path: string, args: string[]): Promise<BdRun> {
-    let run: BdRun = { kind: "not-found" };
-    for (const candidate of bdCandidates) {
-      run = await runBd(candidate, args, path);
-      if (run.kind !== "not-found") break;
-    }
-    return run;
-  }
-
-  /**
-   * Runs bd in a folder and turns either kind of failure into a message.
-   *
-   * @param what When given, a failed command is written to the plugin's log
-   *   under this name (e.g. "bd update"). Left out for plain reads, whose
-   *   failures are shown to the user and need no log line.
-   * @returns bd's standard output, or the reason in plain words.
-   */
-  async function runIn(
-    path: string,
-    args: string[],
-    what?: string,
-  ): Promise<{ stdout: string } | { message: string }> {
-    const run: BdRun = await runBdIn(path, args);
-    if (run.kind === "not-found") return { message: BD_NOT_FOUND_MESSAGE };
-    if (run.kind === "failed") {
-      if (what !== undefined) {
-        bb.log.warn(what + " failed in " + path + ": " + run.message);
-      }
-      return { message: run.message };
-    }
-    return { stdout: run.stdout };
   }
 
   /**
@@ -342,8 +302,6 @@ export function createFolders({
     BD_NOT_FOUND_MESSAGE,
     resolveFolder,
     folderFor,
-    runBdIn,
-    runIn,
     findBd,
   };
 }

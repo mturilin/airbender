@@ -63,6 +63,33 @@ export function joinSection(
   return rest.trim() === "" ? block : `${rest.trim()}\n\n${block}`;
 }
 
+/** The name of the section that holds requirements inside a description. */
+const REQUIREMENTS = "requirements";
+
+/**
+ * Splits a description as a tracker without a field for requirements holds
+ * it into the description proper and the requirements kept inside it.
+ */
+export function splitRequirements(text: string): {
+  description: string;
+  requirements: string;
+} {
+  const { rest, section } = splitSection(text, REQUIREMENTS);
+  return { description: rest, requirements: section };
+}
+
+/**
+ * The one text a tracker without a field for requirements holds: the
+ * description with the requirements as a marked section at its end. The
+ * opposite of splitRequirements.
+ */
+export function withRequirements(
+  description: string,
+  requirements: string,
+): string {
+  return joinSection(description, REQUIREMENTS, "Requirements", requirements);
+}
+
 /** Longest category name accepted. */
 const CATEGORY_MAX_LENGTH = 40;
 

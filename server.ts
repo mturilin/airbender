@@ -3,30 +3,34 @@
 // Where things are: this file reads the settings, wires the pieces together
 // and holds the table of request handlers and the agent tool. The pieces are
 // in server/: contract.ts (the typed contract with the frontend), folder.ts
-// (finding the folder and running bd in it), current-bead.ts (which issue a
-// thread is working on), store.ts (listing and changing issues), work.ts
-// (moving an issue through its workflow), issues.ts (turning beads' rows
-// into issues), bd.ts (running programs), watch.ts (noticing changes made
+// (finding the folder and the bd program), trackers.ts (the tracker core's
+// adapter for a folder), current-bead.ts (which issue a thread is working
+// on), store.ts (listing and changing issues, through that tracker),
+// work.ts (moving an issue through its workflow), issues.ts (turning the
+// tracker's issues into the tab's), bd.ts (running programs), watch.ts (noticing changes made
 // outside the plugin), setup.ts (getting a folder ready) and prompts.ts
 // (Airbender's rules for agents). The workflow itself, its steps and the
 // wording for each, is in shared/standard-workflow.ts. The notes below describe the backend as a whole.
 //
 // What: the data behind the Airbender tab. Lists the beads issues of the
 // folder a thread (or project) works in, creates and changes them, remembers
-// which issue each thread is working on, and gets a folder ready for beads —
-// nearly all of it by running the `bd` command-line tool.
+// which issue each thread is working on, and gets a folder ready for beads.
+// Issues are read and changed through the tracker core in tracker/, the
+// layer the `bend` command is built on (bead-bb-c9l.2); for beads that core
+// runs the `bd` command-line tool.
 //
 // Why: beads keeps a repo's issues in a database inside the repo, and the only
 // supported way to read it is the `bd` tool. The browser cannot run a program,
 // so the tab asks this backend over RPC.
 //
 // Design notes:
-// - Reading runs `bd --readonly`. The writes to the issue database are
-//   creating (`bd create`), closing (`bd close`), reopening (`bd reopen`)
-//   changing an issue's type, priority, title, description, parent or
-//   category (`bd update`), and adding or removing links between issues
-//   (`bd dep`); nothing here deletes an issue or edits its design,
-//   acceptance criteria, notes or comments. Setup additionally runs
+// - No bd command for an issue is written in this plugin's backend: the
+//   beads adapter (tracker/beads.ts) holds them all, and the store calls
+//   the tracker. Reading runs `bd --readonly`. The writes are creating,
+//   closing and reopening an issue, changing its type, priority, title,
+//   description, parent, category or labels, adding a comment, and adding
+//   or removing links between issues; nothing here deletes an issue or
+//   edits its design, acceptance criteria or notes. Setup additionally runs
 //   `bd init` and `bd setup` in a terminal the user can see, and writes
 //   Airbender's rules into the folder's AGENTS.md.
 // - Every issue goes through a workflow to be closed (bead-bb-e2b). The
@@ -43,9 +47,12 @@
 //   is working on. It is stored on the thread (BB's per-plugin thread
 //   metadata), set either by the user in the tab or by the thread's agent
 //   through the `beads_set_current` tool. Beads itself is not changed by it.
-// - One `bd list --all` per request. "Blocked" is worked out here from each
-//   issue's dependency list instead of a second `bd blocked` call, so the tab
-//   always shows one consistent snapshot.
+// - The tab's list is one `bd list --all`. "Blocked" is worked out from
+//   each issue's dependency list (in the adapter, and for the owner's
+//   "every open sub-issue is blocked" rule in server/issues.ts) instead of
+//   a second `bd blocked` call, so the tab always shows one consistent
+//   snapshot. A change reads that list once more before it writes: the
+//   adapter checks there what it is asked to change.
 // - `bd` runs on the machine the BB server runs on. A thread whose folder is
 //   on another enrolled machine gets an explicit "unavailable" answer instead
 //   of a wrong list (tracked as bead-bb-hl3).
@@ -93,6 +100,7 @@ import { createFolders } from "./server/folder.ts";
 import { createSetup } from "./server/setup.ts";
 import { REPORT_TOOL, createSizing } from "./server/sizing.ts";
 import { createStore } from "./server/store.ts";
+import { createTrackers } from "./server/trackers.ts";
 import { createWatcher } from "./server/watch.ts";
 import { createAutopilot } from "./server/autopilot.ts";
 import { createWork } from "./server/work.ts";
@@ -170,9 +178,15 @@ export default async function plugin(bb: BbPluginApi) {
   const currentBead = createCurrentBead(bb);
   const { watchFolder } = await createWatcher(bb);
   const workflowChoice = await createWorkflowChoice(bb);
+  const trackers = createTrackers({
+    findBd: folders.findBd,
+    notFoundMessage: folders.BD_NOT_FOUND_MESSAGE,
+    warn: (line) => bb.log.warn(line),
+  });
   const store = createStore({
     bb,
     folders,
+    trackers,
     currentBead,
     watchFolder,
     workflowChoice,

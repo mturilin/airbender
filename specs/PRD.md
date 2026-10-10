@@ -1050,7 +1050,16 @@ breaking a requirement above.
   for an unfinished one is shown as blocked.
 - bend: status warns when the beads database is not synced anywhere.
 - bend: refusals from beads are reworded where they would advise commands
-  bend does not have.
+  bend does not have, and name no command themselves, because the panel
+  shows the same refusals. `[c9l.2]`
+- bend: a new sub-issue takes its parent's category when none is given,
+  and none of its parent's other labels. `[c9l.2]`
+- bend and the panel find a repository's issues from a work tree as well,
+  where the tracker's own folder is only in the repository's main folder.
+  `[c9l.2]`
+- The panel shows an issue's description and its requirements as one text,
+  the requirements as a marked section at its end, as beads holds them.
+  `[c9l.2]`
 - bend: every command accepts: run in another folder, read the text from a
   file or standard input, and who is acting. The ending statuses are 0 done,
   1 refused, 2 asked wrongly, 3 not supported by this tracker.

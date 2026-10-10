@@ -15,11 +15,16 @@
 //   description, acceptance criteria and design; notes are notes.
 //   Requirements have no field in beads and are kept as a marked section
 //   inside the description (see parts.ts); `capabilities` says so.
-// - The category is the label `category:<name>`, the same convention the
-//   Airbender tab uses, so the two agree.
+// - The category is the label `category:<name>`. A new sub-issue takes its
+//   parent's category and none of its parent's other labels: bd would copy
+//   them all, and callers keep things of their own in labels (the Airbender
+//   tab keeps an issue's workflow step there), which must not be inherited.
 // - Links: "blocked-by" is beads' dependency type "blocks" (stored on the
 //   issue that waits); "discovered-from" is the same name in beads;
-//   "related" goes through `bd dep relate`, beads' see-also command.
+//   "related" goes through `bd dep relate`, beads' see-also command. Beads'
+//   other dependency types (OWN_KINDS) are accepted under beads' own names.
+// - Refusals are worded for any caller: they name no command of `bend` or
+//   of bd, because the Airbender tab shows them on a screen.
 // - Free text is never put where bd could read it as an option: it is the
 //   value of a named flag, or is sent on standard input. No shell is used.
 //
@@ -32,9 +37,17 @@
 //   is passed on.
 
 import { execFile } from "node:child_process";
-import { cleanCategory, joinSection, splitSection } from "./parts.ts";
 import {
+  cleanCategory,
+  splitRequirements,
+  withRequirements,
+} from "./parts.ts";
+import {
+  LINK_KINDS,
+  NoProgram,
+  NotSetUp,
   Refused,
+  Unsupported,
   type Capabilities,
   type Changes,
   type Comment,
@@ -42,7 +55,6 @@ import {
   type Issue,
   type IssueRef,
   type Link,
-  type LinkKind,
   type ListFilter,
   type Part,
   type Tracker,
@@ -52,8 +64,6 @@ import {
 const CATEGORY_PREFIX = "category:";
 /** Beads' status for a finished issue. */
 const CLOSED = "closed";
-/** The name of the section that holds requirements inside a description. */
-const REQUIREMENTS = "requirements";
 /** How long one bd command may take. */
 const BD_TIMEOUT_MS = 30_000;
 /** Upper bound on bd output we are willing to buffer (32 MiB). */
@@ -87,6 +97,12 @@ const KIND_OF: Record<string, string> = {
   related: "related",
   "relates-to": "related",
 };
+
+/**
+ * Beads' dependency types beyond the common three, accepted by `link` under
+ * beads' own names.
+ */
+const OWN_KINDS = ["tracks", "until", "caused-by", "validates", "supersedes"];
 
 /** Kinds that read the same from both ends. */
 const TWO_WAY = new Set(["related"]);
@@ -169,11 +185,17 @@ export function toIssues(rows: BdRow[]): Issue[] {
       }
     }
     const labels = row.labels ?? [];
+    // Lower-cased on the way in as well as on the way out (cleanCategory),
+    // so a label written with capitals by hand still counts as the same
+    // category.
     const category = labels
       .find((label) => label.startsWith(CATEGORY_PREFIX))
       ?.slice(CATEGORY_PREFIX.length)
-      .trim();
-    const { rest, section } = splitSection(row.description ?? "", REQUIREMENTS);
+      .trim()
+      .toLowerCase();
+    const { description, requirements } = splitRequirements(
+      row.description ?? "",
+    );
     return {
       id: row.id,
       title: row.title,
@@ -183,8 +205,8 @@ export function toIssues(rows: BdRow[]): Issue[] {
       category: category === undefined || category === "" ? null : category,
       assignee: row.assignee ?? null,
       parentId: row.parent ?? null,
-      description: rest,
-      requirements: section,
+      description,
+      requirements,
       done: row.acceptance_criteria ?? "",
       plan: row.design ?? "",
       notes: row.notes ?? "",
@@ -221,9 +243,9 @@ export function descendantIds(rootId: string, rows: BdRow[]): Set<string> {
 }
 
 /**
- * Turns one of bd's error messages into words that make sense to someone
- * using `bend`: without bd's own prefixes, and without advice to use bd
- * commands or options that `bend` does not have.
+ * Turns one of bd's error messages into words that make sense to any
+ * caller: without bd's own prefixes, and without advice to use bd commands
+ * or options the caller does not have.
  */
 export function explain(message: string): string {
   // bd adds usage text after some errors; the first line is the reason.
@@ -233,7 +255,7 @@ export function explain(message: string): string {
     .trim();
   const assigned = /assignee is "(.*?)", actor is "(.*?)"/u.exec(reason);
   if (assigned !== null) {
-    return `The issue is assigned to ${assigned[1]}, and you are acting as ${assigned[2]}. Close it as ${assigned[1]} (--as), or change its assignee first (bend edit).`;
+    return `The issue is assigned to ${assigned[1]}, and you are acting as ${assigned[2]}. Close it as ${assigned[1]}, or change its assignee first.`;
   }
   if (/would create a cycle/iu.test(reason)) {
     return "That would make a loop: one of the two already depends on the other.";
@@ -281,8 +303,9 @@ export function createBeadsTracker({
    *
    * @param input Text to send on standard input, for commands that read
    *   free text from there.
-   * @throws Refused with bd's own message when the command fails, or with
-   *   a plain explanation when bd is not installed.
+   * @throws Refused with bd's own message when the command fails; NoProgram
+   *   when bd is not installed; NotSetUp when the folder has no beads
+   *   database.
    */
   function bd(args: string[], input?: string): Promise<string> {
     const full = actor === undefined ? args : ["--actor", actor, ...args];
@@ -295,8 +318,8 @@ export function createBeadsTracker({
           if (error === null) return resolve(stdout);
           if ((error as NodeJS.ErrnoException).code === "ENOENT") {
             return reject(
-              new Refused(
-                `The beads program (${bdCommand}) was not found. Install beads, or set BEND_BD to its full path.`,
+              new NoProgram(
+                `The beads program (${bdCommand}) was not found. Install beads, or say where it is installed.`,
               ),
             );
           }
@@ -314,6 +337,11 @@ export function createBeadsTracker({
           } catch {
             // Not JSON: the text is already the message.
           }
+          if (/no beads database found/iu.test(detail)) {
+            return reject(
+              new NotSetUp("This folder has no beads database yet."),
+            );
+          }
           reject(new Refused(explain(detail)));
         },
       );
@@ -328,7 +356,7 @@ export function createBeadsTracker({
       return (JSON.parse(out) ?? []) as Answer;
     } catch {
       throw new Refused(
-        "bd answered in a format this program does not understand. It may be a newer or older bd than bend was written for.",
+        "bd answered in a format this program does not understand. It may be a newer or older bd than it was written for.",
       );
     }
   }
@@ -367,6 +395,7 @@ export function createBeadsTracker({
       return {
         tracker: "beads",
         where: dir,
+        linkKinds: [...LINK_KINDS, ...OWN_KINDS],
         supports: [
           { name: "sub-issues", level: "yes", note: "" },
           { name: "comments", level: "yes", note: "" },
@@ -472,19 +501,26 @@ export function createBeadsTracker({
       if (draft.done?.trim()) args.push("--acceptance", draft.done);
       if (draft.type !== undefined) args.push("--type", draft.type);
       if (draft.priority !== undefined) args.push("--priority", `${draft.priority}`);
-      if (draft.parentId !== undefined) args.push("--parent", draft.parentId);
-      // Without a category of its own a sub-issue takes its parent's: beads
-      // copies the parent's labels to a new child by itself.
-      if (draft.category !== undefined) {
-        args.push("--labels", CATEGORY_PREFIX + cleanCategory(draft.category));
+      // bd would copy all of a parent's labels onto a new sub-issue; see
+      // the header for why only the category is passed on.
+      let category =
+        draft.category === undefined ? null : cleanCategory(draft.category);
+      if (draft.parentId !== undefined) {
+        args.push("--parent", draft.parentId, "--no-inherit-labels");
+        category ??=
+          toIssues(all).find((issue) => issue.id === draft.parentId)
+            ?.category ?? null;
       }
+      // Safe as a flag value: it always starts with "category:", never a
+      // dash, and cleanCategory has ruled out commas.
+      if (category !== null) args.push("--labels", CATEGORY_PREFIX + category);
       if (draft.from !== undefined) {
         args.push("--deps", `discovered-from:${draft.from}`);
       }
       const created = await bdJson<{ id?: string }>(args);
       if (typeof created.id !== "string") {
         throw new Refused(
-          "bd reported success but did not say which issue it created. Check with `bend list`.",
+          "bd reported success but did not say which issue it created. Look at the list to see whether it is there.",
         );
       }
       for (const blocker of draft.blockedBy ?? []) {
@@ -504,12 +540,24 @@ export function createBeadsTracker({
       if (changes.assignee !== undefined) {
         args.push("--assignee", changes.assignee ?? "");
       }
+      const labels = row.labels ?? [];
+      for (const label of changes.removeLabels ?? []) {
+        if (labels.includes(label)) args.push("--remove-label", label);
+      }
+      for (const label of changes.addLabels ?? []) {
+        // A label is a flag's value here, so one that starts with a dash
+        // would still be read as text; a comma would split it in two.
+        if (label.trim() === "" || label.includes(",")) {
+          throw new Refused(`"${label}" cannot be used as a label.`);
+        }
+        if (!labels.includes(label)) args.push("--add-label", label);
+      }
       if (changes.category !== undefined) {
         const wanted =
           changes.category === null
             ? null
             : CATEGORY_PREFIX + cleanCategory(changes.category);
-        const present = (row.labels ?? []).filter((label) =>
+        const present = labels.filter((label) =>
           label.startsWith(CATEGORY_PREFIX),
         );
         // Every category label is removed first, so an issue never ends up
@@ -527,17 +575,17 @@ export function createBeadsTracker({
 
     async write(id: string, part: Part, text: string): Promise<void> {
       const row = need(await rows(), id);
-      const { rest, section } = splitSection(row.description ?? "", REQUIREMENTS);
+      const held = splitRequirements(row.description ?? "");
       const flag: Record<Part, [string, string]> = {
         // The description and the requirements share beads' one field; each
         // is written without disturbing the other.
         description: [
           "--description",
-          joinSection(text, REQUIREMENTS, "Requirements", section),
+          withRequirements(text, held.requirements),
         ],
         requirements: [
           "--description",
-          joinSection(rest, REQUIREMENTS, "Requirements", text),
+          withRequirements(held.description, text),
         ],
         done: ["--acceptance", text.trim()],
         plan: ["--design", text.trim()],
@@ -583,7 +631,7 @@ export function createBeadsTracker({
         // pair of issues, so an existing link between the two is in the way.
         if (storedLink(row, parentId) ?? storedLink(parent, id)) {
           throw new Refused(
-            `${id} and ${parentId} are linked. Remove that link first (bend unlink ${id} ${parentId}), then move it.`,
+            `${id} and ${parentId} are linked. Remove that link first, then move it.`,
           );
         }
         // Checked here and not left to bd: an issue inside itself would
@@ -598,7 +646,12 @@ export function createBeadsTracker({
       await bd(["update", id, "--json", "--parent", parentId ?? ""]);
     },
 
-    async link(id: string, otherId: string, kind: LinkKind): Promise<void> {
+    async link(id: string, otherId: string, kind: string): Promise<void> {
+      if (!(LINK_KINDS as readonly string[]).includes(kind) && !OWN_KINDS.includes(kind)) {
+        throw new Unsupported(
+          `Beads has no "${kind}" link. It has: ${[...LINK_KINDS, ...OWN_KINDS].join(", ")}.`,
+        );
+      }
       const all = await rows();
       const row = need(all, id);
       const other = need(all, otherId);
@@ -611,7 +664,7 @@ export function createBeadsTracker({
         (kind === "related" ? storedLink(other, id) : undefined);
       if (existing !== undefined) {
         throw new Refused(
-          `${id} and ${otherId} are already linked (${KIND_OF[existing.type] ?? existing.type}). Remove that link first: bend unlink ${id} ${otherId}.`,
+          `${id} and ${otherId} are already linked (${KIND_OF[existing.type] ?? existing.type}). Remove that link first.`,
         );
       }
       await bd(
@@ -629,10 +682,16 @@ export function createBeadsTracker({
       );
     },
 
-    async unlink(id: string, otherId: string): Promise<void> {
+    async unlink(
+      id: string,
+      otherId: string,
+      onlyFrom = false,
+    ): Promise<void> {
       const all = await rows();
       const forward = storedLink(need(all, id), otherId);
-      const backward = storedLink(need(all, otherId), id);
+      const backward = onlyFrom
+        ? undefined
+        : storedLink(need(all, otherId), id);
       if (forward === undefined && backward === undefined) {
         throw new Refused(`There is no link between ${id} and ${otherId}.`);
       }

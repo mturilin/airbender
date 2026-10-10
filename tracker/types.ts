@@ -20,8 +20,12 @@
 //   into its exit status: Refused (1), UsageError (2), Unsupported (3).
 //   "The tracker cannot do this" is kept apart from "you asked wrongly" so
 //   an agent can adapt instead of retrying.
-// - Only three kinds of link are offered for writing: the ones other
-//   trackers can represent too. A tracker's other kinds are still shown.
+// - Three kinds of link are common to every tracker (LINK_KINDS). A tracker
+//   may accept kinds of its own as well; it names them in its capabilities,
+//   and answers Unsupported for any other.
+// - Two refusals have a class of their own, NoProgram and NotSetUp, because
+//   a caller with a screen (the Airbender tab) offers a different way out of
+//   each. A command-line caller needs no change: both are still Refused.
 //
 // Gotchas:
 // - This file must stay free of imports from the plugin, from BB and from
@@ -37,7 +41,7 @@ export const PARTS = [
 ] as const;
 export type Part = (typeof PARTS)[number];
 
-/** The kinds of link that can be added; see the header for why only three. */
+/** The kinds of link every tracker can add; see the header. */
 export const LINK_KINDS = ["blocked-by", "discovered-from", "related"] as const;
 export type LinkKind = (typeof LINK_KINDS)[number];
 
@@ -143,6 +147,13 @@ export interface Changes {
   category?: string | null;
   /** null removes the assignee. */
   assignee?: string | null;
+  /**
+   * Labels to add and to take away, as they are; one already there, or
+   * already gone, is left alone. For a caller that keeps something of its
+   * own on an issue (the tab's workflow step is the label `step:<id>`).
+   */
+  addLabels?: string[];
+  removeLabels?: string[];
 }
 
 /**
@@ -163,6 +174,11 @@ export interface Capabilities {
   /** One line on which tracker instance this is, e.g. its folder. */
   where: string;
   supports: Support[];
+  /**
+   * Every kind of link `link` accepts here: the common ones this tracker
+   * can hold, then kinds of its own.
+   */
+  linkKinds: string[];
   /** Things worth knowing that are not about a single feature. */
   warnings: string[];
 }
@@ -195,15 +211,35 @@ export interface Tracker {
   reopen(id: string): Promise<void>;
   /** Puts an issue under a parent, or with null back at the top level. */
   move(id: string, parentId: string | null): Promise<void>;
-  /** Records "`id` <kind> `otherId`", e.g. id is blocked by otherId. */
-  link(id: string, otherId: string, kind: LinkKind): Promise<void>;
-  /** Removes whatever link there is between the two, in either direction. */
-  unlink(id: string, otherId: string): Promise<void>;
+  /**
+   * Records "`id` <kind> `otherId`", e.g. id is blocked by otherId.
+   *
+   * @param kind One of the tracker's `linkKinds`; Unsupported otherwise.
+   */
+  link(id: string, otherId: string, kind: string): Promise<void>;
+  /**
+   * Removes whatever link there is between the two, in either direction.
+   *
+   * @param onlyFrom Remove only the link recorded on `id` that points at
+   *   `otherId`, and leave one recorded the other way round. For a caller
+   *   that shows the two as separate links.
+   */
+  unlink(id: string, otherId: string, onlyFrom?: boolean): Promise<void>;
 }
 
 /** The tracker, or a rule of this layer, said no. The message says why. */
 export class Refused extends Error {
   override name = "Refused";
+}
+
+/** The tracker's own program is not installed on this machine. */
+export class NoProgram extends Refused {
+  override name = "NoProgram";
+}
+
+/** The folder has no tracker in it, or the one it has holds no issues yet. */
+export class NotSetUp extends Refused {
+  override name = "NotSetUp";
 }
 
 /** The request itself was wrong: a missing argument, an unknown option. */

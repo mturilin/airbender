@@ -4,14 +4,18 @@ A BB plugin that shows a repository's beads issues in a tab in the right-hand
 panel, beside a thread or on the New thread screen.
 
 - `server.ts` and `server/` — the backend. Finds the folder a thread or
-  project works in, runs `bd` there to list and change issues, and stores
-  each thread's current bead. `server.ts` wires the pieces and maps each
-  request to one call. `server/contract.ts` is the typed contract with the
-  frontend; `folder.ts` finds the folder and runs `bd`; `store.ts` holds the
-  issue operations; `work.ts` moves an issue through its workflow; `autopilot.ts` starts an
+  project works in, lists and changes its issues through the tracker core
+  in `tracker/` (the layer `bend` is built on), and stores each thread's
+  current bead. `server.ts` wires the pieces and maps each request to one
+  call. `server/contract.ts` is the typed contract with the frontend;
+  `folder.ts` finds the folder and the `bd` program; `trackers.ts` gives the
+  tracker for a folder and turns its failures into what the tab shows;
+  `store.ts` holds the issue operations, each one a call on that tracker;
+  `work.ts` moves an issue through its workflow; `autopilot.ts` starts an
   epic's issues one after another;
-  `current-bead.ts` is the thread's current issue; `issues.ts` turns beads'
-  rows into issues (blocking, links, categories); `watch.ts` and `setup.ts`
+  `current-bead.ts` is the thread's current issue; `issues.ts` turns the
+  tracker's issues into the tab's (its names for links, what it keeps in
+  labels, and "blocked when every open sub-issue is"); `watch.ts` and `setup.ts`
   are what their names say; `prompts.ts` holds the wording sent
   to agents.
 - `app.tsx` and `app/` — the frontend. `app.tsx` registers the surfaces;
@@ -33,7 +37,10 @@ panel, beside a thread or on the New thread screen.
   so they are safe to bundle on either side.
 - `tracker/`, `bend/`, `bin/bend` — **bend**, a command for agents to read
   and change issues without knowing which tracker holds them (see "bend"
-  below). It does not depend on the plugin or on BB.
+  below). It does not depend on the plugin or on BB. The tab's backend
+  reads and changes issues through `tracker/` too, so there is one code
+  path to beads; the only `bd` commands outside `tracker/beads.ts` are the
+  setup steps in `server/setup.ts`.
 - `*.test.ts` — tests for the logic without React or BB; run `npm test`.
 - `PLUGIN_OVERVIEW.md` — the text BB shows on the plugin's detail page.
 
@@ -223,8 +230,13 @@ tracker a repository uses (beads today). Run `bin/bend --help`.
 It needs node 22.6 or later, which runs the TypeScript directly. To have it
 as plain `bend`, link `bin/bend` into a folder on your PATH. The tests in
 `bend/main.test.ts` run against a real throwaway beads folder and are
-skipped where `bd` is not installed. The Airbender tab does not use
-`tracker/` yet.
+skipped where `bd` is not installed.
+
+The Airbender tab uses `tracker/` for every read and change of an issue
+(`server/trackers.ts`, `server/store.ts`). Still beads-specific in the tab,
+and to be done with a second tracker: the setup steps, watching the
+`.beads` folder for outside changes, the check on what an issue id looks
+like, the "bd command" setting, and the wording on screen.
 
 ## Limits of this version
 
@@ -263,7 +275,7 @@ npm test               # run the tests (node's own test runner)
 
 The frontend may import only types from `server.ts` and `server/`; values
 both sides need go in `shared/`. Files that the tests load
-(`server/issues.ts`, `server/prompts.ts`, `app/issue-model.ts`,
+(`server/issues.ts`, `server/trackers.ts`, `server/prompts.ts`, `app/issue-model.ts`,
 `app/quick-tags.ts`, everything in `shared/`) must not import React, the BB SDK or `@/...` paths.
 A new source folder must be added to `include` in `tsconfig.json`.
 

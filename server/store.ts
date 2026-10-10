@@ -5,55 +5,55 @@
 // title or description, move it under another issue, set its category, link
 // it with another issue, and read its comments.
 //
-// Why: every one of these is the same sequence around a different `bd`
-// command: check the ids, find the folder, run bd, say in plain words what
-// went wrong, and tell open tabs to reload. Written once here (see `change`,
-// `applyIn` and `issuesIn`), each operation is left with only what is
-// particular to it.
+// Why: every one of these is the same sequence around a different call on
+// the folder's tracker: check the ids, find the folder, ask the tracker, say
+// in plain words what went wrong, and tell open tabs to reload. Written once
+// here (see `change`, `applyIn` and `issuesIn`), each operation is left with
+// only what is particular to it.
 //
 // Design notes:
+// - Issues are read and changed only through the tracker core (tracker/),
+//   the layer `bend` is built on, so there is one code path to beads
+//   (bead-bb-c9l.2). No bd command is written in this file; the beads
+//   adapter (tracker/beads.ts) holds them all.
 // - Expected problems are returned as data (a state, or a message in plain
-//   words), never thrown, so the tab can show them.
+//   words), never thrown, so the tab can show them. The tracker throws;
+//   server/trackers.ts turns that into data.
 // - There are two ways to read the list. `readIssues` only reads: it is what
 //   the operations use to check that an issue is still there. `listIssues`
 //   is the answer for the tab: it adds the thread's current issue, starts
 //   watching the folder for outside changes, and forgets a current issue
 //   that has been closed. Keeping the two apart means checking something
 //   never changes anything.
-// - Every free-text value is passed to bd as the value of a named flag, so
-//   text that starts with a dash can never be read as an option. No shell is
-//   involved (see server/bd.ts).
-// - An issue's category and its workflow step are both kept as one label
-//   with a fixed prefix; `setPrefixedLabel` is the one place that does it.
-//
-// Gotchas:
-// - bd reports some errors on standard output as JSON and prints `null`
-//   where an empty list would be expected; both are handled where they occur.
+// - An issue's workflow step, its size and an epic's branch are each kept
+//   as one label with a fixed prefix; `setPrefixedLabel` is the one place
+//   that does it. They are the tab's, not the tracker's, which only adds
+//   and removes the labels it is given.
+// - Checks the tracker makes itself are not repeated here: that an issue
+//   exists, that it is not moved inside itself, that it is not linked to
+//   itself. Its refusals are in plain words and are passed on.
 
 import { homedir } from "node:os";
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
-import { z } from "zod";
 import {
   BEAD_ID_PATTERN,
   CHANGED_CHANNEL,
   CLOSED_STATUS,
 } from "../shared/constants.ts";
 import type { IssueType, LinkKind } from "../shared/constants.ts";
-import { descendantsOf } from "../shared/tree.ts";
+import { splitRequirements } from "../tracker/parts.ts";
+import type { Tracker } from "../tracker/types.ts";
 import type { Issue, IssueComment, IssuesResult } from "./contract.ts";
 import type { CurrentBead } from "./current-bead.ts";
 import type { Folders } from "./folder.ts";
 import {
   BRANCH_PREFIX,
-  CATEGORY_PREFIX,
   RELATES_TO,
   SIZE_PREFIX,
   STEP_PREFIX,
-  bdIssueSchema,
-  cleanCategory,
   toIssues,
 } from "./issues.ts";
-import type { BdIssue } from "./issues.ts";
+import type { Trackers } from "./trackers.ts";
 import { DEFAULT_WORKFLOW_ID } from "../shared/workflows.ts";
 import type { WorkflowChoice } from "./workflow-choice.ts";
 
@@ -83,36 +83,32 @@ const notInList = (id: string) => `Issue ${id} is no longer in the list.`;
 /**
  * Builds the issue operations for this plugin instance.
  *
- * @param folders Finding folders and running bd in them (server/folder.ts).
+ * @param folders Finding folders and reading git in them (server/folder.ts).
+ * @param trackers The tracker for each folder (server/trackers.ts).
  * @param currentBead The thread's current issue (server/current-bead.ts).
  * @param watchFolder Starts watching a folder for outside changes
  *   (server/watch.ts).
  * @returns The operations named in this file's header, plus `readIssues`,
- *   `issuesIn`, `setStep`, `setSize` and `addComment`.
+ *   `issuesIn`, `setStep`, `setSize`, `setBranch` and `addComment`.
  * Side effects: none until an operation is called.
  */
 export function createStore({
   bb,
   folders,
+  trackers,
   currentBead,
   watchFolder,
   workflowChoice,
 }: {
   bb: BbPluginApi;
   folders: Folders;
+  trackers: Trackers;
   currentBead: CurrentBead;
   watchFolder: (path: string) => void;
   workflowChoice: WorkflowChoice;
 }) {
-  const {
-    folderFor,
-    runBdIn,
-    runIn,
-    onOwnBranch,
-    currentBranch,
-    isWorkTree,
-    BD_NOT_FOUND_MESSAGE,
-  } = folders;
+  const { folderFor, onOwnBranch, currentBranch, isWorkTree } = folders;
+  const { trackerFor, problem } = trackers;
 
   /** Tells every open tab to reload. */
   const changed = (threadId: string | null) =>
@@ -124,45 +120,20 @@ export function createStore({
    *
    * Pre-condition: the folder exists (see folders.folderFor).
    * @returns The issues, or which of the expected problems occurred.
-   * Side effects: runs `bd --readonly list` once (more only while searching
-   *   for where bd is installed).
+   * Side effects: one read of the folder's tracker.
    */
   async function readIssues(path: string): Promise<IssuesRead> {
-    // --limit 0 lifts bd's default cap of 50 rows; --all includes closed.
-    const run = await runBdIn(path, [
-      "--readonly",
-      "list",
-      "--all",
-      "--json",
-      "--limit",
-      "0",
-    ]);
-    if (run.kind === "not-found") {
-      return { state: "no-bd", message: BD_NOT_FOUND_MESSAGE };
-    }
-    if (run.kind === "failed") {
-      if (/no beads database found/iu.test(run.message)) {
-        return {
-          state: "no-beads",
-          message:
-            "This folder does not use beads yet. Set it up to start tracking issues here.",
-        };
-      }
-      bb.log.warn("bd list failed in " + path + ": " + run.message);
-      return { state: "error", message: run.message };
-    }
-    let rows: BdIssue[];
+    const found = await trackerFor(path);
+    if ("state" in found) return found;
     try {
-      rows = z.array(bdIssueSchema).parse(JSON.parse(run.stdout));
+      // "all" includes the closed ones, which the tab shows too.
+      const issues = await found.tracker.list({ status: "all" });
+      return { state: "ok", issues: toIssues(issues) };
     } catch (cause) {
-      bb.log.warn("bd list output not understood in " + path + ": " + cause);
-      return {
-        state: "error",
-        message:
-          "bd answered in a format this plugin does not understand. It may be a newer or older bd than the plugin was written for.",
-      };
+      // Named, so that it is logged: a list that cannot be read is worth a
+      // line. A folder that is not set up is an ordinary state and is not.
+      return problem(path, cause, "Reading issues");
     }
-    return { state: "ok", issues: toIssues(rows) };
   }
 
   /**
@@ -265,53 +236,65 @@ export function createStore({
   }
 
   /**
-   * Runs one bd command that changes something, in a folder already found,
-   * and tells open tabs to reload when it worked.
+   * Asks a folder's tracker for one change, in a folder already found, and
+   * tells open tabs to reload when it worked.
    *
-   * @param what Names the command in the log when it fails, e.g. "bd update".
+   * @param what Names the change in the log when it fails, e.g. "close".
+   * @param publish Tell open tabs to reload afterwards. False when the
+   *   caller makes several changes and publishes once at the end.
+   * @returns `{ message: null }` on success, else the reason in plain words.
+   *   Never throws.
    */
   async function applyIn(
     path: string,
     threadId: string | null,
-    args: string[],
     what: string,
+    act: (tracker: Tracker) => Promise<void>,
+    publish = true,
   ): Promise<Outcome> {
-    const run = await runIn(path, args, what);
-    if ("message" in run) return { message: run.message };
-    changed(threadId);
+    const found = await trackerFor(path);
+    if ("state" in found) return { message: found.message };
+    try {
+      await act(found.tracker);
+    } catch (cause) {
+      return { message: problem(path, cause, what).message };
+    }
+    if (publish) changed(threadId);
     return { message: null };
   }
 
   /**
    * The whole sequence for a simple change: check the ids, find the folder,
-   * run the command, report, publish.
+   * ask the tracker, report, publish.
    *
-   * It does not check that the issues still exist: bd says so itself, in
-   * words good enough to show.
+   * It does not check that the issues still exist: the tracker says so
+   * itself, in words good enough to show.
    */
   async function change(
     input: FolderRef,
     ids: string[],
-    args: string[],
     what: string,
+    act: (tracker: Tracker) => Promise<void>,
   ): Promise<Outcome> {
     const bad = ids.find((id) => !BEAD_ID_PATTERN.test(id));
     if (bad !== undefined) return { message: notAnId(bad) };
     const folder = await folderFor(input);
     if ("message" in folder) return { message: folder.message };
-    return applyIn(folder.path, input.threadId, args, what);
+    return applyIn(folder.path, input.threadId, what, act);
   }
 
   /**
    * Creates one issue in the folder behind a thread or project.
    *
-   * A new sub-issue inherits its parent's category unless one is given; this
-   * happens once, here, and later changes to the parent do not follow.
+   * A new sub-issue takes its parent's category unless one is given, and
+   * none of its parent's labels (so not its workflow step, its size or an
+   * epic's branch: bead-bb-ty5.4); the tracker sees to both. This happens
+   * once, at creation, and later changes to the parent do not follow.
    *
    * @returns `{ id }` of the new issue, or `{ message }` saying in plain words
    *   why it was not created. Never throws for expected problems.
-   * Side effects: runs `bd create` once, which writes to the beads database;
-   *   publishes CHANGED_CHANNEL on success.
+   * Side effects: writes to the tracker; publishes CHANGED_CHANNEL on
+   *   success.
    */
   async function createIssue(
     input: FolderRef & {
@@ -329,62 +312,36 @@ export function createStore({
     }
     const folder = await folderFor(input);
     if ("message" in folder) return fail(folder.message);
-    const args = ["create", "--json", "--title", input.title];
-    if (input.description.trim() !== "") {
-      args.push("--description", input.description);
-    }
-    if (input.type !== null) args.push("--type", input.type);
-    if (input.priority !== null) args.push("--priority", `${input.priority}`);
-    // bd copies a parent's labels onto a new sub-issue unless told not to.
-    // This plugin keeps an issue's step, its size and an epic's branch as
-    // labels, so the copy started a sub-issue at its parent's step with
-    // its parent's size, and under an epic that holds a branch left it
-    // where no move is possible (bead-bb-ty5.4). The one thing a
-    // sub-issue takes from its parent, the category, is passed below.
-    if (input.parentId !== null) {
-      args.push("--parent", input.parentId, "--no-inherit-labels");
-    }
-    let category: string | null = null;
-    if (input.category !== null) {
-      const cleaned = cleanCategory(input.category);
-      if ("reason" in cleaned) return fail(cleaned.reason);
-      category = cleaned.name;
-    } else if (input.parentId !== null) {
-      const read = await readIssues(folder.path);
-      category =
-        read.state === "ok"
-          ? (read.issues.find((issue) => issue.id === input.parentId)
-              ?.category ?? null)
-          : null;
-    }
-    // Safe as a flag value: it always starts with "category:", never a
-    // dash, and cleanCategory has ruled out commas.
-    if (category !== null) args.push("--labels", CATEGORY_PREFIX + category);
-    const run = await runIn(folder.path, args, "bd create");
-    if ("message" in run) return fail(run.message);
-    // Published whether or not the id can be read: bd exited successfully,
-    // so the issue most likely exists and the tab's reload will show it.
-    changed(input.threadId);
+    const found = await trackerFor(folder.path);
+    if ("state" in found) return fail(found.message);
     try {
-      const { id } = z.object({ id: z.string() }).parse(JSON.parse(run.stdout));
+      const id = await found.tracker.create({
+        title: input.title,
+        description: input.description,
+        type: input.type ?? undefined,
+        priority: input.priority ?? undefined,
+        parentId: input.parentId ?? undefined,
+        category: input.category ?? undefined,
+      });
+      changed(input.threadId);
       return { id, message: null };
-    } catch {
-      return fail(
-        "bd reported success but its answer could not be read. Refresh to check whether the issue was created.",
-      );
+    } catch (cause) {
+      // Published even so: the tracker may have created the issue and then
+      // failed to say which one it is, and a reload shows whether it did.
+      changed(input.threadId);
+      return fail(problem(folder.path, cause, "create").message);
     }
   }
 
   /**
    * Closes or reopens one issue in the folder behind a thread or project.
    *
-   * @param command "close" or "reopen", passed to bd as its subcommand.
+   * @param command "close" or "reopen".
    * @param publish Tell open tabs to reload afterwards. False when the
    *   caller is closing several issues and will publish once at the end.
    * @returns `{ message: null }` on success, else the reason in plain words.
-   * Side effects: runs `bd close` / `bd reopen` once, which writes to the
-   *   beads database; on close, clears the thread's current issue if it was
-   *   this one.
+   * Side effects: writes to the tracker; on close, clears the thread's
+   *   current issue if it was this one.
    */
   async function setIssueOpen(
     command: "close" | "reopen",
@@ -396,12 +353,17 @@ export function createStore({
     }
     const folder = await folderFor(input);
     if ("message" in folder) return { message: folder.message };
-    const run = await runIn(
+    const done = await applyIn(
       folder.path,
-      [command, input.beadId, "--json"],
-      `bd ${command}`,
+      input.threadId,
+      command,
+      (tracker) =>
+        command === "close"
+          ? tracker.close(input.beadId)
+          : tracker.reopen(input.beadId),
+      false,
     );
-    if ("message" in run) return { message: run.message };
+    if (done.message !== null) return done;
     if (
       command === "close" &&
       input.threadId !== null &&
@@ -418,7 +380,16 @@ export function createStore({
    * field is left as is. An empty description is a value, not "leave as
    * is": it clears the description.
    *
-   * Side effects: one `bd update` when there is something to change.
+   * The description arrives as the tab shows it: one text, which may hold
+   * the requirements as a marked section (see server/issues.ts). It is
+   * taken apart again here, so that each goes back where the tracker keeps
+   * it and editing the text in the tab changes exactly what was edited.
+   *
+   * Side effects: up to three writes to the tracker, one for each of the
+   *   fields, the description and the requirements that changed; publishes
+   *   once. They are separate writes, so a failure may leave the earlier
+   *   ones done: open tabs are then told to reload as well, so that what
+   *   they show is what is there.
    */
   async function updateIssue(
     input: FolderRef & {
@@ -439,91 +410,78 @@ export function createStore({
     ) {
       return { message: null };
     }
-    // Type comes from a fixed list and priority is a checked number. Title
-    // and description are free text, so each is the value of a named flag.
-    const args = ["update", beadId, "--json"];
-    if (type !== null) args.push("--type", type);
-    if (priority !== null) args.push("--priority", `${priority}`);
-    if (title !== null) args.push("--title", title);
-    if (description !== null) args.push("--description", description);
-    return change(input, [beadId], args, "bd update");
+    return change(input, [beadId], "update", async (tracker) => {
+      let written = false;
+      try {
+        if (type !== null || priority !== null || title !== null) {
+          await tracker.edit(beadId, {
+            type: type ?? undefined,
+            priority: priority ?? undefined,
+            title: title ?? undefined,
+          });
+          written = true;
+        }
+        if (description !== null) {
+          const typed = splitRequirements(description);
+          const held = await tracker.show(beadId);
+          // Each part is written only when it differs, so the usual edit
+          // is one write, and a text sent back unchanged is none.
+          if (typed.description !== held.description) {
+            await tracker.write(beadId, "description", typed.description);
+            written = true;
+          }
+          if (typed.requirements !== held.requirements) {
+            await tracker.write(beadId, "requirements", typed.requirements);
+          }
+        }
+      } catch (cause) {
+        if (written) changed(input.threadId);
+        throw cause;
+      }
+    });
   }
 
   /**
    * Moves an issue inside another issue (parentId set) or out to the top
-   * level (parentId null). Refused when it would put an issue inside itself
-   * or inside one of its own sub-issues.
+   * level (parentId null). The tracker refuses a move that would put an
+   * issue inside itself or inside one of its own sub-issues: such an issue
+   * would disappear from every view that walks the tree from the top.
    */
   async function setParent(
     input: FolderRef & { beadId: string; parentId: string | null },
   ): Promise<Outcome> {
     const { beadId, parentId } = input;
-    const found = await issuesIn(
+    return change(
       input,
-      beadId,
-      ...(parentId === null ? [] : [parentId]),
-    );
-    if ("message" in found) return found;
-    // Checked here and not left to bd: an issue inside itself would
-    // disappear from every view that walks the tree from the top.
-    if (
-      parentId !== null &&
-      (parentId === beadId ||
-        descendantsOf(beadId, found.issues).some(
-          (issue) => issue.id === parentId,
-        ))
-    ) {
-      return {
-        message:
-          "An issue cannot be moved inside itself or inside one of its own sub-issues.",
-      };
-    }
-    // An empty --parent is how bd takes an issue out of its parent.
-    return applyIn(
-      found.path,
-      input.threadId,
-      ["update", beadId, "--json", "--parent", parentId ?? ""],
-      "bd update --parent",
+      parentId === null ? [beadId] : [beadId, parentId],
+      "move",
+      (tracker) => tracker.move(beadId, parentId),
     );
   }
 
   /**
-   * Sets or clears one issue's category.
-   *
-   * Side effects: see setPrefixedLabel.
+   * Sets or clears one issue's category. The tracker tidies the name (lower
+   * case, single spaces) and refuses one it cannot keep.
    */
   async function setCategory(
     input: FolderRef & { beadId: string; category: string | null },
   ): Promise<Outcome> {
-    const found = await issuesIn(input, input.beadId);
-    if ("message" in found) return found;
-    let next: string | null = null;
-    if (input.category !== null) {
-      const cleaned = cleanCategory(input.category);
-      if ("reason" in cleaned) return { message: cleaned.reason };
-      next = cleaned.name;
-    }
-    return setPrefixedLabel(
-      found.path,
-      input.threadId,
-      input.beadId,
-      CATEGORY_PREFIX,
-      next,
-      "bd update (category)",
+    return change(input, [input.beadId], "set category", (tracker) =>
+      tracker.edit(input.beadId, { category: input.category }),
     );
   }
 
   /**
    * Makes an issue carry exactly one label with a given prefix (or none):
-   * the way a category and a workflow step are kept.
+   * the way a workflow step, a size and an epic's branch are kept.
    *
    * Every label with the prefix is removed first, so an issue never ends up
-   * with two, even if one was added by hand with bd.
+   * with two, even if one was added by hand.
    *
    * @param value What follows the prefix; null removes the label.
    * @param publish Tell open tabs to reload afterwards.
-   * Side effects: one read of the issue's labels; one `bd update` when
-   *   there is something to change.
+   * Side effects: one read of the issue; one write when there is something
+   *   to change.
    */
   async function setPrefixedLabel(
     path: string,
@@ -534,40 +492,26 @@ export function createStore({
     what: string,
     publish = true,
   ): Promise<Outcome> {
-    // The list this plugin returns has these labels taken out, so the raw
-    // labels are read again here to know exactly which ones to remove.
-    const raw = await runIn(path, [
-      "--readonly",
-      "label",
-      "list",
-      beadId,
-      "--json",
-    ]);
-    if ("message" in raw) return { message: raw.message };
-    let present: string[];
-    try {
-      present = z
-        .array(z.string())
-        .nullable()
-        .transform((labels) => labels ?? [])
-        .parse(JSON.parse(raw.stdout))
-        .filter((label) => label.startsWith(prefix));
-    } catch {
-      return {
-        message: "bd answered in a format this plugin does not understand.",
-      };
-    }
+    const found = await trackerFor(path);
+    if ("state" in found) return { message: found.message };
     const wanted = value === null ? null : prefix + value;
-    const args = ["update", beadId, "--json"];
-    for (const label of present) {
-      if (label !== wanted) args.push("--remove-label", label);
+    try {
+      // The list this plugin returns has these labels taken out, so the
+      // issue is read again here to know exactly which ones to remove.
+      const present = (await found.tracker.show(beadId)).labels.filter(
+        (label) => label.startsWith(prefix),
+      );
+      const removeLabels = present.filter((label) => label !== wanted);
+      const addLabels =
+        wanted !== null && !present.includes(wanted) ? [wanted] : [];
+      // Nothing to change: nothing is written and no tab reloads.
+      if (removeLabels.length === 0 && addLabels.length === 0) {
+        return { message: null };
+      }
+      await found.tracker.edit(beadId, { addLabels, removeLabels });
+    } catch (cause) {
+      return { message: problem(path, cause, what).message };
     }
-    if (wanted !== null && !present.includes(wanted)) {
-      args.push("--add-label", wanted);
-    }
-    if (args.length === 3) return { message: null }; // Nothing to change.
-    const run = await runIn(path, args, what);
-    if ("message" in run) return { message: run.message };
     if (publish) changed(threadId);
     return { message: null };
   }
@@ -591,7 +535,7 @@ export function createStore({
       beadId,
       STEP_PREFIX,
       step,
-      "bd update (step)",
+      "set step",
       publish,
     );
   }
@@ -615,7 +559,7 @@ export function createStore({
       beadId,
       SIZE_PREFIX,
       size,
-      "bd update (size)",
+      "set size",
       publish,
     );
   }
@@ -625,8 +569,8 @@ export function createStore({
    * (null).
    *
    * Pre-condition: the issue is known to be in the folder; `branch`, when
-   *   given, has no comma in it (bd splits a label on commas; git branch
-   *   names made by this plugin and by BB have none).
+   *   given, has no comma in it (a label cannot hold one; git branch names
+   *   made by this plugin and by BB have none).
    */
   function setBranch(
     path: string,
@@ -641,7 +585,7 @@ export function createStore({
       beadId,
       BRANCH_PREFIX,
       branch,
-      "bd update (branch)",
+      "set branch",
       publish,
     );
   }
@@ -650,83 +594,55 @@ export function createStore({
    * Adds a comment to an issue. Used for the record of workflow moves, which
    * is where the tab already shows an issue's history.
    *
-   * @param text Must not start with a dash (bd would read it as an option);
-   *   callers pass text that starts with a fixed word.
-   * Side effects: one `bd comment`. Nothing is published: callers publish
-   *   once for the whole move.
+   * Side effects: one comment written. Nothing is published: callers
+   *   publish once for the whole move.
    */
-  async function addComment(
+  function addComment(
     path: string,
     beadId: string,
     text: string,
   ): Promise<Outcome> {
-    const run = await runIn(path, ["comment", beadId, text], "bd comment");
-    return { message: "message" in run ? run.message : null };
-  }
-
-  /**
-   * Shared checks for adding and removing a link: both ids look like beads
-   * ids, are different, and are in the folder's list.
-   *
-   * @returns The folder to run bd in, or `{ message }` saying in plain words
-   *   why the link cannot be touched.
-   */
-  async function linkEnds(
-    input: FolderRef & { fromId: string; toId: string },
-  ): Promise<{ path: string } | { message: string }> {
-    for (const id of [input.fromId, input.toId]) {
-      if (!BEAD_ID_PATTERN.test(id)) return { message: notAnId(id) };
-    }
-    if (input.fromId === input.toId) {
-      return { message: "An issue cannot be linked to itself." };
-    }
-    return issuesIn(input, input.fromId, input.toId);
-  }
-
-  /**
-   * Adds a link of one of beads' kinds, stored on `fromId` and pointing at
-   * `toId` ("fromId is blocked by toId").
-   *
-   * "related" goes through beads' own see-also command, which links both
-   * issues to each other; every other kind is a one-way dependency. Cycles
-   * and duplicates are left to bd, whose message is passed on.
-   */
-  async function link(
-    input: FolderRef & { fromId: string; toId: string; kind: LinkKind },
-  ): Promise<Outcome> {
-    const ends = await linkEnds(input);
-    if ("message" in ends) return ends;
-    const { fromId, toId, kind } = input;
     return applyIn(
-      ends.path,
-      input.threadId,
-      kind === "related"
-        ? ["dep", "relate", fromId, toId, "--json"]
-        : ["dep", "add", fromId, toId, "--type", kind, "--json"],
-      "bd dep add",
+      path,
+      null,
+      "comment",
+      (tracker) => tracker.comment(beadId, text),
+      false,
     );
   }
 
   /**
-   * Removes the link stored on `fromId` that points at `toId`.
+   * Adds a link of one of beads' kinds, recorded on `fromId` and pointing at
+   * `toId` ("fromId is blocked by toId").
    *
-   * @param input.kind The link's beads type as listed. A two-way link is
-   *   undone with the command that made it, so both halves go; `dep remove`
-   *   would leave the other issue's half behind.
+   * The tab names the kinds as beads does; the one that differs from the
+   * tracker's common names is "blocks", which the tracker calls
+   * "blocked-by". Loops, duplicates and a link to itself are refused by the
+   * tracker, whose message is passed on.
+   */
+  async function link(
+    input: FolderRef & { fromId: string; toId: string; kind: LinkKind },
+  ): Promise<Outcome> {
+    const { fromId, toId, kind } = input;
+    return change(input, [fromId, toId], "link", (tracker) =>
+      tracker.link(fromId, toId, kind === "blocks" ? "blocked-by" : kind),
+    );
+  }
+
+  /**
+   * Removes the link recorded on `fromId` that points at `toId`.
+   *
+   * @param input.kind The link's kind as the tab lists it. A two-way link is
+   *   recorded on both issues and shown once on each, so both halves go; of
+   *   any other kind only the one recorded on `fromId` is removed, and a
+   *   link the other way round, which the tab shows separately, stays.
    */
   async function unlink(
     input: FolderRef & { fromId: string; toId: string; kind: string },
   ): Promise<Outcome> {
-    const ends = await linkEnds(input);
-    if ("message" in ends) return ends;
     const { fromId, toId, kind } = input;
-    return applyIn(
-      ends.path,
-      input.threadId,
-      kind === RELATES_TO
-        ? ["dep", "unrelate", fromId, toId, "--json"]
-        : ["dep", "remove", fromId, toId, "--json"],
-      "bd dep remove",
+    return change(input, [fromId, toId], "unlink", (tracker) =>
+      tracker.unlink(fromId, toId, kind !== RELATES_TO),
     );
   }
 
@@ -735,7 +651,7 @@ export function createStore({
    *
    * @returns `{ comments, message: null }`, or an empty list with the reason
    *   in plain words. Never throws for expected problems.
-   * Side effects: runs `bd --readonly comments` once; nothing is written.
+   * Side effects: reads the tracker; nothing is written.
    */
   async function listComments(
     input: FolderRef & { beadId: string },
@@ -746,38 +662,15 @@ export function createStore({
     }
     const folder = await folderFor(input);
     if ("message" in folder) return fail(folder.message);
-    const run = await runIn(folder.path, [
-      "--readonly",
-      "comments",
-      input.beadId,
-      "--json",
-    ]);
-    if ("message" in run) return fail(run.message);
+    const found = await trackerFor(folder.path);
+    if ("state" in found) return fail(found.message);
     try {
-      // bd prints `null` rather than `[]` for an issue without comments.
-      const rows = z
-        .array(
-          z.object({
-            id: z.union([z.string(), z.number()]),
-            author: z.string().optional(),
-            text: z.string().optional(),
-            created_at: z.string().optional(),
-          }),
-        )
-        .nullable()
-        .parse(JSON.parse(run.stdout));
-      const comments = (rows ?? []).map((row) => ({
-        id: `${row.id}`,
-        author: row.author ?? "",
-        createdAt: row.created_at ?? "",
-        text: row.text ?? "",
-      }));
-      comments.sort((left, right) =>
-        left.createdAt.localeCompare(right.createdAt),
-      );
-      return { comments, message: null };
-    } catch {
-      return fail("bd answered in a format this plugin does not understand.");
+      return {
+        comments: await found.tracker.comments(input.beadId),
+        message: null,
+      };
+    } catch (cause) {
+      return fail(problem(folder.path, cause).message);
     }
   }
 

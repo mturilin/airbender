@@ -1,7 +1,14 @@
-// server/issues.test.ts — tests for turning beads' rows into issues.
+// server/issues.test.ts — tests for turning beads' rows into the tab's issues.
 //
-// What: checks toIssues (who is blocked and why, links from both ends),
-// categoryOf and cleanCategory, and the shared descendantsOf walk.
+// What: checks the whole way from a row of beads to an issue the tab draws
+// (who is blocked and why, links from both ends, what is kept in labels),
+// and the shared descendantsOf walk.
+//
+// Design notes: the rows go through the tracker core's beads adapter first
+// (tracker/beads.ts) and then through the tab's own step (server/issues.ts),
+// as they do in the running tab. The expectations are the ones from before
+// the tab was moved onto the core (bead-bb-c9l.2): they are what "the tab
+// behaves as before" means for the rules below.
 //
 // Why: a wrong edge here silently regroups every issue in the tab, and the
 // rules are easy to break: blocking passes down to sub-issues (beads' rule)
@@ -10,14 +17,15 @@
 // Run with `npm test` (node's built-in test runner; no extra dependency).
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import {
-  branchOf,
-  categoryOf,
-  cleanCategory,
-  toIssues,
-  type BdIssue,
-} from "./issues.ts";
+import { branchOf, toIssues as toTabIssues } from "./issues.ts";
 import { descendantsOf } from "../shared/tree.ts";
+import { toIssues as fromRows, type BdRow } from "../tracker/beads.ts";
+
+/** A row of beads, as the tests write it. */
+type BdIssue = BdRow;
+
+/** Rows of beads to the tab's issues: the adapter, then the tab's step. */
+const toIssues = (rows: BdIssue[]) => toTabIssues(fromRows(rows));
 
 /** A row as `bd list --json` gives it; `blockers` become "blocks" links. */
 function row(
@@ -187,7 +195,45 @@ test("the category comes from its label and is kept out of the labels", () => {
   ]);
   assert.equal(a!.category, "ux");
   assert.deepEqual(a!.labels, ["urgent"]);
-  assert.equal(categoryOf(["urgent"]), null);
+  const [b, c] = toIssues([
+    row("B", null, "open", [], { labels: ["urgent"] }),
+    // Written with capitals by hand: still the same category.
+    row("C", null, "open", [], { labels: ["category: UX "] }),
+  ]);
+  assert.equal(b!.category, null);
+  assert.equal(c!.category, "ux");
+});
+
+test("the step and the size are read from their labels and kept out of the plain labels", () => {
+  const [a] = toIssues([
+    row("A", null, "open", [], { labels: ["step:plan", "size:m", "ui"] }),
+  ]);
+  assert.deepEqual([a!.step, a!.size, a!.labels], ["plan", "m", ["ui"]]);
+});
+
+test("the written parts keep the tab's names, and the description holds the requirements", () => {
+  const text =
+    "Wanted.\n\n<!-- bend:requirements -->\n## Requirements\n\nR1\n<!-- /bend:requirements -->";
+  const [a, b] = toIssues([
+    row("A", null, "open", [], {
+      description: text,
+      design: "The plan",
+      acceptance_criteria: "Done when",
+      notes: "A note",
+    }),
+    row("B", null, "open", [], { description: "Plain." }),
+  ]);
+  assert.equal(a!.description, text);
+  assert.deepEqual([a!.design, a!.acceptance, a!.notes], ["The plan", "Done when", "A note"]);
+  assert.equal(b!.description, "Plain.");
+});
+
+test("a blocking link is listed under the tab's name for it, from both ends", () => {
+  const issues = toIssues([row("X", null, "open"), row("A", null, "open", ["X"])]);
+  const links = (id: string) =>
+    issues.find((issue) => issue.id === id)!.links.map((link) => [link.direction, link.kind, link.id]);
+  assert.deepEqual(links("A"), [["out", "blocks", "X"]]);
+  assert.deepEqual(links("X"), [["in", "blocks", "A"]]);
 });
 
 test("descendantsOf lists every level, parents before children", () => {
@@ -201,13 +247,6 @@ test("descendantsOf lists every level, parents before children", () => {
     descendantsOf("E", issues).map((issue) => issue.id),
     ["c", "g"],
   );
-});
-
-test("cleanCategory lower-cases and tidies, and refuses bad names", () => {
-  assert.deepEqual(cleanCategory("  UX   Polish "), { name: "ux polish" });
-  assert.ok("reason" in cleanCategory("  "));
-  assert.ok("reason" in cleanCategory("a,b"));
-  assert.ok("reason" in cleanCategory("x".repeat(41)));
 });
 
 test("an epic's branch is read from its label and kept out of the plain labels", () => {

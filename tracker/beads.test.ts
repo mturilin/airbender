@@ -2,7 +2,7 @@
 //
 // What: checks turning beads' rows into the common issue shape (links from
 // both ends, sub-issues, what blocks what, where the parts are kept) and
-// putting bd's refusals into bend's words.
+// putting bd's refusals into words for any caller.
 //
 // Why: every read goes through toIssues. The commands themselves are tested
 // against a real beads folder in bend/main.test.ts.
@@ -126,7 +126,7 @@ test("descendantIds finds every level and survives a loop", () => {
   );
 });
 
-test("bd's refusals are put into bend's words", () => {
+test("bd's refusals are put into words for any caller", () => {
   assert.equal(
     explain("cannot close t-1: 2 open child issue(s); close children first or use --force to override"),
     "cannot close t-1: 2 open child issue(s); close them first",
@@ -134,6 +134,11 @@ test("bd's refusals are put into bend's words", () => {
   assert.match(
     explain('cannot close t-1: assignee is "sam", actor is "kim"; reclaim or use --force to override'),
     /assigned to sam, and you are acting as kim/u,
+  );
+  // No command of bend's or of bd's is named: the tab shows these too.
+  assert.doesNotMatch(
+    explain('cannot close t-1: assignee is "sam", actor is "kim"; reclaim or use --force to override'),
+    /bend |bd |--/u,
   );
   assert.match(explain("Error updating t-1: adding dependency would create a cycle"), /make a loop/u);
   assert.equal(explain("Error: no such thing\nUsage:\n  bd …"), "no such thing");
