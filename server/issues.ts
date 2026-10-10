@@ -39,6 +39,8 @@ export const bdIssueSchema = z.object({
   labels: z.array(z.string()).nullish(),
   created_at: z.string().optional(),
   updated_at: z.string().optional(),
+  /** Free-form data kept with the issue; this plugin keeps a branch there. */
+  metadata: z.unknown().optional(),
   /** The issue's counterpart in another tracker, when it has one. */
   external_ref: z.string().nullish(),
   dependencies: z
@@ -101,15 +103,38 @@ export function sizeOf(labels: string[]): string | null {
 }
 
 /**
- * The label prefix an epic's branch is stored under, e.g.
- * `branch:proj-a1b-kanban-board` (bead-bb-ty5.2): the branch all of its
- * issues are worked on. A label, like the step and the size, so that it is
- * visible in beads and travels with the issue.
+ * The key an epic's branch is stored under in the issue's metadata
+ * (bead-bb-ty5.2): the branch all of its issues are worked on.
+ *
+ * In metadata, not in a label like the step and the size. It began as a
+ * label `branch:<name>`, and beads' GitHub sync sends labels to GitHub,
+ * which refuses one longer than 50 characters; the branch BB gives a work
+ * tree is longer, so such an epic could not be created on GitHub at all
+ * (bead-bb-d6x). Metadata is visible in beads, travels with the issue, and
+ * is not sent.
+ */
+export const BRANCH_KEY = "branch";
+
+/**
+ * The prefix of the label the branch used to be kept in. Still read, for
+ * epics started before the change, and removed when the branch is next
+ * written or cleared.
  */
 export const BRANCH_PREFIX = "branch:";
 
-/** The branch recorded on an issue, or null when none is. */
-export function branchOf(labels: string[]): string | null {
+/**
+ * The branch recorded on an issue, or null when none is.
+ *
+ * @param metadata The issue's metadata as beads gives it; anything that is
+ *   not an object with a text under BRANCH_KEY counts as none.
+ * @param labels The issue's labels, for the old place.
+ */
+export function branchOf(metadata: unknown, labels: string[]): string | null {
+  const kept =
+    typeof metadata === "object" && metadata !== null
+      ? (metadata as Record<string, unknown>)[BRANCH_KEY]
+      : undefined;
+  if (typeof kept === "string" && kept.trim() !== "") return kept.trim();
   const label = labels.find((candidate) => candidate.startsWith(BRANCH_PREFIX));
   const branch = label?.slice(BRANCH_PREFIX.length).trim() ?? "";
   return branch === "" ? null : branch;
@@ -287,7 +312,7 @@ export function toIssues(rows: BdIssue[]): Issue[] {
     parentId: row.parent ?? null,
     step: stepOf(row.labels ?? []),
     size: sizeOf(row.labels ?? []),
-    branch: branchOf(row.labels ?? []),
+    branch: branchOf(row.metadata, row.labels ?? []),
     // Not known to beads; filled in by the server for the tab's list.
     conversationId: null,
     status: row.status,

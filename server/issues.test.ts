@@ -210,13 +210,24 @@ test("cleanCategory lower-cases and tidies, and refuses bad names", () => {
   assert.ok("reason" in cleanCategory("x".repeat(41)));
 });
 
-test("an epic's branch is read from its label and kept out of the plain labels", () => {
-  assert.equal(branchOf(["step:on-branch", "branch:x-1-kanban-board"]), "x-1-kanban-board");
-  assert.equal(branchOf(["step:plan"]), null);
-  assert.equal(branchOf(["branch: "]), null);
-  const [epic] = toIssues([
-    row("x-1", null, "open", [], { labels: ["branch:x-1-kanban-board", "ui"] }),
+test("an epic's branch is read from the issue's metadata, and from the label it used to be in", () => {
+  assert.equal(branchOf({ branch: "x-1-kanban-board" }, []), "x-1-kanban-board");
+  assert.equal(branchOf({ branch: " " }, []), null);
+  assert.equal(branchOf({ branch: 3 }, []), null);
+  assert.equal(branchOf(null, []), null);
+  assert.equal(branchOf("text", []), null);
+  // The old label is still read; metadata comes first.
+  assert.equal(branchOf(undefined, ["step:on-branch", "branch:x-1-kanban-board"]), "x-1-kanban-board");
+  assert.equal(branchOf({ branch: "new" }, ["branch:old"]), "new");
+  assert.equal(branchOf(undefined, ["step:plan"]), null);
+  assert.equal(branchOf(undefined, ["branch: "]), null);
+  const [epic, old] = toIssues([
+    row("x-1", null, "open", [], { metadata: { branch: "x-1-kanban-board" }, labels: ["ui"] }),
+    row("x-2", null, "open", [], { labels: ["branch:x-2-old", "ui"] }),
   ]);
   assert.equal(epic!.branch, "x-1-kanban-board");
   assert.deepEqual(epic!.labels, ["ui"]);
+  // The old label is still kept out of the plain labels.
+  assert.equal(old!.branch, "x-2-old");
+  assert.deepEqual(old!.labels, ["ui"]);
 });

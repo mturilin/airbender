@@ -44,6 +44,7 @@ import type { Issue, IssueComment, IssuesResult } from "./contract.ts";
 import type { CurrentBead } from "./current-bead.ts";
 import type { Folders } from "./folder.ts";
 import {
+  BRANCH_KEY,
   BRANCH_PREFIX,
   CATEGORY_PREFIX,
   RELATES_TO,
@@ -624,26 +625,46 @@ export function createStore({
    * Records the branch an epic's issues are worked on, or forgets it
    * (null).
    *
-   * Pre-condition: the issue is known to be in the folder; `branch`, when
-   *   given, has no comma in it (bd splits a label on commas; git branch
-   *   names made by this plugin and by BB have none).
+   * Kept in the issue's metadata, and a label from the time it was kept
+   * in one is removed on the way (see BRANCH_KEY in issues.ts).
+   *
+   * Pre-condition: the issue is known to be in the folder.
+   * Side effects: one `bd update` for the metadata, and the read and
+   *   possible update of the labels that removing an old label takes.
    */
-  function setBranch(
+  async function setBranch(
     path: string,
     threadId: string | null,
     beadId: string,
     branch: string | null,
     publish = true,
   ): Promise<Outcome> {
-    return setPrefixedLabel(
+    const run = await runIn(
+      path,
+      [
+        "update",
+        beadId,
+        "--json",
+        ...(branch === null
+          ? ["--unset-metadata", BRANCH_KEY]
+          : ["--set-metadata", `${BRANCH_KEY}=${branch}`]),
+      ],
+      "bd update (branch)",
+    );
+    if ("message" in run) return { message: run.message };
+    // The old label, where there still is one: gone either way. Not
+    // published by that step: once, here, for the whole change.
+    const outcome = await setPrefixedLabel(
       path,
       threadId,
       beadId,
       BRANCH_PREFIX,
-      branch,
-      "bd update (branch)",
-      publish,
+      null,
+      "bd update (branch label)",
+      false,
     );
+    if (outcome.message === null && publish) changed(threadId);
+    return outcome;
   }
 
   /**
