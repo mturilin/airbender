@@ -379,6 +379,9 @@ export function createGitHubTracker({
   });
 
   return {
+    name: "github",
+    linkKinds: [...LINK_KINDS],
+
     async capabilities(): Promise<Capabilities> {
       const warnings = [
         "GitHub is asked over the network: a command takes a moment, and there is a limit of about 5,000 requests an hour.",
@@ -703,15 +706,32 @@ export function createGitHubTracker({
       await rewrite(other, withLink(mirror(link, `${issue.number}`)));
     },
 
-    async unlink(id: string, otherId: string, onlyFrom = false): Promise<void> {
+    async unlink(
+      id: string,
+      otherId: string,
+      only: { from?: boolean; kind?: string } = {},
+    ): Promise<void> {
+      const onlyFrom = only.from === true;
+      // GitHub can hold a "blocked by" and a link kept in the text between
+      // the same two issues, so a caller that removes one of them says
+      // which; without that, everything between the two goes.
+      const wanted = (kind: string) =>
+        only.kind === undefined || only.kind === kind;
       const issue = await need(id);
       const other = await need(otherId);
       let removed = false;
-      if (issue.blockedBy.some((ref) => ref.number === other.number)) {
+      if (
+        wanted("blocked-by") &&
+        issue.blockedBy.some((ref) => ref.number === other.number)
+      ) {
         await client.removeBlockedBy(issue.number, other.id);
         removed = true;
       }
-      if (!onlyFrom && other.blockedBy.some((ref) => ref.number === issue.number)) {
+      if (
+        wanted("blocked-by") &&
+        !onlyFrom &&
+        other.blockedBy.some((ref) => ref.number === issue.number)
+      ) {
         await client.removeBlockedBy(other.number, issue.id);
         removed = true;
       }
@@ -720,7 +740,9 @@ export function createGitHubTracker({
       // is about the other issue) is left, and so is its counterpart.
       const mine = splitBody(issue.body).links.filter(
         (link) =>
-          link.id === `${other.number}` && !(onlyFrom && link.direction === "in"),
+          link.id === `${other.number}` &&
+          wanted(link.kind) &&
+          !(onlyFrom && link.direction === "in"),
       );
       if (mine.length > 0) {
         const same = (left: TextLink, right: TextLink) =>

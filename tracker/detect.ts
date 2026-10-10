@@ -37,6 +37,10 @@ import { NotSetUp, Refused, type Tracker } from "./types.ts";
 /** A tracker found for a folder. */
 export interface Found {
   tracker: Tracker;
+  /** Which tracker it is. */
+  name: TrackerName;
+  /** For GitHub: the repository, as "owner/name"; null for beads. */
+  repository: string | null;
   /** The folder the tracker was found in: the repository's root. */
   root: string;
 }
@@ -110,6 +114,11 @@ export function parseGithubRemote(url: string): string | null {
  *   found it itself; else the environment's BEND_BD, else `bd` on the PATH.
  * @param options.accept The trackers the caller can work with; all of them
  *   when left out. One that is not accepted is passed over.
+ * @param options.guess Whether a GitHub remote alone is enough to use
+ *   GitHub issues; true when left out. With false, GitHub is used only
+ *   where the setting file says so: for a caller that must not start
+ *   reading and changing a repository's GitHub issues before its owner has
+ *   chosen that (the Airbender tab).
  * @param options.githubClient Makes the connection to a GitHub repository;
  *   the real one when left out. Replaced in tests.
  * @throws NotSetUp when no accepted tracker is found; Refused when the
@@ -124,6 +133,7 @@ export function detectTracker(
   options: {
     bdCommand?: string;
     accept?: readonly TrackerName[];
+    guess?: boolean;
     githubClient?: (repository: string) => GitHubClient;
   } = {},
 ): Found {
@@ -137,10 +147,14 @@ export function detectTracker(
     options.bdCommand?.trim() || process.env.BEND_BD?.trim() || "bd";
   const beadsIn = (root: string, runIn: string): Found => ({
     root,
+    name: "beads",
+    repository: null,
     tracker: createBeadsTracker({ dir: runIn, actor, bdCommand }),
   });
   const githubIn = (root: string, repository: string): Found => ({
     root,
+    name: "github",
+    repository,
     tracker: createGitHubTracker({
       client: (options.githubClient ?? ((name) => createGitHubClient({ repository: name })))(
         repository,
@@ -180,7 +194,7 @@ export function detectTracker(
     // main folder's database from a work tree.
     return beadsIn(main, start);
   }
-  if (accept.includes("github")) {
+  if (accept.includes("github") && options.guess !== false) {
     const remote = githubRepositoryOf(start);
     const repository = remote === null ? null : (namedRepository ?? remote);
     // The folder the facts file sits in: the repository's main folder,

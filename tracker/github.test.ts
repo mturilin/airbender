@@ -207,14 +207,23 @@ test("links GitHub has no place for are written on both issues", async () => {
   await tracker.comments(follow);
   assert.equal(github.requests() - before, 2, "comments: the issue, and its comments");
 
+  // One kind can be removed and another between the same two left.
+  await tracker.link(other, follow, "blocked-by");
+  await tracker.unlink(other, follow, { kind: "blocked-by" });
+  assert.deepEqual(await kinds(other), [`related out ${follow}`]);
+  await tracker.link(other, follow, "blocked-by");
+  await tracker.unlink(other, follow, { kind: "related" });
+  assert.deepEqual(await kinds(other), [`blocked-by out ${follow}`]);
+  await tracker.link(other, follow, "related");
+  await tracker.unlink(other, follow, { kind: "blocked-by" });
   // Removing a link removes both lines.
   await tracker.unlink(other, follow);
   assert.deepEqual(await kinds(other), []);
   assert.deepEqual(await kinds(follow), [`discovered-from out ${origin}`]);
   // "Only the link recorded on this issue": the origin's "led to" line is
   // about the follow-up, so it stays; from the follow-up's side it goes.
-  await assert.rejects(tracker.unlink(origin, follow, true), refused(/no link between/u));
-  await tracker.unlink(follow, origin, true);
+  await assert.rejects(tracker.unlink(origin, follow, { from: true }), refused(/no link between/u));
+  await tracker.unlink(follow, origin, { from: true });
   assert.deepEqual(await kinds(follow), []);
   assert.deepEqual(await kinds(origin), []);
   assert.doesNotMatch(github.bodyOf(Number(origin)), /bend:links/u);

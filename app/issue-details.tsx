@@ -319,7 +319,7 @@ export function IssueDetails({
           <Button
             variant="outline"
             size="sm"
-            tip="Link this issue with another: blocked by, discovered from, related and beads' other kinds"
+            tip="Link this issue with another: blocked by, discovered from, related and the tracker's other kinds"
             onClick={() => {
               setMoving(false);
               setLinking(true);
@@ -447,6 +447,7 @@ export function IssueDetails({
         <LinkPicker
           issue={issue}
           targets={actions.linkTargets(issue.id)}
+          kinds={actions.linkKinds}
           onPick={(fromId, toId, kind) => {
             setLinking(false);
             actions.link(fromId, toId, kind);

@@ -77,7 +77,7 @@ export function createFolders({
       }
     }
     if (projectId === null) {
-      return { reason: "Pick a project to see its beads issues." };
+      return { reason: "Pick a project to see its issues." };
     }
     const project = await bb.sdk.projects.get({ projectId });
     const local = project.sources.filter(
@@ -87,7 +87,7 @@ export function createFolders({
     if (source === undefined) {
       return {
         reason:
-          "This project has no folder on the machine BB itself runs on, so there is nowhere to look for beads issues.",
+          "This project has no folder on the machine BB itself runs on, so there is nowhere to look for its issues.",
       };
     }
     return { path: source.path };

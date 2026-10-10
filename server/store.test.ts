@@ -249,7 +249,7 @@ test("links of every kind, what blocks what, and moving", async (t) => {
   );
   assert.notEqual((await link(a, a, "blocks")).message, null);
   assert.notEqual((await link(a, "t-nope", "blocks")).message, null);
-  assert.match((await link(a, "--force", "blocks")).message ?? "", /not a beads issue id/u);
+  assert.match((await link(a, "--force", "blocks")).message ?? "", /is not an issue id/u);
 
   // A link the other way round is a second link; removing one leaves it.
   assert.equal((await link(b, a, "discovered-from")).message, null);
@@ -351,7 +351,7 @@ test("a folder without beads and a machine without bd are told apart", async (t)
   if (skip) return t.skip(skip);
   const none = await storeIn(empty).listIssues(here);
   assert.equal(none.state, "no-beads");
-  assert.match(none.message ?? "", /does not use beads yet/u);
+  assert.match(none.message ?? "", /has no issue tracker yet/u);
   const noProgram = await storeIn(root, null).listIssues(here);
   assert.deepEqual([noProgram.state, noProgram.message], ["no-bd", "no bd here"]);
   // Found by name, gone when run: the same answer, not a raw error.
@@ -361,4 +361,128 @@ test("a folder without beads and a machine without bd are told apart", async (t)
     (await storeIn(empty).setIssueOpen("close", { ...here, beadId: "t-1" })).message,
     none.message,
   );
+});
+
+// --- A repository whose issues are on GitHub (bead-bb-c9l.6) ---
+
+test("the same operations on GitHub issues: labels for step and size, three kinds of link", async () => {
+  const { mkdirSync, writeFileSync } = await import("node:fs");
+  const { createFakeGitHub } = await import("../tracker/github-fake.ts");
+  const { NotSignedIn } = await import("../tracker/types.ts");
+  const folder = mkdtempSync(join(tmpdir(), "airbender-store-github-"));
+  try {
+    mkdirSync(folder, { recursive: true });
+    writeFileSync(
+      join(folder, ".bend.json"),
+      '{"tracker": "github", "repository": "team/board"}',
+    );
+    const github = createFakeGitHub({ repository: "team/board" });
+    let signedIn = true;
+    const store = createStore({
+      bb: {
+        log: { warn: () => {} },
+        realtime: { publish: () => void (reloads += 1) },
+      } as unknown as BbPluginApi,
+      folders: {
+        folderFor: async () => ({ path: folder }),
+        onOwnBranch: async () => false,
+        currentBranch: async () => null,
+        isWorkTree: async () => false,
+      } as unknown as Folders,
+      // No beads program on this machine: GitHub issues do not need it.
+      trackers: createTrackers({
+        findBd: async () => null,
+        notFoundMessage: "no bd here",
+        warn: () => {},
+        githubClient: () =>
+          new Proxy(github, {
+            get(target, key, receiver) {
+              const value = Reflect.get(target, key, receiver) as unknown;
+              if (typeof value !== "function" || key === "requests") return value;
+              return (...args: unknown[]) => {
+                if (!signedIn) {
+                  return Promise.reject(new NotSignedIn("Not signed in to GitHub."));
+                }
+                return (value as (...all: unknown[]) => unknown).apply(target, args);
+              };
+            },
+          }),
+      }),
+      currentBead: {
+        read: async () => null,
+        store: async () => {},
+      } as unknown as CurrentBead,
+      watchFolder: () => {},
+      workflowChoice: { idFor: () => "standard" } as unknown as WorkflowChoice,
+    });
+
+    const epic = await create(store, "Epic", { category: "UX" });
+    const child = await create(store, "Child", { parentId: epic });
+    assert.deepEqual([epic, child], ["1", "2"]);
+    assert.equal((await store.setStep(folder, null, epic, "plan")).message, null);
+    assert.equal((await store.setStep(folder, null, epic, "implement")).message, null);
+    assert.equal((await store.setSize(folder, null, epic, "m")).message, null);
+    assert.equal((await store.addComment(folder, child, "Workflow: Define → Plan")).message, null);
+    assert.equal(
+      (await store.updateIssue({ ...here, beadId: child, type: "bug", priority: 1, title: "Child, renamed", description: "What is wanted." })).message,
+      null,
+    );
+    // Where it all went on GitHub: labels and the description.
+    assert.deepEqual(github.labelsOf(1).sort(), ["category:ux", "size:m", "step:implement"]);
+    assert.deepEqual(github.labelsOf(2).sort(), ["category:ux", "priority:1", "type:bug"]);
+    assert.equal(github.bodyOf(2), "What is wanted.");
+
+    const result = await store.listIssues(here);
+    assert.equal(result.state, "ok");
+    assert.deepEqual(
+      [result.tracker, result.trackerRepository, result.linkKinds],
+      ["github", "team/board", ["blocks", "discovered-from", "related"]],
+    );
+    const issues = new Map(result.issues.map((issue) => [issue.id, issue]));
+    assert.deepEqual(
+      [issues.get(epic)!.step, issues.get(epic)!.size, issues.get(epic)!.category, issues.get(epic)!.labels],
+      ["implement", "m", "ux", []],
+    );
+    const shown = issues.get(child)!;
+    assert.deepEqual(
+      [shown.title, shown.type, shown.priority, shown.parentId, shown.step, shown.commentCount],
+      ["Child, renamed", "bug", 1, epic, null, 1],
+    );
+
+    // Links: the tab's "blocks" is GitHub's own "blocked by"; the other two
+    // are kept in the text; a kind GitHub does not have is refused.
+    const link = (kind: string) =>
+      store.link({ ...here, fromId: child, toId: epic, kind: kind as (typeof LINK_KINDS)[number] });
+    assert.equal((await link("blocks")).message, null);
+    assert.equal((await link("related")).message, null);
+    assert.match((await link("tracks")).message ?? "", /no "tracks" link/u);
+    let links = (await listed(store)).get(child)!.links;
+    assert.deepEqual(
+      links.map((found) => [found.direction, found.kind, found.id]),
+      [["out", "blocks", epic], ["out", "relates-to", epic]],
+    );
+    assert.deepEqual((await listed(store)).get(child)!.blockedBy, [{ id: epic, title: "Epic" }]);
+    for (const kind of ["blocks", "relates-to"]) {
+      assert.equal(
+        (await store.unlink({ ...here, fromId: child, toId: epic, kind })).message,
+        null,
+        kind,
+      );
+    }
+    links = (await listed(store)).get(child)!.links;
+    assert.deepEqual(links, []);
+
+    assert.equal((await store.setIssueOpen("close", { ...here, beadId: child })).message, null);
+    assert.equal((await listed(store)).get(child)!.status, "closed");
+
+    // Signed out: a state of its own, with the tracker still named, so the
+    // tab can say what it could not reach and offer to sign in.
+    signedIn = false;
+    const out = await store.listIssues(here);
+    assert.deepEqual([out.state, out.message], ["no-login", "Not signed in to GitHub."]);
+    signedIn = true;
+    assert.equal((await store.listIssues(here)).state, "ok");
+  } finally {
+    rmSync(folder, { recursive: true, force: true });
+  }
 });

@@ -142,6 +142,11 @@ export function CurrentSection({
   // The simple workflow has no step button to point the user at.
   const simple = useWorkflow() === null;
   const actions = useActions();
+  // "Bead" is beads' word for an issue; on GitHub issues it is an issue.
+  const currentHint =
+    actions.tracker === "github"
+      ? "The issue this thread is working on."
+      : "The bead this thread is working on.";
   const { currentBeadId, setCurrent } = actions;
   if (setCurrent === null) return null;
   const clear = (
@@ -160,7 +165,7 @@ export function CurrentSection({
         section={{
           id: "current",
           title: "Current",
-          hint: "The bead this thread is working on.",
+          hint: currentHint,
           issues: [issue],
         }}
         // Pinned, so an opened long description scrolls inside itself
@@ -199,9 +204,7 @@ export function CurrentSection({
       <div className="flex items-center gap-2">
         <div className="min-w-0 flex-1">
           <h3 className="text-sm font-medium">Current</h3>
-          <p className="text-xs text-muted-foreground">
-            The bead this thread is working on.
-          </p>
+          <p className="text-xs text-muted-foreground">{currentHint}</p>
         </div>
         {currentBeadId === null ? null : clear}
       </div>

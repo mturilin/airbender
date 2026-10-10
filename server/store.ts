@@ -73,10 +73,20 @@ export interface Outcome {
 /** What a plain read of a folder's issues gives. */
 type IssuesRead =
   | { state: "ok"; issues: Issue[] }
-  | { state: "no-bd" | "no-beads" | "error"; message: string };
+  | { state: "no-bd" | "no-beads" | "no-login" | "error"; message: string };
 
-/** The sentence for an id that cannot be a beads issue id. */
-const notAnId = (id: string) => `"${id}" is not a beads issue id.`;
+/** The sentence for text that cannot be an issue's id in any tracker. */
+const notAnId = (id: string) => `"${id}" is not an issue id.`;
+
+/**
+ * The tracker core's name for a kind of link, from the tab's. They differ
+ * in one: the tab says "blocks", as beads does, where the core says
+ * "blocked-by".
+ */
+const coreKind = (kind: string) => (kind === "blocks" ? "blocked-by" : kind);
+
+/** The tab's name for one of the tracker core's kinds of link. */
+const tabKind = (kind: string) => (kind === "blocked-by" ? "blocks" : kind);
 
 /** The sentence for an issue that has disappeared since the tab loaded. */
 const notInList = (id: string) => `Issue ${id} is no longer in the list.`;
@@ -151,6 +161,9 @@ export function createStore({
     const folder = await folderFor(input);
     const empty = {
       issues: [],
+      tracker: null,
+      trackerRepository: null,
+      linkKinds: [],
       currentBeadId,
       ownBranch: false,
       branch: null,
@@ -172,9 +185,27 @@ export function createStore({
       };
     }
     const { path } = folder;
+    // Which tracker it is, is said with every answer that knows it, also
+    // when its issues cannot be read (not signed in), so the tab can say
+    // what it failed to reach.
+    const found = await trackerFor(path);
+    const which =
+      "state" in found
+        ? {}
+        : {
+            tracker: found.name,
+            trackerRepository: found.repository,
+            linkKinds: found.tracker.linkKinds.map(tabKind),
+          };
     const read = await readIssues(path);
     if (read.state !== "ok") {
-      return { state: read.state, path, message: read.message, ...empty };
+      return {
+        state: read.state,
+        path,
+        message: read.message,
+        ...empty,
+        ...which,
+      };
     }
     watchFolder(path);
     const { issues } = read;
@@ -191,6 +222,10 @@ export function createStore({
       path,
       message: null,
       issues,
+      tracker: null,
+      trackerRepository: null,
+      linkKinds: [],
+      ...which,
       currentBeadId,
       ownBranch: await onOwnBranch(path),
       branch: await currentBranch(path),
@@ -641,7 +676,7 @@ export function createStore({
   ): Promise<Outcome> {
     const { fromId, toId, kind } = input;
     return change(input, [fromId, toId], "link", (tracker) =>
-      tracker.link(fromId, toId, kind === "blocks" ? "blocked-by" : kind),
+      tracker.link(fromId, toId, coreKind(kind)),
     );
   }
 
@@ -651,14 +686,20 @@ export function createStore({
    * @param input.kind The link's kind as the tab lists it. A two-way link is
    *   recorded on both issues and shown once on each, so both halves go; of
    *   any other kind only the one recorded on `fromId` is removed, and a
-   *   link the other way round, which the tab shows separately, stays.
+   *   link the other way round, which the tab shows separately, stays. So
+   *   does a link of another kind between the same two issues.
    */
   async function unlink(
     input: FolderRef & { fromId: string; toId: string; kind: string },
   ): Promise<Outcome> {
     const { fromId, toId, kind } = input;
     return change(input, [fromId, toId], "unlink", (tracker) =>
-      tracker.unlink(fromId, toId, kind !== RELATES_TO),
+      tracker.unlink(fromId, toId, {
+        from: kind !== RELATES_TO,
+        // One chip is one link: where a tracker holds several kinds
+        // between the same two issues (GitHub), only this one goes.
+        kind: kind === RELATES_TO ? "related" : coreKind(kind),
+      }),
     );
   }
 

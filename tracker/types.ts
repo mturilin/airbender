@@ -213,6 +213,14 @@ export interface Capabilities {
  * acting.
  */
 export interface Tracker {
+  /** The tracker's name, e.g. "beads"; known without asking it anything. */
+  readonly name: string;
+  /**
+   * Every kind of link `link` accepts here, as in Capabilities. Known
+   * without asking the tracker anything, for a caller that draws a choice
+   * of kinds on every screen and cannot spend a request on it.
+   */
+  readonly linkKinds: readonly string[];
   capabilities(): Promise<Capabilities>;
   list(filter: ListFilter): Promise<Issue[]>;
   /** Issues that can be worked on now, by the tracker's own definition. */
@@ -241,11 +249,18 @@ export interface Tracker {
   /**
    * Removes whatever link there is between the two, in either direction.
    *
-   * @param onlyFrom Remove only the link recorded on `id` that points at
-   *   `otherId`, and leave one recorded the other way round. For a caller
-   *   that shows the two as separate links.
+   * @param only Narrows what is removed, for a caller that shows each link
+   *   as a thing of its own and removes one of them (the Airbender tab's
+   *   chips). `from`: only a link recorded on `id` that points at
+   *   `otherId`, leaving one recorded the other way round. `kind`: only a
+   *   link of this kind, where a tracker can hold several kinds between
+   *   the same two issues (GitHub can; beads holds one).
    */
-  unlink(id: string, otherId: string, onlyFrom?: boolean): Promise<void>;
+  unlink(
+    id: string,
+    otherId: string,
+    only?: { from?: boolean; kind?: string },
+  ): Promise<void>;
 }
 
 /** The tracker, or a rule of this layer, said no. The message says why. */
@@ -256,6 +271,15 @@ export class Refused extends Error {
 /** The tracker's own program is not installed on this machine. */
 export class NoProgram extends Refused {
   override name = "NoProgram";
+}
+
+/**
+ * A hosted tracker has no login to act with, or does not accept the one it
+ * has. A class of its own because a caller with a screen offers a way to
+ * sign in, where it offers an install for NoProgram.
+ */
+export class NotSignedIn extends Refused {
+  override name = "NotSignedIn";
 }
 
 /** The folder has no tracker in it, or the one it has holds no issues yet. */

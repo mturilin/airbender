@@ -22,8 +22,10 @@ in, lets the owner manage them, and connects them to the agent: start the
 agent on an issue, have an agent write an issue up, and have the agent commit
 the work when the owner accepts it.
 
-Issues are kept by the beads issue tracker, inside the repository. The panel
-is a view of that tracker, not a second tracker.
+Issues are kept by an issue tracker, and the panel is a view of that
+tracker, not a second tracker. Two are supported: beads, which keeps issues
+inside the repository, and GitHub issues. **The owner chooses which one a
+repository uses**, from the panel. `[c9l.6]`
 
 ## Why it exists
 
@@ -91,7 +93,8 @@ Rules for the layout:
 When something the panel needs is missing, the panel offers to set it up.
 `[80e]`
 
-- **Four things can be set up**, in this order:
+- **With beads, four things can be set up**, in this order (for GitHub
+  issues see "Choosing the tracker"):
   1. **Install beads**, when the tracker's program is not on the computer.
      The owner **chooses the way of installing each time**, from the ways
      available on that computer.
@@ -255,11 +258,38 @@ Opening a row shows:
   padding, and less prominent than ordinary buttons, with no sharp border,
   so they do not take much space or attract too much attention. `[zty.1]`
 
+## Choosing the tracker
+
+- **A folder with no tracker is offered GitHub issues beside beads**, in the
+  middle of the panel with the other things to set up, when its remote is on
+  GitHub. `[c9l.6]`
+- **Any repository can be switched either way from the "⋯" menu**, which
+  also shows which tracker is in use. `[c9l.6]`
+- **Switching is confirmed first, and says plainly that issues are not
+  moved**: after a switch the panel shows what the other tracker holds, and
+  what was in the first one is still there after switching back. `[c9l.6]`
+- **The panel says when it is showing GitHub issues.** `[c9l.6]`
+- **The panel shows a repository's GitHub issues only after the owner chose
+  that**, never because the repository merely has a remote on GitHub.
+  `[c9l.6]`
+- **GitHub issues need no beads on the computer.** `[c9l.6]`
+- **Without a GitHub login the panel says so and offers to sign in**,
+  instead of showing an error. `[c9l.6]`
+- **On a repository that uses GitHub issues, what is offered and said
+  follows that tracker**: the things to set up are signing in, the `bend`
+  command and Airbender's rules; nothing says "beads" except the offer to
+  use it. `[c9l.6]`
+- **Background sizing works the same on both trackers**: where it is on,
+  every issue without a size gets one, also on GitHub. `[c9l.6]`
+- **The panel talks to GitHub directly**: each reload reads the issues over
+  the network, and each change is sent at once. `[c9l.6]`
+
 ## Links between issues
 
 - The tab supports the tracker's **own kinds of link between issues, and
-  nothing additional**: blocked by, discovered from, related, tracks, until,
-  caused by, validates, supersedes. `[zty.4]`
+  nothing additional**: with beads, blocked by, discovered from, related,
+  tracks, until, caused by, validates, supersedes `[zty.4]`; with GitHub
+  issues, blocked by, discovered from and related `[c9l.6]`.
 - An opened issue has a **Link** button. It opens a small search box, like
   "Move to", with a dropdown of the kinds, starting on "blocked by".
   `[zty.4]`
@@ -709,6 +739,9 @@ agent's messages. `[3l4]` `[eg0]`
   the owner working in a terminal. `[6v6]`
 - This is triggered by watching for the change, not by checking on a timer.
   `[6v6]`
+- **Where the issues are on GitHub there is nothing on the computer to
+  watch**: the panel reads them again when it comes back into view, and
+  every few minutes while it is in view. `[c9l.6]`
 
 ## How agents work with it
 
@@ -727,6 +760,12 @@ These rules apply to any agent working in a repository that uses the product.
 - **The agent is told which workflow applies**, at the moments it matters:
   when it says which issue it is on, when the owner makes an issue current
   for it, and when the owner switches the workflow. `[8fm]`
+- **The agent is told how to read and change issues in words that work in
+  that repository**: the tracker's own command where issues are in beads,
+  and the `bend` command where they are on GitHub. `[c9l.6]`
+- **The panel offers to put the `bend` command where agents find it**, as
+  one of the things to set up, and does it only when the owner presses it.
+  `[c9l.3]` `[c9l.6]`
 - **Do not close issues by hand.** The owner validates and accepts; the
   issue closes when its last step, the commit, is reported done. `[e1d]`
   `[0uh]`
@@ -765,8 +804,8 @@ panel. `[bwr]`
 - **A hosted tracker is asked for no more than is needed**: showing one
   issue does not read the whole list, and a list can be narrowed to what
   changed since a given moment. `[c9l.1]`
-- **The panel itself works with beads only.** A repository whose issues
-  are on GitHub is used through `bend`, not through the panel. `[c9l.1]`
+- **The panel and `bend` agree about a repository**: the tracker the owner
+  chose in the panel is the one `bend` uses there. `[c9l.6]`
 - **It does not depend on the app the panel runs in**, so it can be used, or
   moved, on its own.
 - **What it can do:** list issues, list those ready to work on, show one,
@@ -1251,6 +1290,29 @@ breaking a requirement above.
   reached (with the time it lifts) and no network are each said in plain
   words. Status warns that commands take a moment, that there is an hourly
   limit, and that search runs behind. `[c9l.1]`
+- The panel on GitHub issues: the list is read again every three minutes
+  while the panel is in view, and when it comes back into view; never while
+  it is hidden. `[c9l.6]`
+- Choosing the tracker writes the setting file (see bend, below) at the
+  root of the checkout. It is an ordinary file of the repository: the
+  confirmation says to commit it, and in a work tree the choice holds for
+  that branch until it is merged. `[c9l.6]`
+- After a switch, Airbender's rules in the instructions file are the other
+  tracker's. The step that adds the rules is then offered again and
+  replaces that one section; nothing else in the file is touched. `[c9l.6]`
+- Signing in to GitHub runs GitHub's own sign-in in a visible terminal. It
+  is greyed out where that program is not installed. `[c9l.6]`
+- Putting `bend` where agents find it makes a link in the owner's own
+  commands folder to the copy that came with the product, so both are the
+  same version. On a repository that uses beads the step is only in the
+  menu. `[c9l.3]` `[c9l.6]`
+- On a repository that uses beads, agents are still told the tracker's own
+  command, not `bend`. The standing instructions of the two agent tools,
+  which are the same for every repository, name both trackers. `[c9l.6]`
+- On GitHub, removing one link from an issue leaves a link of another kind
+  between the same two issues. `[c9l.6]`
+- On GitHub the panel does not notice a login that was made or removed
+  until its next read. `[c9l.6]`
 - bend: every command accepts: run in another folder, read the text from a
   file or standard input, and who is acting. The ending statuses are 0 done,
   1 refused, 2 asked wrongly, 3 not supported by this tracker.

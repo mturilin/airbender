@@ -49,7 +49,7 @@ test("a closed issue, or an id that is not there, is refused", () => {
   assert.match(currentRefusal(readable, "proj-c2d") ?? "", /is closed/u);
   assert.match(
     currentRefusal(readable, "proj-zzz") ?? "",
-    /No beads issue with id proj-zzz in \/repo/u,
+    /No issue with id proj-zzz in \/repo\. Run bd list/u,
   );
 });
 
@@ -60,7 +60,7 @@ test("a folder whose issues cannot be read refuses, with the folder's reason", (
       "proj-a1b",
     );
     assert.match(refusal ?? "", /No beads here\./u);
-    assert.match(refusal ?? "", /only applies in a folder that tracks its work in beads/u);
+    assert.match(refusal ?? "", /only applies in a folder that is set up for Airbender/u);
   }
   // A missing reason still gives a sentence.
   assert.match(

@@ -28,8 +28,16 @@ export interface Scope {
  * @returns `result` (null until the first answer), `loading` while a request
  *   is in flight, `failure` when the request itself failed (as opposed to
  *   the backend answering with a non-"ok" state), and `refresh` to ask again.
- * Side effects: one RPC per refresh; listens for window focus while mounted.
+ * Side effects: one RPC per refresh; listens for window focus while mounted;
+ *   where the issues are on GitHub, also a timer and a listener for the tab
+ *   coming back into view.
  */
+/**
+ * How often a list kept on a hosted tracker is read again while the tab is
+ * in view. Three minutes is the owner's figure ("every 3 min syncs").
+ */
+const HOSTED_REFRESH_MS = 3 * 60_000;
+
 export function useIssues(scope: Scope) {
   const rpc = useRpc<typeof rpcContract>();
   const { threadId, projectId } = scope;
@@ -75,5 +83,23 @@ export function useIssues(scope: Scope) {
   // sees made outside the plugin (an agent or a terminal running bd), so the
   // tab follows along on its own.
   useRealtime(CHANGED_CHANNEL, refresh);
+  // Issues on GitHub (bead-bb-c9l.6): nothing on this machine changes when
+  // someone edits an issue there, so there is nothing for the backend to
+  // watch. The tab asks again by itself: when it comes back into view, and
+  // every few minutes while it is in view. Not while hidden: each reload
+  // reads the whole list over the network, and nobody is looking.
+  const hosted = result?.tracker === "github";
+  useEffect(() => {
+    if (!hosted) return;
+    const whenShown = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    document.addEventListener("visibilitychange", whenShown);
+    const timer = window.setInterval(whenShown, HOSTED_REFRESH_MS);
+    return () => {
+      document.removeEventListener("visibilitychange", whenShown);
+      window.clearInterval(timer);
+    };
+  }, [hosted, refresh]);
   return { rpc, result, failure, loading, refresh };
 }

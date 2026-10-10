@@ -9,7 +9,8 @@ panel, beside a thread or on the New thread screen.
   current bead. `server.ts` wires the pieces and maps each request to one
   call. `server/contract.ts` is the typed contract with the frontend;
   `folder.ts` finds the folder and the `bd` program; `trackers.ts` gives the
-  tracker for a folder and turns its failures into what the tab shows;
+  tracker for a folder (beads, or GitHub issues where the repository says
+  so) and turns its failures into what the tab shows;
   `store.ts` holds the issue operations, each one a call on that tracker;
   `work.ts` moves an issue through its workflow; `autopilot.ts` starts an
   epic's issues one after another; `sync.ts` joins the issue sync (the `sync/` folder) to the
@@ -265,7 +266,8 @@ For GitHub, sign in with `gh auth login` or set `GH_TOKEN`.
 - `.agents/skills/bend/SKILL.md` — tells agents when and how to use it.
 
 It needs node 22.6 or later, which runs the TypeScript directly. To have it
-as plain `bend`, link `bin/bend` into a folder on your PATH. The tests in
+as plain `bend`, link `bin/bend` into a folder on your PATH; the tab's
+setup has a step that does this ("Put the bend command on the PATH"). The tests in
 `bend/main.test.ts` run against a real throwaway beads folder and are
 skipped where `bd` is not installed. The GitHub adapter is tested offline
 against the stand-in (`tracker/github.test.ts`); `bend/github.e2e.test.ts`
@@ -280,12 +282,26 @@ It creates and then deletes real issues there, and refuses any repository
 without "scratch" in its name.
 
 The Airbender tab uses `tracker/` for every read and change of an issue
-(`server/trackers.ts`, `server/store.ts`), and accepts beads only: a
-hosted tracker is too slow for it until there is a cache
-(bead-bb-c9l.5, then bead-bb-c9l.6). Still beads-specific in the tab,
-and to be done with a second tracker: the setup steps, watching the
-`.beads` folder for outside changes, the check on what an issue id looks
-like, the "bd command" setting, and the wording on screen.
+(`server/trackers.ts`, `server/store.ts`), for either tracker. Which one a
+repository uses is chosen in the tab (setup, or the "⋯" menu), which writes
+`.bend.json`. Unlike `bend`, the tab never takes a GitHub remote alone as a
+choice: it would start reading, and with background sizing on labelling, a
+repository's GitHub issues before the owner asked for that. The tab talks
+to GitHub live; a cache (bead-bb-c9l.5) is built only if that proves too
+slow.
+
+What follows from the tracker, and where it is decided:
+- what setup offers and what it runs: `server/setup.ts`, `app/setup.tsx`;
+- what agents are told to type (`bd` or `bend`):
+  `shared/tracker-words.ts` for the workflow's instructions,
+  `rulesFor` in `server/prompts.ts` for the rules written into `AGENTS.md`;
+- the kinds of link offered: the tracker's own, sent with the list;
+- staying current: a watch on `.beads` for beads (`server/watch.ts`), a
+  timer and a reload on coming back into view for GitHub
+  (`app/use-issues.ts`).
+
+Still beads-only: the "bd command" setting, and beads' own setup for each
+coding agent.
 
 ## Limits of this version
 

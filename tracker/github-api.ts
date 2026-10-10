@@ -35,7 +35,9 @@
 // - GitHub's `since` on a list of issues means "updated at or after".
 
 import { execFile } from "node:child_process";
-import { Refused } from "./types.ts";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { NotSignedIn, Refused } from "./types.ts";
 
 /** A short pointer to an issue, as GitHub gives it. */
 export interface GhRef {
@@ -140,21 +142,48 @@ const SIGN_IN =
   "Sign in with `gh auth login`, or set GH_TOKEN to a token that may read and write the repository's issues.";
 
 /**
+ * Where the `gh` program may be, in the order tried: by name, then the
+ * places tools are commonly installed that the PATH of a desktop app (the
+ * BB server, for the Airbender tab) tends to miss.
+ */
+export function ghCandidates(): string[] {
+  return [
+    "gh",
+    join(homedir(), ".local", "share", "mise", "shims", "gh"),
+    join(homedir(), ".local", "bin", "gh"),
+    "/usr/local/bin/gh",
+    "/opt/homebrew/bin/gh",
+    "/home/linuxbrew/.linuxbrew/bin/gh",
+  ];
+}
+
+/**
  * The token to sign in with: from the environment, else from `gh`.
  *
- * @throws Refused when there is none.
- * Side effects: may run `gh auth token` once.
+ * @throws NotSignedIn when there is none: `gh` is not installed, or it
+ *   holds no login.
+ * Side effects: may run `gh auth token`, once for each place `gh` is
+ *   looked for until one is there.
  */
-export function findToken(): Promise<string> {
+export async function findToken(): Promise<string> {
   const given = process.env.GH_TOKEN?.trim() || process.env.GITHUB_TOKEN?.trim();
-  if (given) return Promise.resolve(given);
-  return new Promise((resolve, reject) => {
-    execFile("gh", ["auth", "token"], { timeout: 10_000 }, (error, stdout) => {
-      const token = stdout.trim();
-      if (error === null && token !== "") return resolve(token);
-      reject(new Refused(`Not signed in to GitHub. ${SIGN_IN}`));
+  if (given) return given;
+  for (const program of ghCandidates()) {
+    const answer = await new Promise<string | null>((resolve) => {
+      execFile(program, ["auth", "token"], { timeout: 10_000 }, (error, stdout) => {
+        // Not there: try the next place. There but without a login: that
+        // is the answer, and no other copy of gh would know more.
+        if ((error as NodeJS.ErrnoException | null)?.code === "ENOENT") {
+          return resolve(null);
+        }
+        resolve(error === null ? stdout.trim() : "");
+      });
     });
-  });
+    if (answer === null) continue;
+    if (answer !== "") return answer;
+    break;
+  }
+  throw new NotSignedIn(`Not signed in to GitHub. ${SIGN_IN}`);
 }
 
 /** The fields read for a pointer to an issue. */
@@ -374,7 +403,8 @@ export function createGitHubClient({
       ]
         .filter((part) => part !== "")
         .join(" ");
-      throw new Refused(explainFailure(response.status, response.headers, detail));
+      const words = explainFailure(response.status, response.headers, detail);
+      throw response.status === 401 ? new NotSignedIn(words) : new Refused(words);
     }
     return parsed as Answer;
   }
