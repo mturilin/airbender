@@ -654,8 +654,11 @@ Rules:
   are sent to GitHub. It is called "Sync with GitHub". `[rh3]`
 - **The owner selects the issues, and previews the result** before
   anything is changed. `[rh3]`
-- **Closed issues are synced as well as open ones.** Comments are not
-  synced, for now. `[rh3]`
+- **Closed issues are synced as well as open ones.** `[rh3]`
+- **The import from GitHub copies the comments, when a checkbox is
+  ticked**, so that a project that used to live in GitHub issues arrives
+  with its discussion. Only in that direction: comments are not sent to
+  GitHub. `[apc]`
 - **A sync under way shows its progress**, and what the sync is printing,
   so that the owner can tell it is not stuck. `[rh3]`
 - **It is one screen with three columns: sync to GitHub, linked, and sync
@@ -1072,6 +1075,19 @@ breaking a requirement above.
   On a copy of the repository with no issues, where the remote has them,
   the setup step reads "Get this repository's issues" and downloads them;
   nothing is published by it.
+- Copying comments from GitHub: the checkbox reads "Copy comments" and is
+  ticked when the window opens. It applies to what is ticked under "From
+  GitHub" and under "Linked". The comments an issue here does not have yet
+  are added oldest first, each under the name of who wrote it on GitHub,
+  ending with a line that says who wrote it there, when, and gives the
+  address of the original; by that address a comment is known to be here
+  already, so syncing again adds nothing twice, and a comment made on
+  GitHub since is added. The time shown for a copied comment is the time
+  of the copy; the original time is in that last line. A comment changed
+  or removed on GitHub afterwards is not followed. Preview says, per
+  issue, how many comments would be copied; the progress and the result
+  say how many were. A comment that cannot be copied is reported and does
+  not stop the others.
 - The small step button on a row: lower than the icon buttons beside it,
   small text, no border, a soft grey fill that darkens under the pointer;
   it keeps its icon, label and tooltip. On the current issue it is the

@@ -11,7 +11,8 @@ panel, beside a thread or on the New thread screen.
   issue operations; `work.ts` moves an issue through its workflow; `autopilot.ts` starts an
   epic's issues one after another; `sync.ts` joins the issue sync (the `sync/` folder) to the
   plugin;
-  `github.ts` lists GitHub issues, open and closed, and
+  `github-comments.ts` copies the comments of imported
+  GitHub issues, which beads' own sync leaves behind; `github.ts` lists GitHub issues, open and closed, and
   runs `bd github sync` for the ones chosen in the "Sync with GitHub"
   window (`app/github-sync.tsx`);
   `current-bead.ts` is the thread's current issue; `issues.ts` turns beads'

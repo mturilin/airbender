@@ -88,6 +88,8 @@ type Report = {
 type Prefer = "newer" | "github" | "local";
 /** The answer of `github_sync_progress` (server/contract.ts). */
 type Progress = Report & {
+  /** Comments copied from GitHub so far. */
+  copied: number;
   known: boolean;
   done: boolean;
   stopping: boolean;
@@ -252,6 +254,9 @@ export function GithubSync({
   });
   const [state, setState] = useState<StateFilter>("open");
   const [prefer, setPrefer] = useState<Prefer>("newer");
+  // Also copy the comments of what is brought in from GitHub; on to begin
+  // with, since leaving a discussion behind is the worse mistake.
+  const [withComments, setWithComments] = useState(true);
   const [filter, setFilter] = useState("");
   // What a preview of the present selection said; null when there is none.
   const [preview, setPreview] = useState<Report | null>(null);
@@ -297,6 +302,7 @@ export function GithubSync({
     setConfirming(false);
     setFilter("");
     setState("open");
+    setWithComments(true);
     load();
     // Only on opening: `load` and the scope do not change while it is open.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -432,6 +438,7 @@ export function GithubSync({
         both: [...ticked.both],
         push: [...ticked.push],
         prefer,
+        comments: withComments,
         preview: asPreview,
       })
       .then((started) => {
@@ -598,7 +605,11 @@ export function GithubSync({
                   <span className="text-muted-foreground">
                     {progress === null
                       ? "starting…"
-                      : `${progress.finished} of ${progress.total} issues · ${clock(progress.seconds)}`}
+                      : `${progress.finished} of ${progress.total} issues · ${clock(progress.seconds)}${
+                          progress.copied === 0
+                            ? ""
+                            : ` · ${progress.copied} ${progress.copied === 1 ? "comment" : "comments"} copied`
+                        }`}
                   </span>
                   <span className="flex-1" />
                   <Button
@@ -688,6 +699,22 @@ export function GithubSync({
                     </option>
                   ))}
                 </select>
+              </label>
+              {/* Comments of GitHub issues come along only if asked for:
+                  the sync itself does not carry them (bead-bb-apc). */}
+              <label
+                className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground"
+                title="Also copy the comments of the GitHub issues that are brought in (From GitHub and Linked) into the issues here, each under its author's name with a link to the original. One more request to GitHub per issue. Nothing is written to GitHub."
+              >
+                <input
+                  type="checkbox"
+                  checked={withComments}
+                  onChange={(event) => {
+                    changed();
+                    setWithComments(event.target.checked);
+                  }}
+                />
+                Copy comments
               </label>
               <span className="flex-1" />
               {confirming ? (
