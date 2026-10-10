@@ -73,7 +73,10 @@ export type LinkKind = (typeof LINK_KINDS)[number];
  * frontend shows the same text in the buttons' tooltips.
  */
 export const QUICK_REPLIES = {
-  agree: "I agree with your recommendations. Go ahead.",
+  // The user's wording (bead-bb-7jd), the third they tried: after
+  // "Confirmed. Go ahead." and "Recommendations confirmed. Go ahead." It
+  // was "I agree with your recommendations. Go ahead." before.
+  agree: "Sounds good. Please proceed.",
 } as const;
 
 /**

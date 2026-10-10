@@ -59,7 +59,7 @@ is required now, such as "Please review the plan and give feedback.";
 hover or click it for the whole issue), and inside it the current
 step's buttons as text ("Approve plan" and "Send back", "Implement", "Commit &
 merge"…). "Send back" takes its reason from what is typed in the box. The
-gray "Agree & continue" icon shows when those two answer buttons do not. BB hides the buttons inside the box in its
+gray "Agree & continue" icon is always there, after them; it sends "Sounds good. Please proceed." BB hides the buttons inside the box in its
 compact layout; the status line stays.
 
 From top to bottom the tab shows:
