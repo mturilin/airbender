@@ -30,6 +30,7 @@
 // - bd reports some errors on standard output as JSON and prints `null`
 //   where an empty list would be expected; both are handled where they occur.
 
+import { homedir } from "node:os";
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 import {
@@ -109,6 +110,7 @@ export function createStore({
     runIn,
     onOwnBranch,
     currentBranch,
+    isWorkTree,
     BD_NOT_FOUND_MESSAGE,
   } = folders;
 
@@ -180,6 +182,10 @@ export function createStore({
       currentBeadId,
       ownBranch: false,
       branch: null,
+      workTree: false,
+      home: homedir(),
+      // Filled in by the server's handler, which knows autopilot.
+      autopilot: null,
       workflow:
         folder.path === null
           ? DEFAULT_WORKFLOW_ID
@@ -216,6 +222,9 @@ export function createStore({
       currentBeadId,
       ownBranch: await onOwnBranch(path),
       branch: await currentBranch(path),
+      workTree: await isWorkTree(path),
+      home: homedir(),
+      autopilot: null,
       workflow: workflowChoice.idFor(path),
     };
     const current = issues.find((issue) => issue.id === currentBeadId);
@@ -326,7 +335,15 @@ export function createStore({
     }
     if (input.type !== null) args.push("--type", input.type);
     if (input.priority !== null) args.push("--priority", `${input.priority}`);
-    if (input.parentId !== null) args.push("--parent", input.parentId);
+    // bd copies a parent's labels onto a new sub-issue unless told not to.
+    // This plugin keeps an issue's step, its size and an epic's branch as
+    // labels, so the copy started a sub-issue at its parent's step with
+    // its parent's size, and under an epic that holds a branch left it
+    // where no move is possible (bead-bb-ty5.4). The one thing a
+    // sub-issue takes from its parent, the category, is passed below.
+    if (input.parentId !== null) {
+      args.push("--parent", input.parentId, "--no-inherit-labels");
+    }
     let category: string | null = null;
     if (input.category !== null) {
       const cleaned = cleanCategory(input.category);

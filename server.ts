@@ -94,7 +94,9 @@ import { createSetup } from "./server/setup.ts";
 import { REPORT_TOOL, createSizing } from "./server/sizing.ts";
 import { createStore } from "./server/store.ts";
 import { createWatcher } from "./server/watch.ts";
+import { createAutopilot } from "./server/autopilot.ts";
 import { createWork } from "./server/work.ts";
+import type { WorkEvents } from "./server/work.ts";
 import { createWorkTrees } from "./server/work-trees.ts";
 import { createWorkflowChoice } from "./server/workflow-choice.ts";
 import {
@@ -196,6 +198,7 @@ export default async function plugin(bb: BbPluginApi) {
     mainFolder: folders.mainFolder,
     deleteMergedBranch: folders.deleteMergedBranch,
   });
+  const workEvents: WorkEvents = {};
   const work = createWork({
     bb,
     store,
@@ -205,7 +208,21 @@ export default async function plugin(bb: BbPluginApi) {
     hasUncommittedChanges: folders.hasUncommittedChanges,
     currentBranch: folders.currentBranch,
     workTrees,
+    events: workEvents,
   });
+  // Autopilot starts issues through `work`, and `work` tells it what
+  // happens: each is built first, then the two are joined.
+  const autopilot = await createAutopilot({
+    bb,
+    store,
+    currentBead,
+    workflowChoice,
+    begin: work.begin,
+  });
+  workEvents.delivered = autopilot.watch;
+  workEvents.closed = autopilot.advance;
+  workEvents.stuck = autopilot.stuck;
+  workEvents.ownerCurrent = autopilot.ownerSteppedIn;
   const { setupStatus, runSetup } = createSetup({ bb, folders, store });
 
   // Every handler is one call into a module: what each does, and how it
@@ -222,8 +239,11 @@ export default async function plugin(bb: BbPluginApi) {
       }
       // Which issues have a conversation of their own in a work tree is
       // the plugin's knowledge, not beads': added here, for the tab.
+      // And the moment for autopilot to take up what a reload cut short.
+      autopilot.consider(input.threadId);
       return {
         ...listed,
+        autopilot: autopilot.stateFor(input.threadId),
         issues: listed.issues.map((issue) => ({
           ...issue,
           conversationId: workTrees.threadFor(issue.id),
@@ -251,6 +271,7 @@ export default async function plugin(bb: BbPluginApi) {
         enterEpic: outcome.enterEpic === true,
       };
     },
+    autopilot_set: (input) => autopilot.set(input),
     issue_set_size: (input) => work.resize(input),
     issue_request_sizing: async (input) => {
       const found = await store.issuesIn(input, input.beadId);

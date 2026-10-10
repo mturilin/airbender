@@ -33,6 +33,7 @@ function issue(id: string, over: Partial<Issue> = {}): Issue {
     category: null,
     labels: [],
     updatedAt: null,
+    createdAt: null,
     blockedBy: [],
     subIssuesBlocked: false,
     blocks: [],
@@ -46,11 +47,14 @@ function listed(branch: string | null, issues: Issue[]): IssuesResult {
   return {
     state: "ok",
     path: "/repo",
+    home: "/home/someone",
     message: null,
     issues,
     currentBeadId: null,
     ownBranch: branch !== null && branch !== "main",
     branch,
+    workTree: false,
+    autopilot: null,
     workflow: "standard",
   };
 }

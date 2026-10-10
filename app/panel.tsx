@@ -24,6 +24,7 @@ import { IssueDetailsWindow } from "./details-window.tsx";
 import { getDragged, setDragged } from "./drag.ts";
 import {
   finishedEpicSize,
+  shortPath,
   focusBlock,
   matchesFilters,
   pathTo,
@@ -41,7 +42,7 @@ import { useIssues } from "./use-issues.ts";
 import type { Scope } from "./use-issues.ts";
 import { movesFor, stateOf } from "../shared/workflow.ts";
 import { DEFAULT_WORKFLOW_ID, workflowFor } from "../shared/workflows.ts";
-import { WorkflowProvider } from "./workflow-controls.tsx";
+import { MoveIcon, WorkflowProvider } from "./workflow-controls.tsx";
 import { askPanelOnArrival } from "./arrival.ts";
 import { EpicBand, EpicReturn } from "./epic-band.tsx";
 import { useFocus } from "./use-focus.ts";
@@ -159,6 +160,32 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
     focused.branch === (result?.branch ?? null)
       ? { move: landingMove, branch: focused.branch }
       : null;
+  // Autopilot for the epic the tab is zoomed in on (bead-bb-8ff): whether
+  // it is on, and the one line that says what the run is doing, what it
+  // waits for, or why it stopped.
+  const autopilotHere =
+    focused !== null && result?.autopilot?.epicId === focused.id
+      ? result.autopilot
+      : null;
+  const autopilotOn = autopilotHere?.on === true;
+  const autopilotNote = (() => {
+    if (autopilotHere === null) return null;
+    if (!autopilotOn) {
+      return autopilotHere.reason === null
+        ? null
+        : `Autopilot stopped. ${autopilotHere.reason}`;
+    }
+    if (currentIssue === null || workflowNow === null) {
+      return "Autopilot is on: starting the next ready issue.";
+    }
+    if (currentIssue.parentId !== focused?.id) {
+      return `Autopilot is on, and waits while this conversation is on ${currentIssue.id}.`;
+    }
+    const step = stateOf(workflowNow, currentIssue.step);
+    return step.actor === "user"
+      ? `Autopilot is on. Waiting for you: ${currentIssue.id} is at "${step.label}".`
+      : `Autopilot is on. The agent is on ${currentIssue.id}, at "${step.label}".`;
+  })();
   useEffect(() => {
     setNewIssueParentId(focusedId);
   }, [focusedId]);
@@ -301,11 +328,45 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
           style={pinnedStyle}
         >
           <div className="flex items-center gap-1">
-            <p
-              className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground"
-              title={result?.path ?? undefined}
-            >
-              {result?.path ?? ""}
+            {/* The folder, then the branch it is on (bead-bb-ty5.3; the
+                user: "maybe tag branch:aaa-bbb-ccc next to the project
+                path?"). Plain text in the path's own hand, no box: it used
+                to be a boxed tag in the epic band, where it looked like a
+                button beside Autopilot. The path gives way first when
+                there is no room; both show whole in their tooltips. */}
+            <p className="flex min-w-0 flex-1 items-baseline gap-3 font-mono text-xs text-muted-foreground">
+              <span className="min-w-0 truncate" title={result?.path ?? undefined}>
+                {result?.path == null ? "" : shortPath(result.path, result.home)}
+              </span>
+              {/* In a work tree, said first, with the fir of the "start
+                  in a work tree" commands (the user: "also mention
+                  worktree with fir tree icon there"). */}
+              {result?.workTree === true ? (
+                <span
+                  className="shrink-0 whitespace-nowrap"
+                  title="This folder is a work tree of the repository, not its main folder"
+                >
+                  <MoveIcon
+                    name="epic-tree"
+                    className="mr-1 inline-block size-3 align-[-1.5px]"
+                  />
+                  worktree
+                </span>
+              ) : null}
+              {/* The branch: its icon, then its name (the user: "replace
+                  branch [with the] branch icon"). */}
+              {result?.branch == null ? null : (
+                <span
+                  className="min-w-0 max-w-[60%] shrink-0 truncate"
+                  title={`This folder is on the branch ${result.branch}`}
+                >
+                  <MoveIcon
+                    name="epic-branch"
+                    className="mr-1 inline-block size-3 align-[-1.5px]"
+                  />
+                  {result.branch}
+                </span>
+              )}
             </p>
             <Button
               variant="ghost"
@@ -359,6 +420,26 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
               // it; in any other folder the band offers nothing, since a
               // plain close would leave the branch unmerged.
               merging={focusedLanding !== null}
+              autopilot={
+                // Only in a conversation, and only where issues have steps.
+                threadId === null || workflowNow === null
+                  ? undefined
+                  : {
+                      on: autopilotOn,
+                      note: autopilotNote,
+                      onToggle: () => {
+                        rpc
+                          .call("autopilot_set", {
+                            threadId,
+                            epicId: autopilotOn ? null : focused.id,
+                          })
+                          .then((outcome) => {
+                            setActionProblem(outcome.message);
+                            refresh();
+                          }, reportProblem);
+                      },
+                    }
+              }
               onClose={
                 focusedDone === 0 || (focusedHolds && focusedLanding === null)
                   ? undefined

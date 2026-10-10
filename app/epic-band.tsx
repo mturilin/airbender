@@ -34,9 +34,10 @@
 
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
+import { Tip } from "@/components/ui/tip";
+import { cn } from "@/lib/utils";
 import type { Issue } from "../server/contract.ts";
 import { IssueCard, useHoverCard } from "./issue-card.tsx";
-import { EpicPlaceTag } from "./workflow-controls.tsx";
 
 /** Shared look of the two outline icons below. */
 const STROKE = {
@@ -93,6 +94,7 @@ export function EpicBand({
   onGo,
   onClose,
   merging = false,
+  autopilot,
 }: {
   path: Issue[];
   subIssues: Issue[];
@@ -107,13 +109,21 @@ export function EpicBand({
    * closing it also merges that branch, and the button says so.
    */
   merging?: boolean;
+  /**
+   * Autopilot for this epic in this conversation (bead-bb-8ff); left out
+   * where there is none to offer (no conversation, the simple workflow).
+   * `note` is the one line under the band: what the run is doing or
+   * waiting for, or why it stopped; null for nothing to say.
+   */
+  autopilot?: { on: boolean; note: string | null; onToggle: () => void };
 }) {
   const card = useHoverCard("below");
   const epic = path[path.length - 1]!;
   const above = path.slice(0, -1);
   const parent = above[above.length - 1] ?? null;
   return (
-    <div className="flex items-center gap-1.5 rounded-lg bg-foreground/[0.05] py-1 pl-1 pr-2">
+    <div className="rounded-lg bg-foreground/[0.05]">
+    <div className="flex items-center gap-1.5 py-1 pl-1 pr-2">
       <Button
         variant="ghost"
         size="icon"
@@ -182,9 +192,6 @@ export function EpicBand({
           ) : null}
         </div>
       </div>
-      {/* Where the epic's issues are worked, when it has a branch or a
-          work tree of its own; a link to its conversation from another. */}
-      <EpicPlaceTag issue={epic} />
       {/* Everything under the epic is closed: nothing is left to do here
           but close the epic itself (bead-bb-ty5.1). It asks first. */}
       {onClose === undefined ? null : (
@@ -202,6 +209,51 @@ export function EpicBand({
           <Icon name="CircleCheck" className="size-4" />
           {merging ? "Close & merge" : "Close epic"}
         </Button>
+      )}
+      {/* Autopilot: the epic's issues are started one after another, each
+          review still the owner's. A switch, lit while it is on. */}
+      {autopilot === undefined ? null : (
+        // A switch, not a button (the user's choice, bead-bb-ty5.3): on
+        // or off is a state, and as a bordered button beside a bordered
+        // tag it made the band look like a row of buttons. Drawn by hand:
+        // a pill with a knob, the whole of it, word included, one target.
+        <Tip
+          label={
+            autopilot.on
+              ? "Autopilot is on: when an issue of this epic is closed, the next ready one starts by itself. Every review is still yours. Click to turn it off; the agent finishes what it is doing."
+              : "Autopilot: start this epic's ready issues one after another, most urgent first. Every review stays yours, and it stops and says so if an issue gets stuck."
+          }
+        >
+          <button
+            type="button"
+            role="switch"
+            aria-checked={autopilot.on}
+            onClick={autopilot.onToggle}
+            className="flex shrink-0 cursor-pointer items-center gap-2 rounded px-1 py-1 text-sm"
+          >
+            Autopilot
+            <span
+              aria-hidden="true"
+              className={cn(
+                "relative h-4 w-7 rounded-full transition-colors",
+                autopilot.on ? "bg-blue-500" : "bg-foreground/25",
+              )}
+            >
+              <span
+                className={cn(
+                  "absolute top-0.5 size-3 rounded-full bg-white shadow-sm transition-[left]",
+                  autopilot.on ? "left-3.5" : "left-0.5",
+                )}
+              />
+            </span>
+          </button>
+        </Tip>
+      )}
+    </div>
+      {autopilot === undefined || autopilot.note === null ? null : (
+        <div className="px-2 pb-1.5 pl-9 text-xs text-muted-foreground">
+          {autopilot.note}
+        </div>
       )}
     </div>
   );
