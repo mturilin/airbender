@@ -121,6 +121,12 @@ export interface ListFilter {
   assignee?: string;
   /** Only the direct sub-issues of this issue. */
   parentId?: string;
+  /**
+   * Only issues changed at or after this moment (an ISO date and time).
+   * For a caller that keeps a copy and wants only what is new; with it, a
+   * hosted tracker is asked for those issues alone.
+   */
+  changedSince?: string;
 }
 
 /** What a new issue is created from. */

@@ -126,7 +126,13 @@ export function createTrackers({
       return { state: "no-bd", message: notFoundMessage };
     }
     try {
-      const { tracker } = detectTracker(path, undefined, { bdCommand });
+      // Beads only: the tab reads the whole list on every reload, which a
+      // hosted tracker is too slow for until there is a cache
+      // (bead-bb-c9l.5). A repository on GitHub issues is "not set up" here.
+      const { tracker } = detectTracker(path, undefined, {
+        bdCommand,
+        accept: ["beads"],
+      });
       known.set(path, tracker);
       return { tracker };
     } catch (cause) {

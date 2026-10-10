@@ -442,7 +442,12 @@ export function createBeadsTracker({
           (filter.priority === undefined || issue.priority === filter.priority) &&
           (category === undefined || issue.category === category) &&
           (filter.assignee === undefined || issue.assignee === filter.assignee) &&
-          (filter.parentId === undefined || issue.parentId === filter.parentId),
+          (filter.parentId === undefined || issue.parentId === filter.parentId) &&
+          // Compared as moments, not as text: beads writes its times with
+          // an offset, and the caller's may be written another way.
+          (filter.changedSince === undefined ||
+            (issue.updatedAt !== null &&
+              Date.parse(issue.updatedAt) >= Date.parse(filter.changedSince))),
       );
     },
 

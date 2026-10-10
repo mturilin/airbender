@@ -17,6 +17,7 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { before, test } from "node:test";
+import { detectTracker } from "../tracker/detect.ts";
 import type { Issue } from "../tracker/types.ts";
 import { run } from "./main.ts";
 
@@ -186,4 +187,16 @@ test("status says what the tracker supports; facts are kept in AGENTS.md", async
   assert.match(await ok("remember", "Deploys go out on Tuesdays", "--key", "deploys"), /Replaced/u);
   assert.equal(await ok("recall", "tuesday"), "deploys: Deploys go out on Tuesdays");
   assert.match(readFileSync(join(root, "AGENTS.md"), "utf8"), /bend:facts:start/u);
+});
+
+test("a list can be narrowed to what changed since a moment", async (t) => {
+  if (skip) return t.skip(skip);
+  const { tracker } = detectTracker(root);
+  const everything = await tracker.list({ status: "all" });
+  assert.ok(everything.length > 0);
+  const ids = async (changedSince: string) =>
+    (await tracker.list({ status: "all", changedSince })).map((issue) => issue.id);
+  // Everything in this throwaway folder was made a moment ago.
+  assert.deepEqual(await ids("2000-01-01T00:00:00Z"), everything.map((issue) => issue.id));
+  assert.deepEqual(await ids(new Date(Date.now() + 3_600_000).toISOString()), []);
 });

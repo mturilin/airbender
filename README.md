@@ -215,12 +215,24 @@ reloads when it ends and shows the last output if it failed.
 ## bend
 
 `bin/bend` is a command-line program for agents: the same commands whatever
-tracker a repository uses (beads today). Run `bin/bend --help`.
+tracker a repository uses: beads, or GitHub issues. Run `bin/bend --help`.
+
+Which tracker: a `.bend.json` file at the repository's root decides
+(`{"tracker": "github"}` or `{"tracker": "beads"}`, optionally
+`"repository": "owner/name"`); without it a `.beads` folder means beads,
+and otherwise a remote called origin on github.com means GitHub issues.
+For GitHub, sign in with `gh auth login` or set `GH_TOKEN`.
 
 - `tracker/types.ts` — the common shape of an issue and the `Tracker`
   interface every adapter implements. No imports from the plugin or BB.
 - `tracker/beads.ts` — the beads adapter. `tracker/detect.ts` picks the
-  adapter from the folder. A new tracker is a new adapter plus a line there.
+  adapter from the folder (`tracker/config.ts` reads the setting file). A
+  new tracker is a new adapter plus a few lines there.
+- `tracker/github.ts` — the GitHub adapter: where each field is kept
+  (labels, marked sections of the description, GitHub's own sub-issues and
+  "blocked by"). `tracker/github-api.ts` — the connection to GitHub:
+  login, requests, and plain words for each failure.
+  `tracker/github-fake.ts` — an in-memory stand-in for the tests.
 - `tracker/memory.ts` — standing facts, kept in a marked section of
   `AGENTS.md`. `tracker/parts.ts` — small text helpers.
 - `bend/` — the command: `commands.ts` (the table the help and the accepted
@@ -230,10 +242,22 @@ tracker a repository uses (beads today). Run `bin/bend --help`.
 It needs node 22.6 or later, which runs the TypeScript directly. To have it
 as plain `bend`, link `bin/bend` into a folder on your PATH. The tests in
 `bend/main.test.ts` run against a real throwaway beads folder and are
-skipped where `bd` is not installed.
+skipped where `bd` is not installed. The GitHub adapter is tested offline
+against the stand-in (`tracker/github.test.ts`); `bend/github.e2e.test.ts`
+runs every command against real GitHub and is skipped unless a scratch
+repository is named:
+
+```sh
+BEND_GITHUB_SCRATCH=mturilin/bend-scratch npm test
+```
+
+It creates and then deletes real issues there, and refuses any repository
+without "scratch" in its name.
 
 The Airbender tab uses `tracker/` for every read and change of an issue
-(`server/trackers.ts`, `server/store.ts`). Still beads-specific in the tab,
+(`server/trackers.ts`, `server/store.ts`), and accepts beads only: a
+hosted tracker is too slow for it until there is a cache
+(bead-bb-c9l.5, then bead-bb-c9l.6). Still beads-specific in the tab,
 and to be done with a second tracker: the setup steps, watching the
 `.beads` folder for outside changes, the check on what an issue id looks
 like, the "bd command" setting, and the wording on screen.

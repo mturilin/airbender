@@ -90,6 +90,112 @@ export function withRequirements(
   return joinSection(description, REQUIREMENTS, "Requirements", requirements);
 }
 
+/** One marked section to put into a text: see joinSections. */
+export interface Section {
+  /** The name in the markers, e.g. "plan". */
+  name: string;
+  /** The visible heading above the content, e.g. "Plan". */
+  heading: string;
+  /** The content; a section with none is left out of the text. */
+  text: string;
+}
+
+/**
+ * Takes several marked sections out of a text at once.
+ *
+ * @returns `rest`, the text outside all of them, and each section's
+ *   content by name; "" for one that is not there.
+ */
+export function splitSections(
+  text: string,
+  names: readonly string[],
+): { rest: string; sections: Record<string, string> } {
+  const sections: Record<string, string> = {};
+  let rest = text;
+  for (const name of names) {
+    const split = splitSection(rest, name);
+    rest = split.rest;
+    sections[name] = split.section;
+  }
+  return { rest: rest.trim(), sections };
+}
+
+/**
+ * Puts several marked sections at the end of a text, in the order given.
+ * The opposite of splitSections.
+ *
+ * Pre-condition: `rest` holds none of these sections.
+ */
+export function joinSections(rest: string, sections: Section[]): string {
+  return sections.reduce(
+    (text, section) =>
+      joinSection(text, section.name, section.heading, section.text),
+    rest.trim(),
+  );
+}
+
+/**
+ * A link kept as a line of text, for a tracker that has no such link of
+ * its own. It is written on both issues, so that showing either one needs
+ * no search: "out" on the issue the link is about, "in" on the other.
+ */
+export interface TextLink {
+  kind: "discovered-from" | "related";
+  /** "related" reads the same from both ends and is always "out". */
+  direction: "out" | "in";
+  /** The other issue's id. */
+  id: string;
+}
+
+/** How each text link reads, and is recognised again. */
+const LINK_WORDS: { words: string; kind: TextLink["kind"]; direction: TextLink["direction"] }[] = [
+  { words: "discovered from", kind: "discovered-from", direction: "out" },
+  { words: "led to", kind: "discovered-from", direction: "in" },
+  { words: "related to", kind: "related", direction: "out" },
+];
+
+/**
+ * The lines of a "Links" section: one per link, as a list a person can
+ * read ("- discovered from #12").
+ */
+export function formatTextLinks(links: TextLink[]): string {
+  return links
+    .map((link) => {
+      const { words } = LINK_WORDS.find(
+        (known) => known.kind === link.kind && known.direction === link.direction,
+      )!;
+      return `- ${words} #${link.id}`;
+    })
+    .join("\n");
+}
+
+/**
+ * Reads the lines of a "Links" section back. A line that is not one of
+ * ours (a person wrote something there) is ignored, and a link written
+ * twice is given once.
+ */
+export function parseTextLinks(section: string): TextLink[] {
+  const found: TextLink[] = [];
+  for (const line of section.split("\n")) {
+    const match = /^\s*[-*]\s*(.+?)\s+#(\d+)\s*$/u.exec(line);
+    if (match === null) continue;
+    const known = LINK_WORDS.find((words) => words.words === match[1]!.toLowerCase());
+    if (known === undefined) continue;
+    const link = { kind: known.kind, direction: known.direction, id: match[2]! };
+    if (
+      !found.some(
+        (other) =>
+          other.kind === link.kind &&
+          other.direction === link.direction &&
+          other.id === link.id,
+      )
+    ) {
+      found.push(link);
+    }
+  }
+  return found;
+}
+
 /** Longest category name accepted. */
 const CATEGORY_MAX_LENGTH = 40;
 

@@ -698,7 +698,27 @@ panel. `[bwr]`
 
 - **The agent does not need to know which tracker holds the issues.** The
   commands, fields and output are the same whatever the tracker; the tracker
-  is found from the folder. Beads is the only tracker supported so far.
+  is found from the folder. Two trackers are supported: beads, and GitHub
+  issues. `[bwr]` `[c9l.1]`
+- **Which tracker a repository uses.** The repository can say so itself in
+  a small setting file that is checked in. Without one, a repository that
+  has beads uses beads; otherwise one whose remote is on GitHub uses GitHub
+  issues. So a repository that has both stays on beads unless it says
+  otherwise. `[c9l.1]`
+- **On GitHub, each thing is kept where GitHub has a place for it**, and
+  otherwise in a way a person reading the issue on GitHub can see: `[c9l.1]`
+  - GitHub's own: title, description, comments, assignee, closing,
+    sub-issues, and "blocked by".
+  - As labels: type, priority, category, and "in progress".
+  - As marked sections of the description: requirements, done, plan and
+    notes.
+  - As a marked "Links" section of the description: "discovered from" and
+    "related", which GitHub does not have.
+- **A hosted tracker is asked for no more than is needed**: showing one
+  issue does not read the whole list, and a list can be narrowed to what
+  changed since a given moment. `[c9l.1]`
+- **The panel itself works with beads only.** A repository whose issues
+  are on GitHub is used through `bend`, not through the panel. `[c9l.1]`
 - **It does not depend on the app the panel runs in**, so it can be used, or
   moved, on its own.
 - **What it can do:** list issues, list those ready to work on, show one,
@@ -1060,6 +1080,36 @@ breaking a requirement above.
 - The panel shows an issue's description and its requirements as one text,
   the requirements as a marked section at its end, as beads holds them.
   `[c9l.2]`
+- bend: the setting file is `.bend.json` at the repository's root, holding
+  `{"tracker": "github"}` or `{"tracker": "beads"}`, and optionally
+  `"repository": "owner/name"`; without that the remote called origin
+  names the repository. A file that names only the repository leaves the
+  choice of tracker to the rule above and says where the issues are. A setting file that cannot be understood is
+  refused, naming the file. `[c9l.1]`
+- bend on GitHub: only github.com. An issue is named by its number, with
+  or without "#". Issues of another repository cannot be named. `[c9l.1]`
+- bend on GitHub: the labels are `type:<name>`, `priority:<0-4>`,
+  `category:<name>` and `in-progress`; GitHub makes a label the first time
+  it is used. The sections read "Requirements", "Done when", "Plan",
+  "Notes" and "Links". `[c9l.1]`
+- bend on GitHub: a "discovered from" or "related" link is written on both
+  issues ("discovered from #12" on one, "led to #15" on the other; "related
+  to" on both), and removing it removes both lines. `[c9l.1]`
+- bend on GitHub: everything is done as the signed-in GitHub account.
+  Starting an issue assigns it to that account. A comment written as
+  someone else opens with that name and is shown as written by them.
+  `[c9l.1]`
+- bend on GitHub: closing with a reason adds the reason as a comment that
+  begins "Closed:"; the issue's close reason shows GitHub's own word
+  (completed, not planned). Closing takes "in progress" off. `[c9l.1]`
+- bend on GitHub: "ready" means open, not in progress, and waiting for
+  nothing. An issue waits for what the issues it sits inside wait for, up
+  to four levels up. `[c9l.1]`
+- bend on GitHub: the login is the one the `gh` program holds, or a token
+  in `GH_TOKEN` or `GITHUB_TOKEN`. Not signed in, no access, a limit
+  reached (with the time it lifts) and no network are each said in plain
+  words. Status warns that commands take a moment, that there is an hourly
+  limit, and that search runs behind. `[c9l.1]`
 - bend: every command accepts: run in another folder, read the text from a
   file or standard input, and who is acting. The ending statuses are 0 done,
   1 refused, 2 asked wrongly, 3 not supported by this tracker.

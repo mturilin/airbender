@@ -1,6 +1,6 @@
 ---
 name: bend
-description: Use when reading or changing a repository's issues: finding ready work, reading an issue, writing its requirements or plan, recording a decision, filing follow-up work, linking issues, or handing work over. `bend` works the same whatever tracker holds the issues (beads today), so use it instead of the tracker's own commands.
+description: Use when reading or changing a repository's issues: finding ready work, reading an issue, writing its requirements or plan, recording a decision, filing follow-up work, linking issues, or handing work over. `bend` works the same whatever tracker holds the issues (beads or GitHub issues), so use it instead of the tracker's own commands (`bd`, `gh issue`).
 ---
 
 # bend
@@ -19,6 +19,11 @@ bend comments <id> # its history: decisions, hand-overs, discussion
 ```
 
 Run `bend --help` for every command and `bend <command> --help` for one.
+
+An issue's id is whatever `bend` prints for it: a short name with beads
+(`app-1x2`), a number on GitHub (`12`). On GitHub each command goes over
+the network, so it takes a moment; `bend status` says what else is
+different there.
 
 ## While working on an issue
 
