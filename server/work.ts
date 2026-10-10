@@ -41,6 +41,7 @@
 
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { CLOSED_STATUS } from "../shared/constants.ts";
+import { wordsFor } from "../shared/tracker-words.ts";
 import { descendantsOf } from "../shared/tree.ts";
 import {
   CLOSED,
@@ -122,6 +123,7 @@ export function createWork({
   hasUncommittedChanges,
   currentBranch,
   workTrees,
+  trackerOf,
   events = {},
 }: {
   bb: BbPluginApi;
@@ -133,6 +135,11 @@ export function createWork({
    * background sizing treats that size as theirs (server/sizing.ts).
    */
   onUserSize: (path: string, beadId: string) => void;
+  /**
+   * Which tracker a folder's issues are in, as last found; null when not
+   * known. Decides how the agent is told to type the tracker's commands.
+   */
+  trackerOf: (path: string) => string | null;
   /** Whether a folder has uncommitted changes to tracked files. */
   hasUncommittedChanges: (path: string) => Promise<boolean>;
   /** The branch a folder is on; null when it cannot be told. */
@@ -205,8 +212,15 @@ export function createWork({
     return `${what} on the branch ${home.branch}. This folder is on ${here ?? "no branch"}: work on it in a folder that is on ${home.branch}.`;
   }
 
-  /** What the workflow may say about an issue: itself and its open sub-issues. */
+  /**
+   * What the workflow may say about an issue: itself, its open sub-issues,
+   * and how the commands of the folder's tracker are written.
+   *
+   * @param path The folder the issue was read from, which decides the
+   *   wording: `bd` for beads, `bend` where the issues are on GitHub.
+   */
   const describe = (
+    path: string,
     issue: Issue,
     issues: Issue[],
     threadId: string | null = null,
@@ -214,6 +228,7 @@ export function createWork({
   ) => ({
     id: issue.id,
     title: issue.title,
+    words: wordsFor(trackerOf(path)),
     size: issue.size,
     holdsBranch: issue.branch !== null,
     epic: (() => {
@@ -294,7 +309,7 @@ export function createWork({
       await currentBead.write(threadId, beadId);
       const told = workflow.instruction(
         state,
-        describe(found.issue, found.issues, threadId, workflow),
+        describe(found.path, found.issue, found.issues, threadId, workflow),
       );
       await deliver(
         threadId,
@@ -506,7 +521,7 @@ export function createWork({
 
     if (forEpic !== null) {
       const holding = stateOf(workflow, forEpic.to);
-      const about = describe(issue, issues);
+      const about = describe(path, issue, issues);
       const text = forEpic.opening(about).join("\n");
       let openThreadId: string | undefined;
       if (checked.ownConversation === true) {
@@ -575,7 +590,7 @@ export function createWork({
     // is sent to the conversation the move was asked from.
     if (checked.ownConversation === true) {
       const told = workflow.instruction(to, {
-        ...describe(issue, issues),
+        ...describe(path, issue, issues),
         workTree: true,
       });
       const started = await workTrees.open({
@@ -584,7 +599,7 @@ export function createWork({
         beadId,
         title: issue.title,
         prompt: [
-          ...(checked.opening?.(describe(issue, issues)) ?? []),
+          ...(checked.opening?.(describe(path, issue, issues)) ?? []),
           told,
         ].join("\n"),
       });
@@ -623,7 +638,7 @@ export function createWork({
       to.actor === "agent"
         ? workflow.instruction(
             to,
-            describe(sized, issues, threadId, workflow),
+            describe(path, sized, issues, threadId, workflow),
             // A note is passed on only with a move back; a move that sets
             // the size is the agent's own and its note is for the record.
             order(to) < order(from) && checked.size === undefined
@@ -636,7 +651,7 @@ export function createWork({
     const text =
       told === null || checked.opening === undefined
         ? told
-        : [...checked.opening(describe(sized, issues)), told].join("\n");
+        : [...checked.opening(describe(path, sized, issues)), told].join("\n");
     let message: string | null = null;
     if (text !== null && by === "user" && threadId !== null) {
       try {
@@ -760,7 +775,7 @@ export function createWork({
     const started = state.id !== workflow.initial;
     const text = workflow.resizeInstruction?.(
       state,
-      describe({ ...issue, size }, issues),
+      describe(path, { ...issue, size }, issues),
       issue.size,
       size,
     );

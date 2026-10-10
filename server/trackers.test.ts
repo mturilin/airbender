@@ -106,3 +106,81 @@ test("a folder's tracker is kept, and looked for again once its program has gone
   await again(without);
   assert.equal(looked(), 2);
 });
+
+// --- Two trackers (bead-bb-c9l.6) ---
+
+test("GitHub issues are used only where the repository says so, and need no beads program", async (t) => {
+  const { execFileSync } = await import("node:child_process");
+  const { writeFileSync } = await import("node:fs");
+  const { createFakeGitHub } = await import("../tracker/github-fake.ts");
+  const githubClient = (repository: string) => createFakeGitHub({ repository });
+  const chosen = join(base, "chosen");
+  const remoteOnly = join(base, "remote-only");
+  mkdirSync(chosen);
+  mkdirSync(remoteOnly);
+  writeFileSync(
+    join(chosen, ".bend.json"),
+    '{"tracker": "github", "repository": "team/board"}',
+  );
+  // No beads program on this machine at all.
+  let searches = 0;
+  const trackers = createTrackers({
+    findBd: async () => {
+      searches += 1;
+      return null;
+    },
+    notFoundMessage: "no bd here",
+    warn: () => {},
+    githubClient,
+  });
+  const found = await trackers.trackerFor(chosen);
+  assert.ok("tracker" in found);
+  assert.deepEqual([found.name, found.repository], ["github", "team/board"]);
+  assert.equal(searches, 0, "the beads program is not looked for");
+  assert.equal(trackers.nameOf(chosen), "github");
+  assert.deepEqual([...found.tracker.linkKinds], ["blocked-by", "discovered-from", "related"]);
+
+  // A GitHub remote alone is not a choice: the tab does not start reading
+  // a repository's GitHub issues before its owner said so.
+  try {
+    execFileSync("git", ["init", "-q"], { cwd: remoteOnly, stdio: "pipe" });
+    execFileSync(
+      "git",
+      ["remote", "add", "origin", "git@github.com:someone/thing.git"],
+      { cwd: remoteOnly, stdio: "pipe" },
+    );
+  } catch {
+    return t.skip("git is not available");
+  }
+  assert.deepEqual(await trackers.trackerFor(remoteOnly), {
+    state: "no-bd",
+    message: "no bd here",
+  });
+  const withBd = createTrackers({
+    findBd: async () => "bd",
+    notFoundMessage: "no bd here",
+    warn: () => {},
+    githubClient,
+  });
+  const none = await withBd.trackerFor(remoteOnly);
+  assert.ok("state" in none && none.state === "no-beads");
+  assert.equal(withBd.nameOf(remoteOnly), null);
+
+  // After a switch the folder is looked at again.
+  writeFileSync(join(chosen, ".bend.json"), '{"tracker": "beads"}');
+  assert.equal(trackers.nameOf(chosen), "github");
+  trackers.forget(chosen);
+  assert.deepEqual(await trackers.trackerFor(chosen), {
+    state: "no-bd",
+    message: "no bd here",
+  });
+});
+
+test("no GitHub login is its own state, and the folder is looked at again after it", async () => {
+  const { NotSignedIn } = await import("../tracker/types.ts");
+  const { problem, log } = build();
+  const failed = problem("/f", new NotSignedIn("Not signed in to GitHub. Sign in with `gh auth login`."));
+  assert.equal(failed.state, "no-login");
+  assert.match(failed.message, /gh auth login/u);
+  assert.deepEqual(log, []);
+});

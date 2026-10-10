@@ -95,6 +95,12 @@ export const SETUP_ACTIONS = [
   "rules",
   // Give the folder's issues a remote and sync them for the first time.
   "sync",
+  // Since bead-bb-c9l.6: which tracker the repository uses (the option is
+  // "beads" or "github"), signing in to GitHub, and putting the `bend`
+  // command on the PATH.
+  "tracker",
+  "signin",
+  "bend",
 ] as const;
 export type SetupAction = (typeof SETUP_ACTIONS)[number];
 

@@ -99,6 +99,8 @@
 //   issues that carry the old one: they fall back to the first state.
 // - No imports from outside shared/: this file is bundled on both sides.
 
+import { BEADS_WORDS } from "./tracker-words.ts";
+import type { TrackerWords } from "./tracker-words.ts";
 import { CLOSED, movesFor } from "./workflow.ts";
 import type {
   Workflow,
@@ -687,10 +689,10 @@ const SIZE_PATHS = [
 ];
 
 /** The four things a definition is made of; shared by the paths that write one. */
-const DEFINE_POINTS = [
+const definePoints = (words: TrackerWords) => [
         "- Make sure it is clear what is wanted, why, and what \"done\" means. Read the code it touches.",
         "- If the issue records open questions for the user, or you have your own, ask them and wait for the answers. Being started on an issue is not permission to assume them. Ask at most a few, only ones whose answer changes what gets built.",
-        "- Then write onto the issue, with `bd update`: a description (what is wanted and why, in the user's words where possible, how things work today, what is out of scope) and acceptance criteria (short checks a person can verify). Set its type and priority if they are missing.",
+        `- Then write onto the issue, with ${words.write}: a description (what is wanted and why, in the user's words where possible, how things work today, what is out of scope) and acceptance criteria (short checks a person can verify). Set its type and priority if they are missing.`,
         "- Be proportionate: a one-line request gets a short write-up. Stay inside the request. Format with Markdown. Check every claim about the code against the code.",
 ];
 
@@ -698,7 +700,11 @@ const DEFINE_POINTS = [
  * What the agent does at Define. It depends on the issue's size: with none
  * yet, the job is to size it; with one, to take that size's path from here.
  */
-function defineText(id: string, size: string | null): string[] {
+function defineText(
+  id: string,
+  size: string | null,
+  words: TrackerWords,
+): string[] {
   switch (size) {
     case "s":
       return [
@@ -710,8 +716,8 @@ function defineText(id: string, size: string | null): string[] {
       return [
         "This issue is sized M, medium: define it and plan it together, for one review by the user. Do not build yet.",
         "",
-        ...DEFINE_POINTS,
-        "- Then work out how to do it and write the plan into the issue's design field (`bd update --design`): the files, the order, anything risky, how you will check it, and what you rejected and why. Do not repeat the definition in the plan.",
+        ...definePoints(words),
+        `- Then work out how to do it and write the plan into ${words.planPlace}: the files, the order, anything risky, how you will check it, and what you rejected and why. Do not repeat the definition in the plan.`,
         "- Present both to the user in plain words, briefly.",
         "",
         `When both are on the issue, ${report(id, "to:review-plan")} saying that definition and plan are ready together, and wait: the user approves them or sends them back from the Airbender tab.`,
@@ -720,7 +726,7 @@ function defineText(id: string, size: string | null): string[] {
       return [
         "This issue is sized L, large: every step. Your job now is to define it: turn it from a request into something clear enough to build. Do not plan or build yet.",
         "",
-        ...DEFINE_POINTS,
+        ...definePoints(words),
         "",
         `When the definition is on the issue, ${report(id, "done")}, and tell the user it is ready for them to review. They approve it or send it back from the Airbender tab.`,
       ];
@@ -745,16 +751,17 @@ function stepText(
   id: string,
   size: string | null,
   workTree: boolean,
+  words: TrackerWords,
 ): string[] {
   switch (stateId) {
     case "define":
-      return defineText(id, size);
+      return defineText(id, size, words);
     case "plan":
       return [
         "Your job now is to plan the work. The definition is agreed; do not change any file yet, and do not repeat the definition in the plan.",
         "",
         "- Say what you will change and how: the files, the order, anything risky, and how you will check it.",
-        "- Write the plan into the issue's design field (`bd update --design`), with what you rejected and why.",
+        `- Write the plan into ${words.planPlace}, with what you rejected and why.`,
         "- Present the plan to the user in plain words.",
         "",
         `When the plan is on the issue, ${report(id, "done")}, and wait: the user approves it or sends it back from the Airbender tab.`,
@@ -766,11 +773,11 @@ function stepText(
           ? [
               "This issue is sized S, small: there was no separate definition or plan, and this step is the whole job. The user sees it once, at the end.",
               "",
-              "- First make sure the issue itself says what is wanted: if its description or acceptance criteria are missing or thin, write a short version of each onto it with `bd update`. A few lines; no plan document.",
+              `- First make sure the issue itself says what is wanted: if its description or acceptance criteria are missing or thin, write a short version of each onto it with ${words.write}. A few lines; no plan document.`,
               "- If it turns out not to be small after all, stop and say so to the user, and record the larger size with the move `size:m` or `size:l` and a note; that takes the issue back to Define on that path.",
             ]
           : ["Your job now is to do the work. The plan is agreed.", ""]),
-        "- Mark the issue in progress (`bd update --status in_progress`) and build what the plan says.",
+        `- Mark the issue in progress (${words.inProgress}) and build what the plan says.`,
         "- Record decisions, surprises and anything that did not work as comments on the issue as you go. Follow-up work becomes its own issue.",
         "- Check your work: run what can be run.",
         "",
@@ -838,6 +845,9 @@ function instruction(
   issue: WorkflowIssue,
   note?: string,
 ): string {
+  // How this repository's tracker is typed; beads' wording where the caller
+  // says nothing, which is what these instructions always said.
+  const words = issue.words ?? BEADS_WORDS;
   // An issue of an epic that holds a branch: where its work goes.
   const inEpic =
     issue.epic === undefined
@@ -867,20 +877,20 @@ function instruction(
           ...issue.openSubIssues.map(
             (sub) => `- ${sub.id}: ${JSON.stringify(sub.title)}`,
           ),
-          "Read each with `bd show` as well, and when you build, mark each in progress when you start it and comment on it when it is finished. Do not close any of them.",
+          `Read each with ${words.showAny} as well, and when you build, mark each in progress when you start it and comment on it when it is finished. Do not close any of them.`,
         ];
   const back =
     note === undefined || note.trim() === ""
       ? []
       : ["", `It was sent back to this step with this note: ${note.trim()}`];
   return [
-    `Work on beads issue ${issue.id}: ${JSON.stringify(issue.title)}. It is at the "${state.label}" step. Start with \`bd show ${issue.id}\` and \`bd comments ${issue.id}\`.`,
+    `Work on ${words.issue} ${issue.id}: ${JSON.stringify(issue.title)}. It is at the "${state.label}" step. Start with ${words.show(issue.id)} and ${words.comments(issue.id)}.`,
     ...epic,
     ...inEpic,
     ...landing,
     ...back,
     "",
-    ...stepText(state.id, issue.id, issue.size, issue.workTree === true),
+    ...stepText(state.id, issue.id, issue.size, issue.workTree === true, words),
   ].join("\n");
 }
 
@@ -907,7 +917,7 @@ function resizeInstruction(
   to: string,
 ): string {
   return [
-    `The user changed the size of beads issue ${issue.id} (${JSON.stringify(issue.title)}) ${from === null ? "" : `from ${sizeLabel(from)} `}to ${sizeLabel(to)}. It is at the "${state.label}" step. Take the ${sizeLabel(to)} path from here.`,
+    `The user changed the size of ${(issue.words ?? BEADS_WORDS).issue} ${issue.id} (${JSON.stringify(issue.title)}) ${from === null ? "" : `from ${sizeLabel(from)} `}to ${sizeLabel(to)}. It is at the "${state.label}" step. Take the ${sizeLabel(to)} path from here.`,
     "",
     "The paths:",
     ...SIZE_PATHS,
@@ -940,7 +950,7 @@ function describeForAgents(): string {
     )
     .join("; ");
   return [
-    `Every beads issue in this repository goes through these steps before it is closed: ${steps}.`,
+    `Every issue in this repository goes through these steps before it is closed: ${steps}.`,
     "You are told which step an issue is at when you are started on it. Do that step.",
     `Not every issue takes every step. Issues have a size, S, M or L, which you choose when you are started on one that has none, with the move \`size:s\`, \`size:m\` or \`size:l\` at ${states[1]!.label}: S is done in one go and reaches the user once, at the end; M has one review at the front, of definition and plan together; L takes every step. In doubt, take the larger. The user can set or change the size; you are told when they do.`,
     "When you create an issue yourself you may give it a size: add the label `size:s`, `size:m` or `size:l`.",
@@ -952,7 +962,7 @@ function describeForAgents(): string {
     // Kept short: BB limits a tool's instructions to 4096 characters, and
     // the step's own instruction says the rest when it applies.
     "An epic may hold a branch for all its issues (step On its branch [on-branch]): do not work on the epic itself; its issues are only committed on that branch, never merged alone.",
-    "Do not commit before the user has accepted an issue; an issue is closed by reporting its last step, never with bd close.",
+    "Do not commit before the user has accepted an issue; an issue is closed by reporting its last step, never with bd close or bend close.",
   ].join(" ");
 }
 

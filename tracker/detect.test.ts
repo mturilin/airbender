@@ -14,11 +14,18 @@
 // where git is missing. Nothing here runs bd: detection only looks.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
-import { readSetting } from "./config.ts";
+import { readSetting, writeSetting } from "./config.ts";
 import { detectTracker, parseGithubRemote } from "./detect.ts";
 import { createFakeGitHub } from "./github-fake.ts";
 import { NotSetUp, Refused } from "./types.ts";
@@ -165,7 +172,16 @@ test("the setting file decides; without it beads wins over a GitHub remote", asy
   writeFileSync(join(remoteOnly, ".bend.json"), '{"tracker": "beads"}');
   assert.equal(await found(remoteOnly), "beads");
 
-  // A caller that accepts beads only (the Airbender tab) is never given
+  // A caller that does not guess (the Airbender tab) takes a GitHub remote
+  // as no choice at all, and the setting file as one.
+  writeFileSync(join(remoteOnly, ".bend.json"), "{}");
+  assert.throws(
+    () => detectTracker(remoteOnly, undefined, { guess: false, githubClient }),
+    NotSetUp,
+  );
+  const said = detectTracker(both, undefined, { guess: false, githubClient });
+  assert.deepEqual([said.name, said.repository], ["github", "team/board"]);
+  // A caller that accepts beads only is never given
   // GitHub: the setting is passed over, and a GitHub-only folder has no
   // tracker for it.
   assert.equal(await found(both, ["beads"]), "beads");
@@ -205,4 +221,25 @@ test("a setting file that cannot be understood is refused, naming the file", () 
     () => detectTracker(nowhere, undefined, { githubClient }),
     (cause) => cause instanceof Refused && /which repository cannot be told/u.test(cause.message),
   );
+});
+
+// --- The setting file is written by the Airbender tab (bead-bb-c9l.6) ---
+
+test("the setting file is written keeping what else it holds, and never over a broken one", () => {
+  const root = folder("write-setting");
+  writeSetting(root, "github");
+  assert.deepEqual(readSetting(root), { tracker: "github", repository: undefined });
+  writeFileSync(
+    join(root, ".bend.json"),
+    '{"tracker": "github", "repository": "team/board", "note": "kept"}',
+  );
+  writeSetting(root, "beads");
+  assert.deepEqual(JSON.parse(readFileSync(join(root, ".bend.json"), "utf8")), {
+    tracker: "beads",
+    repository: "team/board",
+    note: "kept",
+  });
+  const broken = folder("write-broken", { ".bend.json": "{oops" });
+  assert.throws(() => writeSetting(broken, "github"), Refused);
+  assert.equal(readFileSync(join(broken, ".bend.json"), "utf8"), "{oops");
 });

@@ -227,17 +227,23 @@ export function MoveToPicker({
  * kind ("related") has nothing to swap.
  *
  * @param targets Issues this one may be linked with (already excludes itself).
+ * @param kinds The kinds offered: the folder's tracker's own (beads has
+ *   eight, GitHub three). "blocked by" is in both, so the box always starts
+ *   on it.
  * @param onPick Called with the link to add: the issue it is stored on, the
  *   issue it points at, and its kind.
  */
 export function LinkPicker({
   issue,
   targets,
+  kinds = LINK_KINDS,
   onPick,
   onCancel,
 }: {
   issue: Issue;
   targets: Issue[];
+  /** The kinds the folder's tracker can add; all of them when left out. */
+  kinds?: readonly LinkKind[];
   onPick: (fromId: string, toId: string, kind: LinkKind) => void;
   onCancel: () => void;
 }) {
@@ -256,7 +262,7 @@ export function LinkPicker({
         onChange={(event) => setKind(event.target.value as LinkKind)}
         className={cn(TAG_SELECT_CLASS, "text-foreground")}
       >
-        {LINK_KINDS.map((choice) => (
+        {kinds.map((choice) => (
           <option key={choice} value={choice}>
             {linkWords(choice)}
           </option>

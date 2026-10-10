@@ -102,6 +102,113 @@ example "\`bd close <id>\` to complete work"), these rules take precedence.
 ${RULES_END}
 `;
 
+/** The line that marks the rules as the ones for GitHub issues. */
+const GITHUB_TAG = "<!-- airbender:rules:tracker github -->";
+
+/**
+ * What differs in the rules for a repository whose issues are on GitHub
+ * (bead-bb-c9l.6): each pair is beads' wording and what stands in its
+ * place. Everything else, which is how the owner wants issues worked, is
+ * the same text for both trackers, so the two cannot drift apart.
+ *
+ * Agents there use `bend`, the command that works the same for every
+ * tracker: `bd` has nothing to read, and `gh issue` knows nothing of the
+ * parts (requirements, plan, done) or of the links kept in an issue's text.
+ */
+const FOR_GITHUB: [string, string][] = [
+  [`${RULES_START}\n## Working with beads through Airbender`, `${RULES_START}\n${GITHUB_TAG}\n## Working with GitHub issues through Airbender`],
+  [
+    `This repository's issues are tracked in beads (\`bd\`) and worked from the
+Airbender tab in BB. Follow these rules whenever you work on an issue.
+Where they disagree with beads' own instructions elsewhere in this file (for
+example "\`bd close <id>\` to complete work"), these rules take precedence.`,
+    `This repository's issues are on GitHub and worked from the Airbender tab in
+BB. Read and change them with the \`bend\` command (\`bend --help\` lists
+what it can do), not with \`gh issue\`: \`bend\` keeps an issue's
+requirements, plan and links where the tab looks for them. Follow these
+rules whenever you work on an issue.`,
+  ],
+  [
+    `create one first (\`bd create\`), with what is wanted and
+  why, and what "done" means (\`bd update <id> --acceptance "..."\`).`,
+    `create one first (\`bend create\`), with what is wanted and
+  why, and what "done" means (\`bend write <id> done "..."\`).`,
+  ],
+  [
+    `The user can set or change the size. When you
+  create an issue yourself you may give it a size, with the label
+  \`size:s\`, \`size:m\` or \`size:l\`.`,
+    `The user can set or change the size.`,
+  ],
+  [
+    `go on the issue (\`bd comment\`, \`bd note\`, the design
+  field).`,
+    `go on the issue (\`bend decide\`, \`bend comment\`,
+  \`bend write <id> notes\`, \`bend write <id> plan\`).`,
+  ],
+  [`Never close an issue with \`bd close\``, `Never close an issue with \`bend close\``],
+];
+
+/** The trackers the rules come in a version for. */
+export type RulesTracker = "beads" | "github";
+
+/**
+ * Airbender's rules for agents, in the version for a repository's tracker.
+ *
+ * @returns For beads, AIRBENDER_RULES as it always was. For GitHub the
+ *   same rules with `bend` in place of `bd`, tagged so that the block can
+ *   be told from the beads one.
+ * @throws When a piece of beads' wording is no longer in the rules: the
+ *   text was edited without this table, and the GitHub version would
+ *   silently keep telling agents to run `bd`.
+ */
+export function rulesFor(tracker: RulesTracker): string {
+  if (tracker === "beads") return AIRBENDER_RULES;
+  let text = AIRBENDER_RULES;
+  for (const [beads, github] of FOR_GITHUB) {
+    if (!text.includes(beads)) {
+      throw new Error(`Airbender's rules no longer contain: ${beads.slice(0, 60)}…`);
+    }
+    text = text.replace(beads, github);
+  }
+  return text;
+}
+
+/**
+ * Which tracker the rules block in an AGENTS.md is for.
+ *
+ * @returns Null when the file holds no rules block.
+ */
+export function rulesIn(agentsFile: string): RulesTracker | null {
+  if (!agentsFile.includes(RULES_START)) return null;
+  return agentsFile.includes(GITHUB_TAG) ? "github" : "beads";
+}
+
+/**
+ * An AGENTS.md with Airbender's rules for `tracker` in it.
+ *
+ * A block for the other tracker is replaced where it stands; with no block
+ * the rules are added at the end, after whatever is there. Nothing else in
+ * the file is touched.
+ *
+ * @param existing The file's text; "" when there is no file.
+ * @returns The new text; `existing` itself when the right block is there.
+ */
+export function agentsFileWith(existing: string, tracker: RulesTracker): string {
+  const rules = rulesFor(tracker);
+  const has = rulesIn(existing);
+  if (has === tracker) return existing;
+  if (has === null) {
+    return existing === "" ? rules : `${existing.replace(/\n*$/u, "")}\n\n${rules}`;
+  }
+  const start = existing.indexOf(RULES_START);
+  const end = existing.indexOf(RULES_END, start);
+  // A block without its end marker (cut by hand): replaced to the end of
+  // the file, which is where the block was written.
+  const after = end === -1 ? "" : existing.slice(end + RULES_END.length).replace(/^\n/u, "");
+  return existing.slice(0, start) + rules + after;
+}
+
 /**
  * The line that makes Claude Code read AGENTS.md from a CLAUDE.md. Used
  * only where a CLAUDE.md already exists: such a file would otherwise carry

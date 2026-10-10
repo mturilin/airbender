@@ -394,6 +394,9 @@ export function createBeadsTracker({
   }
 
   return {
+    name: "beads",
+    linkKinds: [...LINK_KINDS, ...OWN_KINDS],
+
     async capabilities(): Promise<Capabilities> {
       const warnings: string[] = [];
       // Beads keeps its issues in a local database. Unless a remote is set
@@ -711,8 +714,11 @@ export function createBeadsTracker({
     async unlink(
       id: string,
       otherId: string,
-      onlyFrom = false,
+      only: { from?: boolean; kind?: string } = {},
     ): Promise<void> {
+      // `only.kind` needs nothing here: beads holds one link per ordered
+      // pair of issues, so there is never a second kind to leave behind.
+      const onlyFrom = only.from === true;
       const all = await rows();
       const forward = storedLink(need(all, id), otherId);
       const backward = onlyFrom

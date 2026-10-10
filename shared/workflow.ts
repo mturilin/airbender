@@ -31,6 +31,7 @@
 // Gotchas:
 // - Like the other files in shared/, this one has no imports, so it is safe
 //   to bundle on either side and to load in tests.
+import type { TrackerWords } from "./tracker-words.ts";
 
 /** Who acts: the thread's agent, or the user. */
 export type Actor = "agent" | "user";
@@ -232,6 +233,11 @@ export interface WorkflowSize {
 export interface WorkflowIssue {
   id: string;
   title: string;
+  /**
+   * How the commands of the repository's tracker are written, for the
+   * sentences that name one (see tracker-words.ts). Left out for beads.
+   */
+  words?: TrackerWords;
   /** The issue's size (an id from `sizes`); null when it has none yet. */
   size: string | null;
   /**

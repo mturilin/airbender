@@ -702,3 +702,57 @@ test("the epic an issue belongs to is the nearest one above it that holds a bran
   // Never the issue itself.
   assert.equal(over("e"), null);
 });
+
+// --- How the tracker's commands are written (bead-bb-c9l.6) ---
+
+test("without a word about the tracker, the agent is told bd, as always", async () => {
+  const { BEADS_WORDS } = await import("./tracker-words.ts");
+  const issue = { id: "x-1", title: "T", size: "l", openSubIssues: [{ id: "x-2", title: "Sub" }] };
+  for (const state of flow.states) {
+    assert.equal(
+      flow.instruction(state, issue),
+      flow.instruction(state, { ...issue, words: BEADS_WORDS }),
+      state.id,
+    );
+  }
+  const plan = flow.instruction(stateOf(flow, "plan"), issue);
+  assert.match(plan, /^Work on beads issue x-1: "T"\. It is at the "Plan" step\. Start with `bd show x-1` and `bd comments x-1`\./u);
+  assert.match(plan, /Read each with `bd show` as well/u);
+  assert.match(plan, /Write the plan into the issue's design field \(`bd update --design`\), with what you rejected and why\./u);
+  const define = flow.instruction(stateOf(flow, "define"), issue);
+  assert.match(define, /Then write onto the issue, with `bd update`: a description/u);
+  const implement = flow.instruction(stateOf(flow, "implement"), issue);
+  assert.match(implement, /Mark the issue in progress \(`bd update --status in_progress`\) and build what the plan says\./u);
+});
+
+test("on a GitHub repository every instruction names bend and never bd", async () => {
+  const { GITHUB_WORDS, wordsFor } = await import("./tracker-words.ts");
+  assert.equal(wordsFor("github"), GITHUB_WORDS);
+  assert.equal(wordsFor("beads").issue, "beads issue");
+  assert.equal(wordsFor(null).issue, "beads issue");
+  for (const state of flow.states) {
+    for (const size of [null, "s", "m", "l"]) {
+      const text = flow.instruction(
+        state,
+        { id: "12", title: "T", size, openSubIssues: [{ id: "13", title: "Sub" }], words: GITHUB_WORDS },
+        "again",
+      );
+      assert.doesNotMatch(text, /\bbd\b|beads issue/u, `${state.id} ${size}`);
+      assert.match(text, /^Work on GitHub issue 12: "T"\..* Start with `bend show 12` and `bend comments 12`\./u);
+    }
+  }
+  const text = (id: string) =>
+    flow.instruction(stateOf(flow, id), {
+      id: "12", title: "T", size: "l", openSubIssues: [], words: GITHUB_WORDS,
+    });
+  assert.match(text("plan"), /Write the plan into the issue's plan \(`bend write <id> plan`\)/u);
+  assert.match(text("implement"), /Mark the issue in progress \(`bend start <id>`\)/u);
+  assert.match(text("define"), /with `bend write <id> description` and `bend write <id> done`/u);
+  const resized = flow.resizeInstruction!(
+    stateOf(flow, "plan"),
+    { id: "12", title: "T", size: "l", openSubIssues: [], words: GITHUB_WORDS },
+    "s",
+    "l",
+  );
+  assert.match(resized, /^The user changed the size of GitHub issue 12/u);
+});

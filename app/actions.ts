@@ -25,6 +25,7 @@ import type {
   IssuesResult,
 } from "../server/contract.ts";
 import { CLOSED_STATUS } from "../shared/constants.ts";
+import { LINK_KINDS } from "../shared/constants.ts";
 import type { IssueType, LinkKind } from "../shared/constants.ts";
 import { CLOSED, movesFor, stateOf } from "../shared/workflow.ts";
 import { DEFAULT_WORKFLOW_ID, workflowFor } from "../shared/workflows.ts";
@@ -96,6 +97,16 @@ export interface IssueLookups {
   moveTargets: (beadId: string) => Issue[];
   /** The issues `beadId` may be linked with: every issue except itself. */
   linkTargets: (beadId: string) => Issue[];
+  /**
+   * The kinds of link the folder's tracker can add, for the link picker:
+   * all eight with beads, three on GitHub (bead-bb-c9l.6).
+   */
+  linkKinds: readonly LinkKind[];
+  /**
+   * Which tracker holds the folder's issues; null when there is none or it
+   * is not known yet. For the few words on screen that name it.
+   */
+  tracker: "beads" | "github" | null;
 }
 
 /**
@@ -561,6 +572,13 @@ export function useIssueActions({
     },
     linkTargets: (beadId) =>
       [...tree.byId.values()].filter((issue) => issue.id !== beadId),
+    tracker: result?.tracker ?? null,
+    // In the tab's own order. Every kind where the list does not say (an
+    // answer from an older server): offering too much only costs a refusal.
+    linkKinds:
+      result?.linkKinds === undefined || result.linkKinds.length === 0
+        ? LINK_KINDS
+        : LINK_KINDS.filter((kind) => result.linkKinds.includes(kind)),
     moveTargets: (beadId) => {
       const inside = descendantIds(beadId);
       const presentParent = tree.byId.get(beadId)?.parentId ?? null;

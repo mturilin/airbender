@@ -240,6 +240,7 @@ export default async function plugin(bb: BbPluginApi) {
     hasUncommittedChanges: folders.hasUncommittedChanges,
     currentBranch: folders.currentBranch,
     workTrees,
+    trackerOf: trackers.nameOf,
     events: workEvents,
   });
   // Autopilot starts issues through `work`, and `work` tells it what
@@ -261,6 +262,7 @@ export default async function plugin(bb: BbPluginApi) {
     bb,
     folders,
     store,
+    trackers,
     syncSteps: issueSync.steps,
   });
   const github = createGithub({
@@ -404,7 +406,7 @@ export default async function plugin(bb: BbPluginApi) {
   bb.agents.registerTool({
     name: "beads_set_current",
     description:
-      "Tell BB which beads issue this thread is working on, so the user sees it highlighted in the Airbender tab. Pass an empty id to clear it.",
+      "Tell BB which issue (in beads, or on GitHub) this thread is working on, so the user sees it highlighted in the Airbender tab. Pass an empty id to clear it.",
     instructions: CURRENT_TOOL_INSTRUCTIONS,
     presentation: {
       label: { pending: "Setting current bead", completed: "Set current bead" },
@@ -450,7 +452,7 @@ export default async function plugin(bb: BbPluginApi) {
   bb.agents.registerTool({
     name: MOVE_TOOL,
     description:
-      "Move a beads issue to the next step of its workflow: report the step you were asked to do as finished, skip it with a reason, or send your own review back. The answer says what comes next.",
+      "Move an issue to the next step of its workflow: report the step you were asked to do as finished, skip it with a reason, or send your own review back. The answer says what comes next.",
     instructions: moveToolInstructions(standardWorkflow.describeForAgents()),
     presentation: {
       label: { pending: "Moving the issue on", completed: "Moved the issue on" },

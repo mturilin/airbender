@@ -16,7 +16,7 @@
 //   a silent fall back to guessing: guessing the wrong tracker would send
 //   an agent's issues to the wrong place.
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Refused } from "./types.ts";
 
@@ -75,4 +75,27 @@ export function readSetting(folder: string): Setting | null {
     tracker: tracker as TrackerName | undefined,
     repository: repository as string | undefined,
   };
+}
+
+/**
+ * Says in a folder's setting file which tracker the repository uses.
+ *
+ * Whatever else the file holds is kept: the repository's name, and any
+ * field this version does not know.
+ *
+ * Pre-condition: `folder` is the repository's root, so that the file is
+ *   found from every folder inside it.
+ * @throws Refused when a file is there but cannot be understood; it is not
+ *   overwritten, because it may hold something a person meant.
+ * Side effects: creates or rewrites `.bend.json` in the folder. The file is
+ *   meant to be checked in; nothing here does that.
+ */
+export function writeSetting(folder: string, tracker: TrackerName): void {
+  // Read through readSetting first for its refusals.
+  readSetting(folder);
+  const file = join(folder, SETTING_FILE);
+  const held: Record<string, unknown> = existsSync(file)
+    ? (JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>)
+    : {};
+  writeFileSync(file, `${JSON.stringify({ ...held, tracker }, null, 2)}\n`);
 }

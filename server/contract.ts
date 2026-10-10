@@ -149,15 +149,33 @@ export type IssueComment = z.infer<typeof commentSchema>;
 const issuesResultSchema = z.object({
   /**
    * ok — `issues` is the full list for `path`.
-   * no-beads — the folder exists but has no beads database.
+   * no-beads — the folder exists but has no issue tracker set up. (The
+   *   name is from when beads was the only one.)
    * unavailable — there is no folder on this machine to look in.
    * no-bd — the beads program is not on this machine. Its own state, apart
    *   from "error", so the tab can offer to install it (bead-bb-80e).
-   * error — bd failed; `message` says why.
+   * no-login — the folder's tracker is GitHub issues and there is no
+   *   GitHub login to act with, so the tab can say how to sign in
+   *   (bead-bb-c9l.6).
+   * error — the tracker failed; `message` says why.
    */
-  state: z.enum(["ok", "no-beads", "no-bd", "unavailable", "error"]),
-  /** Folder bd ran in; null when none could be resolved. */
+  state: z.enum(["ok", "no-beads", "no-bd", "no-login", "unavailable", "error"]),
+  /** Folder the issues were looked for in; null when none could be resolved. */
   path: z.string().nullable(),
+  /**
+   * Which tracker holds the folder's issues (bead-bb-c9l.6): "beads", or
+   * "github" where the repository's setting file says so. Null when the
+   * folder has none, or it cannot be told.
+   */
+  tracker: z.enum(["beads", "github"]).nullable(),
+  /** For GitHub: the repository, as "owner/name"; null otherwise. */
+  trackerRepository: z.string().nullable(),
+  /**
+   * The kinds of link this folder's tracker can add, under the names the
+   * tab uses (`LINK_KINDS`), for the link picker. Empty when there is no
+   * tracker.
+   */
+  linkKinds: z.array(z.string()),
   /**
    * The home folder of the user the plugin's server runs as, so that the
    * tab can show a path inside it with "~" (bead-bb-ty5.3).
@@ -288,6 +306,33 @@ const setupStatusSchema = z.object({
    * CLAUDE.md pointing at it.
    */
   rulesPresent: z.boolean(),
+  /**
+   * Which tracker holds the folder's issues: "beads", "github" where the
+   * repository's setting file says so, or null when it has none
+   * (bead-bb-c9l.6). The steps offered follow from it, and `rulesPresent`
+   * means the rules for this tracker.
+   */
+  tracker: z.enum(["beads", "github"]).nullable(),
+  /**
+   * The repository on github.com that the folder's remote called origin
+   * points at, as "owner/name": what "use GitHub issues" would show. Null
+   * when the remote is somewhere else or there is none.
+   */
+  githubRepository: z.string().nullable(),
+  /** Whether the `gh` program, which signs in to GitHub, is installed. */
+  ghInstalled: z.boolean(),
+  /**
+   * Whether there is a GitHub login to act with. Checked only when the
+   * tracker is GitHub; false otherwise.
+   */
+  githubSignedIn: z.boolean(),
+  /** Whether the `bend` command runs by name on this machine. */
+  bendInstalled: z.boolean(),
+  /**
+   * What the "put bend on the PATH" step would run, for the confirmation;
+   * null when the plugin cannot find its own copy of bend.
+   */
+  bendCommand: z.string().nullable(),
   /** The setup action running in a terminal for this folder right now. */
   running: z
     .object({ action: z.enum(SETUP_ACTIONS), title: z.string() })

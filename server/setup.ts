@@ -22,12 +22,18 @@
 
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { CHANGED_CHANNEL, SETUP_AGENTS } from "../shared/constants.ts";
 import type { SetupAction } from "../shared/constants.ts";
-import { programExists, runBd, shellQuote } from "./bd.ts";
+import { writeSetting } from "../tracker/config.ts";
+import { githubRepositoryOf } from "../tracker/detect.ts";
+import { findToken } from "../tracker/github-api.ts";
+import { programExists, readGit, runBd, shellQuote } from "./bd.ts";
 import type { SetupStatus } from "./contract.ts";
-import { AIRBENDER_RULES, RULES_START, claudeFileFor } from "./prompts.ts";
+import { agentsFileWith, claudeFileFor, rulesIn } from "./prompts.ts";
+import type { Trackers } from "./trackers.ts";
 import type { Folders } from "./folder.ts";
 import type { Store } from "./store.ts";
 import type { SyncStep } from "../sync/types.ts";
@@ -66,6 +72,43 @@ const INSTALL_METHODS = [
   },
 ] as const;
 
+/**
+ * The plugin's own copy of the `bend` launcher, or null when it is not
+ * beside the plugin.
+ *
+ * `bend` is not a separate install: it is the `bin/bend` script of the
+ * folder this plugin runs from, which starts the TypeScript beside it. The
+ * plugin's server is either this source file (`server/setup.ts`) or the
+ * built bundle (`dist/server.js`); in both, the plugin's folder is one
+ * level up.
+ */
+export function bendLauncher(): string | null {
+  try {
+    const launcher = join(
+      dirname(dirname(fileURLToPath(import.meta.url))),
+      "bin",
+      "bend",
+    );
+    return existsSync(launcher) ? launcher : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The command that puts `bend` on the PATH: a link in `~/.local/bin`, the
+ * usual place for a user's own commands, pointing at the plugin's launcher.
+ *
+ * A link and not a copy, so that `bend` is always the version of the
+ * plugin that is installed. The last part runs it once by name, so the
+ * terminal shows at once whether the name is found (it is not, where
+ * `~/.local/bin` is not on the PATH, and the step then ends as failed).
+ */
+function bendCommandFor(launcher: string): string {
+  const bin = join(homedir(), ".local", "bin");
+  return `mkdir -p ${shellQuote(bin)} && ln -sf ${shellQuote(launcher)} ${shellQuote(join(bin, "bend"))} && bend --help >/dev/null && echo "bend is on the PATH."`;
+}
+
 /** How often a running setup terminal is checked, and for how long at most. */
 const SETUP_POLL_MS = 1500;
 
@@ -103,6 +146,7 @@ export function createSetup({
   folders,
   store,
   syncSteps,
+  trackers,
 }: {
   bb: BbPluginApi;
   folders: Folders;
@@ -111,6 +155,7 @@ export function createSetup({
   syncSteps: (
     path: string,
   ) => Promise<{ on: SyncStep | null; fetch: SyncStep | null }>;
+  trackers: Trackers;
 }) {
   const { resolveFolder, findBd } = folders;
   const { readIssues } = store;
@@ -127,7 +172,13 @@ export function createSetup({
    */
   const setupMet = new Map<
     string,
-    { bd: string | null; folder: boolean; agents: string[]; rules: boolean }
+    {
+      bd: string | null;
+      folder: boolean;
+      agents: string[];
+      rules: boolean;
+      signedIn: boolean;
+    }
   >();
 
   /** How the last setup terminal ended, per folder. */
@@ -150,6 +201,12 @@ export function createSetup({
       folderReady: false,
       agents: [],
       rulesPresent: false,
+      tracker: null,
+      githubRepository: null,
+      ghInstalled: false,
+      githubSignedIn: false,
+      bendInstalled: false,
+      bendCommand: null,
       running: null,
       lastRun: null,
       syncSteps: { on: null, fetch: null },
@@ -171,18 +228,39 @@ export function createSetup({
     // something was taken away again is not worth a check on every refresh.
     // What is still unmet is checked every time. So a folder that is fully
     // set up costs no bd runs here at all.
-    const met = setupMet.get(path) ?? { bd: null, folder: false, agents: [], rules: false };
+    const met = setupMet.get(path) ?? {
+      bd: null,
+      folder: false,
+      agents: [],
+      rules: false,
+      signedIn: false,
+    };
     setupMet.set(path, met);
+    // Which tracker the folder has decides what there is to set up. Asked
+    // of the same place the list asks, so the two agree.
+    const found = await trackers.trackerFor(path);
+    const tracker = "state" in found ? null : found.name;
+    const github = tracker === "github";
     met.bd ??= await findBd(path);
     const bd = met.bd;
-    if (bd !== null && !met.folder) {
+    if (github && !met.signedIn) {
+      // Whether a login can be found, not whether GitHub accepts it: that
+      // costs a request, and a login GitHub refuses shows as the list's
+      // own "not signed in".
+      met.signedIn = await findToken().then(
+        () => true,
+        () => false,
+      );
+    }
+    if ((github ? met.signedIn : bd !== null) && !met.folder) {
       // "Set up" means what listing issues means by it, so the panel and
-      // the list agree: bd finds a database from this folder upward.
+      // the list agree: the tracker gives the folder's issues.
       met.folder = (await readIssues(path)).state === "ok";
     }
     const folderReady = met.folder;
     const agents = [];
-    if (bd !== null && folderReady) {
+    // Beads' own setup for a coding agent; there is none for GitHub.
+    if (!github && bd !== null && folderReady) {
       for (const agent of SETUP_AGENTS) {
         let stale: string | null = null;
         if (!met.agents.includes(agent.id)) {
@@ -211,11 +289,14 @@ export function createSetup({
     }
     if (!met.rules) {
       try {
-        // Both halves must hold: the rules in AGENTS.md, and a CLAUDE.md,
+        // Both halves must hold: the rules for this folder's tracker in
+        // AGENTS.md (after a switch the other tracker's are there, which
+        // would tell agents to use the wrong command), and a CLAUDE.md,
         // where there is one, that needs no change (see claudeFileFor).
         const claudeFile = join(path, "CLAUDE.md");
         met.rules =
-          readFileSync(join(path, "AGENTS.md"), "utf8").includes(RULES_START) &&
+          rulesIn(readFileSync(join(path, "AGENTS.md"), "utf8")) ===
+            (tracker ?? "beads") &&
           claudeFileFor(
             existsSync(claudeFile) ? readFileSync(claudeFile, "utf8") : null,
           ) === null;
@@ -236,6 +317,7 @@ export function createSetup({
       step === null
         ? null
         : { label: step.label, why: step.why, explain: step.explain };
+    const launcher = bendLauncher();
     return {
       path,
       unavailable: null,
@@ -246,6 +328,12 @@ export function createSetup({
       folderReady,
       agents,
       rulesPresent,
+      tracker,
+      githubRepository: githubRepositoryOf(path),
+      ghInstalled: programExists("gh"),
+      githubSignedIn: github && met.signedIn,
+      bendInstalled: programExists("bend"),
+      bendCommand: launcher === null ? null : bendCommandFor(launcher),
       running: setupRunning.get(path) ?? null,
       lastRun: setupLastRun.get(path) ?? null,
       syncSteps: { on: shown(offered.on), fetch: shown(offered.fetch) },
@@ -335,6 +423,10 @@ export function createSetup({
       }
       setupRunning.delete(path);
       setupLastRun.set(path, { action, title, exitCode, tail });
+      // What the terminal did may have changed what is in place (beads
+      // installed, a login made), so nothing known is trusted any more.
+      trackers.forget(path);
+      setupMet.delete(path);
       bb.realtime.publish(CHANGED_CHANNEL, { path });
     };
     void watchTerminal();
@@ -382,16 +474,11 @@ export function createSetup({
       const file = join(path, "AGENTS.md");
       try {
         const existing = existsSync(file) ? readFileSync(file, "utf8") : "";
-        // Added at the end, after whatever is there; nothing is replaced.
-        // Skipped when only the CLAUDE.md half was missing.
-        if (!existing.includes(RULES_START)) {
-          writeFileSync(
-            file,
-            existing === ""
-              ? AIRBENDER_RULES
-              : `${existing.replace(/\n*$/u, "")}\n\n${AIRBENDER_RULES}`,
-          );
-        }
+        // Added at the end, after whatever is there. The one thing ever
+        // replaced is Airbender's own block for the other tracker, after a
+        // switch. Skipped when only the CLAUDE.md half was missing.
+        const next = agentsFileWith(existing, status.tracker ?? "beads");
+        if (next !== existing) writeFileSync(file, next);
       } catch (cause) {
         return { message: `AGENTS.md could not be written: ${cause}` };
       }
@@ -404,12 +491,67 @@ export function createSetup({
       } catch (cause) {
         return { message: `CLAUDE.md could not be written: ${cause}` };
       }
+      setupMet.delete(path);
+      bb.realtime.publish(CHANGED_CHANNEL, { path });
+      return { message: null };
+    }
+    if (action === "tracker") {
+      if (option !== "beads" && option !== "github") {
+        return { message: "Unknown tracker." };
+      }
+      if (option === status.tracker) {
+        return { message: "This repository already uses that tracker." };
+      }
+      if (option === "github" && status.githubRepository === null) {
+        return {
+          message:
+            "This folder's remote called origin is not on github.com, so there is no GitHub repository to take issues from.",
+        };
+      }
+      // The setting file belongs at the root of this checkout, where it is
+      // found from every folder inside it and is checked in with the rest.
+      const root =
+        (await readGit(path, ["rev-parse", "--show-toplevel"])) || path;
+      try {
+        writeSetting(root, option);
+      } catch (cause) {
+        return {
+          message: `The setting file could not be written: ${cause instanceof Error ? cause.message : String(cause)}`,
+        };
+      }
+      // Everything known about the folder was about the other tracker.
+      trackers.forget(path);
+      setupMet.delete(path);
+      setupLastRun.delete(path);
       bb.realtime.publish(CHANGED_CHANNEL, { path });
       return { message: null };
     }
     let title: string;
     let command: string;
-    if (action === "install") {
+    if (action === "signin") {
+      if (status.githubSignedIn) {
+        return { message: "There is already a GitHub login." };
+      }
+      if (!status.ghInstalled) {
+        return {
+          message:
+            "The gh program, which signs in to GitHub, is not installed. Install it (https://cli.github.com), or set GH_TOKEN where BB is started.",
+        };
+      }
+      title = "Sign in to GitHub";
+      command = "gh auth login";
+      // The connection kept for the folder was made without a login.
+      trackers.forget(path);
+    } else if (action === "bend") {
+      if (status.bendCommand === null) {
+        return {
+          message:
+            "The bend command was not found beside this plugin, so there is nothing to put on the PATH.",
+        };
+      }
+      title = "Put bend on the PATH";
+      command = status.bendCommand;
+    } else if (action === "install") {
       if (status.bdInstalled) return { message: "Beads is already installed." };
       const method = status.installMethods.find(
         (candidate) => candidate.id === option,

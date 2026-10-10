@@ -7,6 +7,8 @@
 // Why: when something the tab needs is missing (the beads program, beads in
 // the folder, beads' agent setup, Airbender's rules) the tab offers to set it
 // up instead of leaving the user at a dead end (bead-bb-80e).
+// It is also where the repository's tracker is chosen: beads, or GitHub
+// issues (bead-bb-c9l.6). What there is to set up follows from that choice.
 //
 // Design notes:
 // - One list of steps (setupSteps) drives both the card and the menu, so they
@@ -33,6 +35,7 @@ import type {
   rpcContract,
 } from "../server/contract.ts";
 import { CHANGED_CHANNEL, SETUP_AGENTS } from "../shared/constants.ts";
+import type { SetupAction } from "../shared/constants.ts";
 import { MenuPanel, useMenu } from "./menus.tsx";
 import type { Scope } from "./use-issues.ts";
 import { WORKFLOW_CHOICES } from "../shared/workflows.ts";
@@ -45,8 +48,11 @@ import type { WorkflowId } from "../shared/workflows.ts";
 export interface SetupStep {
   /** Unique per step; also what "Skip" remembers. E.g. "agent:claude". */
   key: string;
-  action: "install" | "init" | "fetch" | "agent" | "rules" | "sync";
-  /** The agent id for an "agent" step; null otherwise. */
+  action: SetupAction;
+  /**
+   * The agent id for an "agent" step, the tracker ("beads" or "github")
+   * for a "tracker" step; null otherwise.
+   */
   option: string | null;
   /** The button and menu label. */
   label: string;
@@ -89,16 +95,113 @@ function Marked({ text }: { text: string }) {
   );
 }
 
-/** The setup steps for a folder, in the order they make sense. */
+/**
+ * The step that switches a repository to another tracker (bead-bb-c9l.6).
+ *
+ * Offered on the card where a folder has no tracker yet and its remote is
+ * on GitHub, and from the menu for any repository.
+ *
+ * @param to The tracker to switch to.
+ */
+export function trackerStep(
+  status: SetupStatus,
+  to: "beads" | "github",
+): SetupStep {
+  const github = to === "github";
+  return {
+    key: `tracker:${to}`,
+    action: "tracker",
+    option: to,
+    label: github
+      ? `Use GitHub issues${status.githubRepository === null ? "" : ` (${status.githubRepository})`}`
+      : "Use beads",
+    why: github
+      ? "This folder's remote is on GitHub. The issues kept there can be used here, instead of setting up beads."
+      : "Keep this repository's issues in beads, in the repository itself.",
+    // On the card only where nothing is chosen yet; a repository that has
+    // a tracker is switched from the menu, deliberately.
+    needed: github && status.tracker === null && status.githubRepository !== null,
+    blocked:
+      status.tracker === to
+        ? "in use"
+        : github && status.githubRepository === null
+          ? "the remote is not on GitHub"
+          : status.running === null
+            ? null
+            : "running…",
+  };
+}
+
+/**
+ * The setup steps for a folder, in the order they make sense.
+ *
+ * What there is to set up follows from the folder's tracker (bead-bb-c9l.6):
+ * beads needs its program, its database in the folder and its own setup for
+ * each agent; GitHub issues need a login and the `bend` command, which is
+ * what agents are told to use there. Airbender's rules are for both.
+ */
 function setupSteps(status: SetupStatus): SetupStep[] {
   const running = status.running === null ? null : "running…";
+  const github = status.tracker === "github";
+  const rules: SetupStep = {
+    key: "rules",
+    action: "rules",
+    option: null,
+    label: "Add Airbender's rules for agents",
+    why: "The rules this tab's buttons rely on: agents take an issue one step at a time, leave closing to you, and commit when you accept it.",
+    needed: status.folderReady && !status.rulesPresent,
+    blocked: status.rulesPresent
+      ? "done"
+      : !status.folderReady
+        ? "set up the folder first"
+        : running,
+  };
+  const bend: SetupStep = {
+    key: "bend",
+    action: "bend",
+    option: null,
+    label: "Put the bend command on the PATH",
+    why: "Agents read and change this repository's issues with the bend command, and it does not run by name on this computer yet.",
+    // Needed only where agents are told to use it; elsewhere it is an
+    // extra, kept in the menu.
+    needed: github && !status.bendInstalled && status.bendCommand !== null,
+    blocked: status.bendInstalled
+      ? "installed"
+      : status.bendCommand === null
+        ? "not found beside the plugin"
+        : running,
+  };
+  if (github) {
+    return [
+      {
+        key: "signin",
+        action: "signin",
+        option: null,
+        label: "Sign in to GitHub",
+        why: "There is no GitHub login on this computer for the tab to read and change issues with.",
+        needed: !status.githubSignedIn,
+        blocked: status.githubSignedIn
+          ? "signed in"
+          : !status.ghInstalled
+            ? "the gh program is not installed"
+            : running,
+      },
+      bend,
+      rules,
+    ];
+  }
   const steps: SetupStep[] = [
+    // A folder with nothing in it yet and a remote on GitHub: the issues
+    // there are a choice beside beads.
+    ...(status.tracker === null && status.githubRepository !== null
+      ? [trackerStep(status, "github")]
+      : []),
     {
       key: "install",
       action: "install",
       option: null,
       label: "Install beads",
-      why: "The beads program is not on this computer. The tab needs it to read and change issues.",
+      why: "The beads program is not on this computer. The tab needs it to read and change issues kept in beads.",
       needed: !status.bdInstalled,
       blocked: status.bdInstalled
         ? "installed"
@@ -167,19 +270,7 @@ function setupSteps(status: SetupStatus): SetupStep[] {
         update: stale,
       };
     }),
-    {
-      key: "rules",
-      action: "rules",
-      option: null,
-      label: "Add Airbender's rules for agents",
-      why: "The rules this tab's buttons rely on: agents take an issue one step at a time, leave closing to you, and commit when you accept it.",
-      needed: status.folderReady && !status.rulesPresent,
-      blocked: status.rulesPresent
-        ? "done"
-        : !status.folderReady
-          ? "set up the folder first"
-          : running,
-    },
+    rules,
     // Switching the issue sync on, while the source offers it: listed
     // only then, since what it is called is the source's to say. Once on,
     // the "Issue sync" row above the steps says how it stands.
@@ -197,6 +288,7 @@ function setupSteps(status: SetupStatus): SetupStep[] {
             explain: status.syncSteps.on.explain,
           },
         ]),
+    bend,
   ];
   return steps;
 }
@@ -531,6 +623,51 @@ export function SetupMenu({
               <div className="my-1 border-t border-border" />
             </>
           )}
+          {/* Where this repository's issues are kept, and the way to change
+              that (bead-bb-c9l.6). Like the workflow: a choice for the whole
+              repository, made rarely, with a tick on the one in use. The
+              switch is confirmed in a dialog, which says that issues are
+              not moved. */}
+          {status === null || status.unavailable !== null ? null : (
+            <>
+              <div className="px-2 pb-1 text-xs font-medium text-muted-foreground">
+                Issues are kept in
+              </div>
+              {(["beads", "github"] as const).map((tracker) => {
+                const step = trackerStep(status, tracker);
+                const inUse = status.tracker === tracker;
+                return (
+                  <button
+                    key={tracker}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={inUse}
+                    disabled={!inUse && step.blocked !== null}
+                    onClick={() => {
+                      setOpen(false);
+                      if (!inUse) onStart(step);
+                    }}
+                    className="flex w-full cursor-pointer items-start gap-2 rounded px-2 py-1 text-left text-sm hover:bg-state-hover disabled:cursor-default disabled:text-muted-foreground/60 disabled:hover:bg-transparent"
+                  >
+                    <Icon
+                      name="Check"
+                      className={cn("mt-0.5 size-4 shrink-0", !inUse && "invisible")}
+                    />
+                    <span className="min-w-0">
+                      {tracker === "beads" ? "Beads" : "GitHub issues"}
+                      <span className="block text-xs text-muted-foreground">
+                        {tracker === "beads"
+                          ? "In the repository itself"
+                          : (status.githubRepository ??
+                            "This folder's remote is not on GitHub")}
+                      </span>
+                    </span>
+                  </button>
+                );
+              })}
+              <div className="my-1 border-t border-border" />
+            </>
+          )}
           <div className="px-2 pb-1 text-xs font-medium text-muted-foreground">
             Setup
           </div>
@@ -541,7 +678,10 @@ export function SetupMenu({
               {status.unavailable}
             </p>
           ) : (
-            setupSteps(status).map((step) => (
+            setupSteps(status)
+              // The choice of tracker has its own place, above.
+              .filter((step) => step.action !== "tracker")
+              .map((step) => (
               <button
                 key={step.key}
                 type="button"
@@ -565,8 +705,9 @@ export function SetupMenu({
               user asked to be directed there from here. */}
           <div className="my-1 border-t border-border" />
           <p className="px-2 py-1 text-xs text-muted-foreground">
-            Settings (background sizing and its model, the bd command, the
-            GitHub token): in BB under Tools, then Airbender.
+            {status?.tracker === "github"
+              ? "Settings (background sizing and its model, the GitHub token): in BB under Tools, then Airbender."
+              : "Settings (background sizing and its model, the bd command, the GitHub token): in BB under Tools, then Airbender."}
           </p>
         </MenuPanel>
       ) : null}
@@ -611,8 +752,12 @@ export function SetupDialog({
           <DialogTitle>{step?.label}</DialogTitle>
           <DialogDescription>
             {step?.action === "rules"
-              ? "Adds a section to this folder's AGENTS.md, at the end, and, if this folder has a CLAUDE.md, makes it point at AGENTS.md so Claude Code reads the same rules. A CLAUDE.md that holds only beads' generated text is replaced by that pointer; one with your own text is kept, with one line added at the top. No CLAUDE.md is created."
-              : "Runs in a BB terminal, so you can watch it and answer anything it asks."}
+              ? status?.tracker === "github"
+                ? "Adds a section to this folder's AGENTS.md, at the end, and, if this folder has a CLAUDE.md, makes it point at AGENTS.md so Claude Code reads the same rules: a CLAUDE.md with your own text is kept, with one line added at the top. No CLAUDE.md is created. If Airbender's rules for another tracker are there, that section is replaced."
+                : "Adds a section to this folder's AGENTS.md, at the end, and, if this folder has a CLAUDE.md, makes it point at AGENTS.md so Claude Code reads the same rules. A CLAUDE.md that holds only beads' generated text is replaced by that pointer; one with your own text is kept, with one line added at the top. No CLAUDE.md is created. If Airbender's rules for the other tracker are there, that section is replaced."
+              : step?.action === "tracker"
+                ? "Changes where this repository's issues are read from and written to. Nothing is moved."
+                : "Runs in a BB terminal, so you can watch it and answer anything it asks."}
           </DialogDescription>
         </DialogHeader>
         {step?.action === "install" ? (
@@ -688,6 +833,69 @@ export function SetupDialog({
             in that file, between its markers, and nothing outside it.
             Nothing is wrong if you leave it.
           </p>
+        ) : step?.action === "tracker" ? (
+          <div className="space-y-2 text-sm">
+            <p>
+              Writes <span className="font-mono">.bend.json</span> at the
+              root of this repository, saying that its issues are{" "}
+              {step.option === "github" ? (
+                <>
+                  on GitHub, in{" "}
+                  <span className="font-mono">{status?.githubRepository}</span>
+                </>
+              ) : (
+                "in beads"
+              )}
+              . The tab, and the <span className="font-mono">bend</span>{" "}
+              command, then use those.
+            </p>
+            <ul className="list-disc space-y-0.5 pl-5 text-muted-foreground">
+              <li>
+                Issues are not moved.{" "}
+                {step.option === "github"
+                  ? "Issues kept in beads stay there, out of sight until you switch back."
+                  : "Issues on GitHub stay there."}
+              </li>
+              <li>
+                The file is part of the repository: commit it, so that
+                other checkouts and work trees see the same.
+              </li>
+              {step.option === "github" ? (
+                <li>
+                  What the tab writes is visible to everyone who can see the
+                  repository on GitHub: labels for an issue's step, size,
+                  type, priority and category, and a comment for each
+                  workflow move. With background sizing on, every issue
+                  without a size gets a size label and a comment.
+                </li>
+              ) : null}
+              <li>
+                Airbender's rules for agents name the tracker's commands.
+                After switching, setup offers to replace them.
+              </li>
+            </ul>
+          </div>
+        ) : step?.action === "signin" ? (
+          <p className="text-sm">
+            Runs <span className="font-mono">gh auth login</span>, GitHub's
+            own sign-in. It asks a few questions in the terminal and opens
+            a browser. The tab then uses that login to read and change this
+            repository's issues.
+          </p>
+        ) : step?.action === "bend" ? (
+          <div className="space-y-2 text-sm">
+            <p>
+              Makes <span className="font-mono">bend</span> run by name from
+              any folder, by linking it into your own commands folder:
+            </p>
+            <pre className="overflow-auto whitespace-pre-wrap break-all rounded bg-muted p-2 font-mono text-xs">
+              {status?.bendCommand}
+            </pre>
+            <p className="text-muted-foreground">
+              It is a link to this plugin's own copy, so it stays the same
+              version as the plugin. It needs node 22.6 or later.
+            </p>
+          </div>
         ) : step?.action === "agent" ? (
           <p className="text-sm">
             Runs <span className="font-mono">bd setup {step.option}</span> in{" "}
@@ -716,7 +924,11 @@ export function SetupDialog({
               );
             }}
           >
-            {step?.action === "rules" ? "Enable" : "Run in a terminal"}
+            {step?.action === "rules"
+              ? "Enable"
+              : step?.action === "tracker"
+                ? "Switch"
+                : "Run in a terminal"}
           </Button>
         </DialogFooter>
       </DialogContent>

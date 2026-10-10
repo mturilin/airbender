@@ -351,6 +351,18 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
               <span className="min-w-0 truncate" title={result?.path ?? undefined}>
                 {result?.path == null ? "" : shortPath(result.path, result.home)}
               </span>
+              {/* Which tracker, said only where it is not the usual one
+                  (bead-bb-c9l.6): a repository whose issues are on GitHub
+                  looks the same here as one with beads, and what the tab
+                  writes there is visible to others. */}
+              {result?.tracker === "github" ? (
+                <span
+                  className="shrink-0 whitespace-nowrap"
+                  title={`This repository's issues are on GitHub${result.trackerRepository === null ? "" : `, in ${result.trackerRepository}`}. Change that in the menu on the right.`}
+                >
+                  GitHub issues
+                </span>
+              ) : null}
               {/* In a work tree, said first, with the fir of the "start
                   in a work tree" commands (the user: "also mention
                   worktree with fir tree icon there"). */}
