@@ -143,3 +143,16 @@ test("bd's refusals are put into words for any caller", () => {
   assert.match(explain("Error updating t-1: adding dependency would create a cycle"), /make a loop/u);
   assert.equal(explain("Error: no such thing\nUsage:\n  bd …"), "no such thing");
 });
+
+test("free-form data and the counterpart elsewhere come through; anything odd counts as none", () => {
+  const rows = [
+    row("a", { metadata: { branch: "a-kanban" }, external_ref: "gh-12" }),
+    row("b", { metadata: "text" }),
+    row("c", { metadata: ["x"] }),
+    row("d"),
+  ];
+  assert.deepEqual(
+    toIssues(rows).map((issue) => [issue.metadata, issue.externalRef]),
+    [[{ branch: "a-kanban" }, "gh-12"], [{}, null], [{}, null], [{}, null]],
+  );
+});

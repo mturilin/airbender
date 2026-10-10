@@ -79,15 +79,38 @@ export function sizeOf(labels: string[]): string | null {
 }
 
 /**
- * The label prefix an epic's branch is stored under, e.g.
- * `branch:proj-a1b-kanban-board` (bead-bb-ty5.2): the branch all of its
- * issues are worked on. A label, like the step and the size, so that it is
- * visible in beads and travels with the issue.
+ * The key an epic's branch is stored under in the issue's metadata
+ * (bead-bb-ty5.2): the branch all of its issues are worked on.
+ *
+ * In metadata, not in a label like the step and the size. It began as a
+ * label `branch:<name>`, and beads' GitHub sync sends labels to GitHub,
+ * which refuses one longer than 50 characters; the branch BB gives a work
+ * tree is longer, so such an epic could not be created on GitHub at all
+ * (bead-bb-d6x). Metadata is visible in beads, travels with the issue, and
+ * is not sent.
+ */
+export const BRANCH_KEY = "branch";
+
+/**
+ * The prefix of the label the branch used to be kept in. Still read, for
+ * epics started before the change, and removed when the branch is next
+ * written or cleared.
  */
 export const BRANCH_PREFIX = "branch:";
 
-/** The branch recorded on an issue, or null when none is. */
-export function branchOf(labels: string[]): string | null {
+/**
+ * The branch recorded on an issue, or null when none is.
+ *
+ * @param metadata The issue's metadata as beads gives it; anything that is
+ *   not an object with a text under BRANCH_KEY counts as none.
+ * @param labels The issue's labels, for the old place.
+ */
+export function branchOf(metadata: unknown, labels: string[]): string | null {
+  const kept =
+    typeof metadata === "object" && metadata !== null
+      ? (metadata as Record<string, unknown>)[BRANCH_KEY]
+      : undefined;
+  if (typeof kept === "string" && kept.trim() !== "") return kept.trim();
   const label = labels.find((candidate) => candidate.startsWith(BRANCH_PREFIX));
   const branch = label?.slice(BRANCH_PREFIX.length).trim() ?? "";
   return branch === "" ? null : branch;
@@ -164,7 +187,7 @@ export function toIssues(found: TrackerIssue[]): Issue[] {
     parentId: issue.parentId,
     step: stepOf(issue.labels),
     size: sizeOf(issue.labels),
-    branch: branchOf(issue.labels),
+    branch: branchOf(issue.metadata, issue.labels),
     // Not known to the tracker; filled in by the server for the tab's list.
     conversationId: null,
     status: issue.status,
@@ -180,6 +203,7 @@ export function toIssues(found: TrackerIssue[]): Issue[] {
     ),
     updatedAt: issue.updatedAt,
     createdAt: issue.createdAt,
+    externalRef: issue.externalRef,
     // A closed issue waits for nothing; the tracker says the same, and the
     // tab's rows rely on it.
     blockedBy: isOpen(issue)

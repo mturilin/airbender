@@ -249,9 +249,9 @@ export function ComposerStatusLine() {
  * expected of them. It takes its reason from what is typed in the message
  * box and clears it; with nothing typed it asks for the reason.
  *
- * The "Agree & continue" button is drawn here too, whenever the user's
- * answer buttons are not: when there is no current issue, and at an
- * agent's step.
+ * The "Agree & continue" button is drawn here too, always (bead-bb-7jd):
+ * alone when there is no current issue and at an agent's step, and after
+ * the step's answer buttons where there are any.
  * Side effects: one RPC per click; a toast if a move is refused.
  */
 function StepButton({ threadId }: { threadId: string }) {
@@ -264,9 +264,12 @@ function StepButton({ threadId }: { threadId: string }) {
           (candidate) => candidate.id === result.currentBeadId,
         ) ?? null)
       : null;
-  // "Agree & continue" is shown whenever the user's answer buttons are not
-  // (the user's rule): with "Accept" and "Send back" on show it would be a
-  // third, vaguer way of saying yes.
+  // "Agree & continue" is shown all the time, whatever the workflow and
+  // the step (the user, bead-bb-7jd: "let's show accept and go button all
+  // the time (not depending on the workflow)"). Until then it gave way to
+  // the step's answer buttons, as a third, vaguer way of saying yes beside
+  // "Accept" and "Send back". Beside them it makes no move in the workflow
+  // itself: it sends its sentence, and the agent records the approval.
   const agree = (
     <QuickReplyButton kind="agree" label="Agree & continue" icon="Check" />
   );
@@ -363,6 +366,8 @@ function StepButton({ threadId }: { threadId: string }) {
           {move.label}
         </Button>
       ))}
+      {/* Last among the product's buttons, as where it stands alone. */}
+      {agree}
     </div>
   );
 }

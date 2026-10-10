@@ -73,7 +73,10 @@ export type LinkKind = (typeof LINK_KINDS)[number];
  * frontend shows the same text in the buttons' tooltips.
  */
 export const QUICK_REPLIES = {
-  agree: "I agree with your recommendations. Go ahead.",
+  // The user's wording (bead-bb-7jd), the third they tried: after
+  // "Confirmed. Go ahead." and "Recommendations confirmed. Go ahead." It
+  // was "I agree with your recommendations. Go ahead." before.
+  agree: "Sounds good. Please proceed.",
 } as const;
 
 /**
@@ -82,7 +85,17 @@ export const QUICK_REPLIES = {
  * in the folder, beads configured for a coding agent, and Airbender's own
  * working rules in the folder's AGENTS.md.
  */
-export const SETUP_ACTIONS = ["install", "init", "agent", "rules"] as const;
+export const SETUP_ACTIONS = [
+  "install",
+  "init",
+  // Get the issues of a repository that already has them on its remote
+  // (a fresh clone), in place of "init".
+  "fetch",
+  "agent",
+  "rules",
+  // Give the folder's issues a remote and sync them for the first time.
+  "sync",
+] as const;
 export type SetupAction = (typeof SETUP_ACTIONS)[number];
 
 /** The coding agents beads' own setup is offered for: the ones BB runs. */

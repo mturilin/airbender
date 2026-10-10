@@ -101,6 +101,16 @@ export interface Issue {
   commentCount: number;
   createdAt: string | null;
   updatedAt: string | null;
+  /**
+   * Free-form data kept with the issue, by key, for a caller that keeps
+   * something of its own there and does not want it in a label (the
+   * Airbender tab keeps an epic's branch: a label would be sent to GitHub
+   * by beads' sync, and GitHub refuses a long one). Empty when there is
+   * none, or the tracker has no place for it.
+   */
+  metadata: Record<string, unknown>;
+  /** The issue's counterpart in another tracker, when it has one. */
+  externalRef: string | null;
 }
 
 /** One comment on an issue. */
@@ -160,6 +170,11 @@ export interface Changes {
    */
   addLabels?: string[];
   removeLabels?: string[];
+  /**
+   * Free-form data to keep with the issue, by key; null removes a key.
+   * Unsupported where the tracker has no place for it.
+   */
+  metadata?: Record<string, string | null>;
 }
 
 /**

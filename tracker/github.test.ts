@@ -112,6 +112,12 @@ test("type, priority, category and 'in progress' are labels; the parts are secti
   assert.deepEqual([issue.status, issue.assignee], ["in_progress", "octo"]);
   assert.ok(github.labelsOf(1).includes("in-progress"));
   await assert.rejects(tracker.edit(id, { priority: 7 }), refused(/whole number from 0/u));
+  // GitHub has no place for free-form data kept with an issue.
+  assert.deepEqual([issue.metadata, issue.externalRef], [{}, null]);
+  await assert.rejects(
+    tracker.edit(id, { metadata: { branch: "x" } }),
+    (cause) => cause instanceof Unsupported,
+  );
   await assert.rejects(tracker.edit(id, { category: "a,b" }), refused(/comma/u));
 });
 

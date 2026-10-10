@@ -252,6 +252,10 @@ export function toIssue(issue: GhIssue, known: Map<number, GhRef>): Issue {
     commentCount: issue.commentCount,
     createdAt: issue.createdAt,
     updatedAt: issue.updatedAt,
+    // GitHub has no place for free-form data with an issue, and an issue
+    // here is not the counterpart of one elsewhere: it is the issue.
+    metadata: {},
+    externalRef: null,
   };
 }
 
@@ -549,6 +553,11 @@ export function createGitHubTracker({
     },
 
     async edit(id: string, changes: Changes): Promise<void> {
+      if (Object.keys(changes.metadata ?? {}).length > 0) {
+        throw new Unsupported(
+          "GitHub issues have no place for free-form data kept with an issue.",
+        );
+      }
       const issue = await need(id);
       const update: GhChanges = {};
       if (changes.title !== undefined) update.title = changes.title;

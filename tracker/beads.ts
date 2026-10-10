@@ -87,6 +87,10 @@ export interface BdRow {
   labels?: string[] | null;
   created_at?: string;
   updated_at?: string;
+  /** Free-form data kept with the issue. */
+  metadata?: unknown;
+  /** The issue's counterpart in another tracker, when it has one. */
+  external_ref?: string | null;
   dependencies?: { depends_on_id: string; type: string }[] | null;
 }
 
@@ -218,6 +222,14 @@ export function toIssues(rows: BdRow[]): Issue[] {
       commentCount: row.comment_count ?? 0,
       createdAt: row.created_at ?? null,
       updatedAt: row.updated_at ?? row.created_at ?? null,
+      // Anything that is not a plain object counts as none.
+      metadata:
+        typeof row.metadata === "object" &&
+        row.metadata !== null &&
+        !Array.isArray(row.metadata)
+          ? (row.metadata as Record<string, unknown>)
+          : {},
+      externalRef: row.external_ref ?? null,
     };
   });
 }
@@ -556,6 +568,15 @@ export function createBeadsTracker({
           throw new Refused(`"${label}" cannot be used as a label.`);
         }
         if (!labels.includes(label)) args.push("--add-label", label);
+      }
+      for (const [key, value] of Object.entries(changes.metadata ?? {})) {
+        // The key is half of a flag's value ("key=value"), so it must not
+        // hold the sign that divides the two.
+        if (!/^[\w.-]+$/u.test(key)) {
+          throw new Refused(`"${key}" cannot be used as a name for kept data.`);
+        }
+        if (value === null) args.push("--unset-metadata", key);
+        else args.push("--set-metadata", `${key}=${value}`);
       }
       if (changes.category !== undefined) {
         const wanted =

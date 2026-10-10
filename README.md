@@ -12,7 +12,11 @@ panel, beside a thread or on the New thread screen.
   tracker for a folder and turns its failures into what the tab shows;
   `store.ts` holds the issue operations, each one a call on that tracker;
   `work.ts` moves an issue through its workflow; `autopilot.ts` starts an
-  epic's issues one after another;
+  epic's issues one after another; `sync.ts` joins the issue sync (the `sync/` folder) to the
+  plugin;
+  `github.ts` lists GitHub issues, open and closed, and
+  runs `bd github sync` for the ones chosen in the "Sync with GitHub"
+  window (`app/github-sync.tsx`);
   `current-bead.ts` is the thread's current issue; `issues.ts` turns the
   tracker's issues into the tab's (its names for links, what it keeps in
   labels, and "blocked when every open sub-issue is"); `watch.ts` and `setup.ts`
@@ -26,6 +30,13 @@ panel, beside a thread or on the New thread screen.
   and `app/use-focus.ts` are epic mode; `app/place.ts` says whether an
   issue belongs to an epic with a branch and whether the folder is on it. Logic without React is
   in `app/issue-model.ts` and `app/quick-tags.ts`.
+- `sync/` — keeping a repository's issues in step with a remote, as a
+  layer of its own that knows neither BB nor one tracker: `types.ts` is
+  what every sync source offers (`SyncSource`) and reports; `service.ts`
+  runs any source one at a time per repository, decides when, and keeps
+  the log; `beads.ts` is the first source (`bd sync`, beads' events
+  journal for what was sent). Another tracker adds a source here and
+  changes one function, `sourceFor` in `server/sync.ts`.
 - `shared/` — what both halves use: `constants.ts` (the values they must
   agree on), `tree.ts` (walking sub-issues), and the workflow:
   `workflow.ts` says what a workflow is, `standard-workflow.ts` is the
@@ -55,7 +66,7 @@ is required now, such as "Please review the plan and give feedback.";
 hover or click it for the whole issue), and inside it the current
 step's buttons as text ("Approve plan" and "Send back", "Implement", "Commit &
 merge"…). "Send back" takes its reason from what is typed in the box. The
-gray "Agree & continue" icon shows when those two answer buttons do not. BB hides the buttons inside the box in its
+gray "Agree & continue" icon is always there, after them; it sends "Sounds good. Please proceed." BB hides the buttons inside the box in its
 compact layout; the status line stays.
 
 From top to bottom the tab shows:
@@ -208,9 +219,23 @@ lists every step, greyed out when done or not yet possible:
    `AGENTS.md` (an `@AGENTS.md` line): a beads-generated
    `CLAUDE.md` becomes a short pointer, one with your own text keeps it,
    and none is created where there is none.
+5. **Sync issues to the repository's remote** — runs `bd sync --yes` for
+   the first time. `bd init` leaves the issue database on this computer
+   only (it is not in git); this publishes it to the git remote under
+   `refs/dolt/data`, and beads commits the remote into
+   `.beads/config.yaml` by itself. Afterwards Airbender runs `bd sync`
+   itself: every five minutes, two minutes after the issues stop
+   changing, and when you press the refresh button, which also reloads
+   the list. The button turns red when syncing has not worked for more
+   than ten minutes; the "⋯" menu says how the last sync went. One
+   repository is synced by one run at a time (a queue in the plugin, plus
+   the lock file `.beads/airbender-sync.lock`), whichever work tree asks.
 
-Steps 1 to 3 run in a BB terminal you can watch and type into; the tab
-reloads when it ends and shows the last output if it failed.
+In a fresh clone whose remote already holds the issues, step 2 reads
+**Get this repository's issues** and runs `bd bootstrap --yes` instead.
+
+Steps 1 to 3 and 5 run in a BB terminal you can watch and type into; the
+tab reloads when it ends and shows the last output if it failed.
 
 ## bend
 
@@ -285,6 +310,15 @@ cannot open that page itself, see get-bb/bb#5014).
   by default `claude-code` and `claude-haiku-4-5-20251001`. The model must
   belong to the provider (`bb provider models <provider>` lists them). These
   three are read each time a sizing starts; no reload is needed.
+- `GitHub token` — optional. "Sync with GitHub" (the tab's "⋯" menu) uses
+  the `gh` command's sign-in (`gh auth token`) for each run when this is
+  empty, storing nothing. Set a personal access token here to use that one
+  instead, for example one that can only read and write this repository's
+  issues. A
+  secret: BB keeps it in a file of its own on this computer. It is handed
+  to `bd github sync` for each run and is never written into the
+  repository (beads' own `bd config set github.token` would put it in
+  `.beads/config.yaml`, which is in git here).
 
 ## Develop
 

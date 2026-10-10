@@ -117,6 +117,33 @@ When something the panel needs is missing, the panel offers to set it up.
   place is not checked again**: the panel does not try to notice that
   something was removed afterwards.
 
+## Keeping the issues on the repository's remote
+
+- **The issues are not left on one computer.** Where a folder's issues are
+  synced nowhere, the panel says so and offers to sync them to the
+  repository's remote; from then on the product keeps them in sync by
+  itself. `[0bz]`
+- **Several open panels on the same repository must not sync at the same
+  time**: there is a lock, and syncs of one repository happen one after
+  another. `[0bz]`
+- **On another computer**, a copy of the repository whose issues are on
+  the remote is offered them, in place of an empty start. `[0bz]`
+- **Hovering the refresh button shows the time of the last sync and its
+  result**, for example whether it was one issue's update. `[6a9]`
+- **In the menu, "Issue sync" and its state are on the same line**, like a
+  setup step and its "installed": issue sync, synced one minute ago.
+  `[6a9]`
+- **The menu has a sync log**: a small window with all the syncs and what
+  each did, for troubleshooting. `[6a9]`
+- **The syncing is a part of its own that can be replaced**: the panel
+  does not assume one way of syncing. There will be several, the next for
+  GitHub. `[6a9]`
+- **Refresh and sync are one control**: the refresh button. **The issues
+  are synced every five minutes**, so no time is shown. **The button is
+  marked as an error, red, when the sync has been failing and nothing was
+  synced for more than ten minutes.** The rest of the information is in
+  the menu. `[0bz]`
+
 ## The groups
 
 In this order: `[02g]` `[a28]`
@@ -620,6 +647,26 @@ Rules:
   `[5qt]`
 - Buttons are ordinary gray. No green. `[d37]`
 
+## Syncing with GitHub
+
+- **The owner can sync issues with GitHub issues from a dialog, both
+  ways**: GitHub issues are brought into the folder's issues, and issues
+  are sent to GitHub. It is called "Sync with GitHub". `[rh3]`
+- **The owner selects the issues, and previews the result** before
+  anything is changed. `[rh3]`
+- **Closed issues are synced as well as open ones.** Comments are not
+  synced, for now. `[rh3]`
+- **A sync under way shows its progress**, and what the sync is printing,
+  so that the owner can tell it is not stuck. `[rh3]`
+- **It is one screen with three columns: sync to GitHub, linked, and sync
+  from GitHub. The owner selects in each, and a filter says whether
+  closed, not closed or all issues are shown.** `[rh3]`
+- It is done by the issue store's own GitHub sync; the product adds the
+  choosing, the preview and the confirmation, and does not sync by a method
+  of its own. `[rh3]`
+- **The GitHub token is stored, but never where it would be synced to the
+  repository.** `[rh3]`
+
 ## In the main window
 
 Outside the tab, around the message box of a conversation, so that the
@@ -643,8 +690,9 @@ agent's messages. `[3l4]` `[eg0]`
 - **"Agree & continue"** tells the agent the owner agrees with its
   recommendations and it should go ahead. It is **an icon** with a tooltip,
   on a **gray, square background** like the app's own send button, not on
-  white and not round. **It is shown only when the accept and send-back
-  buttons are not.** `[eg0]` `[lit]`
+  white and not round. `[eg0]` `[lit]` **It is shown all the
+  time, not depending on the workflow**: also beside the accept and
+  send-back buttons. `[7jd]`
 - **There is no "Go" button.** `[eg0]`
 - Pressing a contextual button makes the real move in the issue's workflow.
   `[eg0]`
@@ -951,6 +999,99 @@ breaking a requirement above.
   on again resumes. Leaving epic mode leaves it on. It is remembered
   across restarts, and it works with the panel closed. On an epic that has
   a branch it only starts issues in a folder on that branch.
+- Syncing with GitHub: it is an entry of the panel's menu and opens a
+  large window. The repository is the one the folder's "origin" remote
+  points at, on github.com only. The window has three columns side by side, in
+  which the owner selects: "To GitHub", the folder's issues that are not
+  on GitHub; "Linked", the issues that are both in the folder and on
+  GitHub, which are brought into step in both directions at once; and
+  "From GitHub", the repository's issues that are not in the folder
+  (without pull requests, the thousand most recently changed at most).
+  Nothing is ticked at first. Each column has a box that ticks all it
+  shows, and says how many are ticked. Above the columns, for all three,
+  are a filter by title or number and a filter for closed and not closed:
+  open (to begin with), closed, or all. A linked issue counts as open
+  while either side is open, and says its GitHub number and where one side
+  is closed and the other open. A row is the issue's id or number over its
+  title; a closed issue is struck through.
+  For an issue changed on both sides the owner chooses: the
+  newer one wins (preselected), GitHub wins, or the folder's wins. Preview
+  lists what would be imported, updated here, created on GitHub and
+  updated on GitHub. "Sync" is offered only for what was just previewed;
+  changing a tick asks for a new preview. Before issues are created on
+  GitHub it asks once more, with their number and the repository. A preview
+  or sync under way shows a bar, how many of the issues it has been
+  through, the time it has taken, the last lines the sync printed, and a
+  Stop button; it is done ten issues at a time, and Stop lets the ten
+  under way finish and starts no more, leaving done what was done. There
+  is no time limit on a whole sync. An issue that is closed in the folder
+  is closed on GitHub right after it is created there. After a
+  sync the window says what was done and the lists are read again. From
+  GitHub is done first, then the linked issues, then to GitHub. With no token set, the sign-in of the GitHub command-line
+  tool on the owner's computer is used for each sync, and nothing is
+  stored (the owner asked whether the token could come from that tool by
+  itself). A token set in the product's settings, kept on the owner's
+  computer, is used in its place. With neither, the window says both ways
+  to put that right. A refusal by GitHub is said in plain words.
+- What a sync is said to have done: the issues changed here that it sent,
+  each with the kind of change (created, updated, closed, deleted, a
+  comment, a link), and the issues that came in new or changed from
+  elsewhere; in words, "nothing new", "sent 1 issue", "brought in 2
+  issues, sent 1 issue", with the first few ids named in the log. Where it
+  cannot be told, it says "synced" and no more. A failed sync says how it
+  ended. The refresh button's tooltip is one line: what the button does,
+  then "Last sync 1 minute ago:" and that; when the button is red the
+  reason comes first.
+- The sync log: an entry "Sync log…" under the "Issue sync" row; a small
+  window, newest first, each sync with its time, what it did, what set it
+  off (every five minutes, after a change here, the tab opened, refresh
+  pressed), how long it took, and the store's own message where it failed.
+  The newest two hundred are kept, per repository, on this computer. Syncs
+  that found nothing new are listed too.
+- A sync set off by a change is not run when nothing was really changed
+  (an agent only read an issue); the five-minute sync always runs.
+- The state on the "Issue sync" row: "synced 1 minute ago", "syncing…",
+  "not synced", "not yet synced from here", "failed", "stopped" or
+  "waiting"; a longer message appears under the row only for a folder
+  synced with nothing, a failure or a stop.
+- With beads as the store, what was sent is read from beads' own journal
+  of changes, which is switched on for the repository the first time it
+  is synced; changes made before that are not known and not guessed.
+- Refresh and sync as one control: the refresh button reloads the list at
+  once and, where the issues have a remote, syncs with it, reloading again
+  when the sync ends; it turns while either goes on. It is red when the
+  latest sync failed and the last good one is more than ten minutes old
+  (or there never was one from this computer), and when syncing has
+  stopped on a conflict; its tooltip then says so in one line. It is not
+  red in a folder whose issues are synced nowhere, nor merely because the
+  app was closed for a while.
+- Beads' own instructions for an agent that have gone out of date (its
+  check says so, for example after the issues are given a remote) do not
+  bring the setup step back on the card: the agent counts as set up, and
+  the menu offers "Update beads' instructions in AGENTS.md", naming the
+  file beads names.
+- Keeping the issues on the remote: the step is one of the setup steps,
+  "Sync issues to the repository's remote", shown on the setup card like
+  the others and in the menu. It asks first, saying that the whole issue
+  history is published to the repository's remote, apart from the
+  branches, and that the issue store records the remote with a small
+  commit of its own, whose pushing is the owner's. After it the product
+  syncs (brings in what other computers changed, then sends what changed
+  here) every five minutes while the app runs, about two minutes after
+  the issues stop changing, when the panel is opened and the last sync is
+  more than five minutes old, and when the owner presses refresh. The
+  menu says, on its "Issue sync" row, when the
+  issues were last synced, that a sync is under way, or that the last one
+  failed and why. One repository's syncs never overlap, whichever of its
+  work trees and however many panels and conversations ask; asking during
+  a sync leads to one more sync after it. A failed sync is tried again at
+  the next occasion. A change made on two computers that cannot be merged
+  stops the syncing by itself and is shown with the issue store's message;
+  the product does not settle it, and takes syncing up again after a sync
+  the owner asks for succeeds. Syncing happens only while the app runs.
+  On a copy of the repository with no issues, where the remote has them,
+  the setup step reads "Get this repository's issues" and downloads them;
+  nothing is published by it.
 - The small step button on a row: lower than the icon buttons beside it,
   small text, no border, a soft grey fill that darkens under the pointer;
   it keeps its icon, label and tooltip. On the current issue it is the
@@ -1175,7 +1316,11 @@ breaking a requirement above.
 - Workflow: whether work is "on its own branch" is read from the folder: its
   current branch compared with the repository's main one. When that cannot
   be told, the button reads "Commit".
-- "Agree & continue" sends "I agree with your recommendations. Go ahead."
+- "Agree & continue" sends "Sounds good. Please proceed." (the owner's
+  wording, shortened from "I agree with your recommendations. Go
+  ahead."). Beside a step's own buttons it makes no move in the workflow
+  by itself: the agent reads the sentence, records the approval and goes
+  on; at the review of finished work it does not say whether to commit.
   Its tooltip shows its name and its message. It is disabled while the
   agent is working.
 - On the line above the message box the step chip carries the person or

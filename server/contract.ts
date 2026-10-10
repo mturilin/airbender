@@ -104,6 +104,11 @@ const issueSchema = z.object({
   /** When the issue was created (ISO); null when bd reported none. */
   createdAt: z.string().nullable(),
   /**
+   * The issue's counterpart in another tracker, as beads keeps it: for a
+   * GitHub issue its address, or `github:<number>`. Null when it has none.
+   */
+  externalRef: z.string().nullable(),
+  /**
    * Unfinished issues this one waits on. Empty for closed issues. Includes
    * what the issues it sits inside wait on: a sub-issue of a blocked issue
    * is blocked too, which is beads' own rule (`bd blocked` lists it).
@@ -213,6 +218,35 @@ export type IssuesResult = z.infer<typeof issuesResultSchema>;
  * The tab draws its setup panel, its suggestions and its "more" menu from
  * this one answer.
  */
+/** One setup step of the issue sync, as the tab shows it. */
+const syncStepSchema = z.object({
+  label: z.string(),
+  why: z.string(),
+  explain: z.object({ lead: z.string(), points: z.array(z.string()) }),
+});
+
+/** One run of the issue sync, as the log keeps it (sync/types.ts). */
+const syncEntrySchema = z.object({
+  at: z.number(),
+  seconds: z.number(),
+  cause: z.enum(["timer", "change", "opened", "refresh"]),
+  end: z.enum(["synced", "failed", "busy", "conflict", "stuck"]),
+  message: z.string(),
+  /** Issues changed here that this run sent; null when not known. */
+  sent: z
+    .array(
+      z.object({
+        id: z.string(),
+        kinds: z.array(
+          z.enum(["created", "updated", "closed", "deleted", "comment", "link"]),
+        ),
+      }),
+    )
+    .nullable(),
+  /** Issues this run brought in; null when not known. */
+  broughtIn: z.array(z.string()).nullable(),
+});
+
 const setupStatusSchema = z.object({
   /** The folder, or null when there is none on this machine. */
   path: z.string().nullable(),
@@ -235,7 +269,19 @@ const setupStatusSchema = z.object({
    * check is beads' own (`bd setup <agent> --check`).
    */
   agents: z.array(
-    z.object({ id: z.string(), label: z.string(), configured: z.boolean() }),
+    z.object({
+      id: z.string(),
+      label: z.string(),
+      configured: z.boolean(),
+      /**
+       * Beads is set up for the agent, but the instructions it wrote into
+       * this file no longer match what it would write now (its check says
+       * "installed but stale"): the file's name, e.g. "AGENTS.md". Null
+       * otherwise. Such an agent counts as configured; the instructions
+       * can be updated.
+       */
+      stale: z.string().nullable(),
+    }),
   ),
   /**
    * Whether Airbender's rules are in place: in the folder's AGENTS.md, with
@@ -260,6 +306,15 @@ const setupStatusSchema = z.object({
       tail: z.string(),
     })
     .nullable(),
+  /**
+   * The setup steps the folder's issue sync offers now, each with the
+   * words to show for it: `on` to start syncing issues that are synced
+   * nowhere, `fetch` to get the issues of a folder that has none while its
+   * remote holds them (a fresh clone), in place of starting empty. Null
+   * for a step that does not apply. What they say and do is the sync
+   * source's (sync/), not this plugin's: another tracker's differ.
+   */
+  syncSteps: z.object({ on: syncStepSchema.nullable(), fetch: syncStepSchema.nullable() }),
 });
 
 export type SetupStatus = z.infer<typeof setupStatusSchema>;
@@ -463,6 +518,85 @@ export const rpcContract = defineRpcContract({
     }),
     output: z.object({ message: z.string().nullable() }),
   },
+  github_issues: {
+    // The GitHub issues of the folder's repository, open and closed, for
+    // the "Sync with GitHub" window. `state` says what is missing when it is not
+    // "ok": no folder, no GitHub remote, no token, or GitHub's refusal.
+    input: z.object({
+      threadId: z.string().nullable(),
+      projectId: z.string().nullable(),
+    }),
+    output: z.object({
+      state: z.enum(["ok", "unavailable", "no-repository", "no-token", "error"]),
+      message: z.string().nullable(),
+      /** "owner/name"; null when it could not be told. */
+      repository: z.string().nullable(),
+      issues: z.array(
+        z.object({
+          number: z.number(),
+          title: z.string(),
+          labels: z.array(z.string()),
+          url: z.string(),
+          closed: z.boolean(),
+          /** The beads issue it is linked to; null when not in beads. */
+          linkedId: z.string().nullable(),
+        }),
+      ),
+      /** Every link the beads issues carry: issue id and GitHub number. */
+      links: z.array(z.object({ id: z.string(), number: z.number() })),
+      /** There are more issues on GitHub than were read. */
+      truncated: z.boolean(),
+    }),
+  },
+  github_sync: {
+    // Runs beads' own `bd github sync` for the chosen issues: `pull` are
+    // GitHub issue numbers to bring in, `both` beads ids of linked issues
+    // to bring into step both ways, `push` beads ids to send. With
+    // `preview` nothing is changed anywhere.
+    input: z.object({
+      threadId: z.string().nullable(),
+      projectId: z.string().nullable(),
+      pull: z.array(z.number().int().positive()).max(500),
+      both: z.array(z.string()).max(500),
+      push: z.array(z.string()).max(500),
+      prefer: z.enum(["newer", "github", "local"]),
+      preview: z.boolean(),
+    }),
+    // Started, not finished: `jobId` is what `github_sync_progress` is
+    // asked about. Null with a `message` when nothing was started.
+    output: z.object({
+      jobId: z.string().nullable(),
+      message: z.string().nullable(),
+    }),
+  },
+  github_sync_progress: {
+    // How a sync is getting on; `stop` asks it to finish the issues it is
+    // on and start no more. When `done`, `message` is null if every run
+    // worked, `actions` are what would be done (preview), and after a real
+    // run the command's totals are in `notes`.
+    input: z.object({ jobId: z.string(), stop: z.boolean() }),
+    output: z.object({
+      known: z.boolean(),
+      done: z.boolean(),
+      stopping: z.boolean(),
+      total: z.number(),
+      finished: z.number(),
+      /** Which part is being done ("To GitHub"); null when none is. */
+      doing: z.string().nullable(),
+      seconds: z.number(),
+      /** The last lines the command printed. */
+      lines: z.array(z.string()),
+      message: z.string().nullable(),
+      actions: z.array(
+        z.object({
+          kind: z.enum(["import", "update-local", "create-remote", "update-remote"]),
+          what: z.string(),
+        }),
+      ),
+      notes: z.array(z.string()),
+      warnings: z.array(z.string()),
+    }),
+  },
   autopilot_set: {
     // Turns autopilot on for an epic in a conversation, or off (epicId
     // null). On: the epic's next ready issue is started whenever the
@@ -497,6 +631,43 @@ export const rpcContract = defineRpcContract({
     }),
     // `message` is null when the action was started (or, for the rules,
     // done), else the reason in plain words.
+    output: z.object({ message: z.string().nullable() }),
+  },
+  sync_status: {
+    // How the folder's issues stand with their remote, in the sync layer's
+    // words; nothing here names a tracker. `remote` null: they are synced
+    // with nothing. `last` is the last sync run from here.
+    input: z.object({
+      threadId: z.string().nullable(),
+      projectId: z.string().nullable(),
+    }),
+    output: z.object({
+      /** The sync source's name; null when the folder has none. */
+      source: z.string().nullable(),
+      /** What the issues are synced with, in words; null when nothing. */
+      remote: z.string().nullable(),
+      running: z.boolean(),
+      /** Syncing by itself has stopped until a sync asked for succeeds. */
+      halted: z.boolean(),
+      last: syncEntrySchema.nullable(),
+      /** When the last sync that worked ended; null when none did. */
+      syncedAt: z.number().nullable(),
+    }),
+  },
+  sync_log: {
+    // The syncs run from here for the folder's repository, newest first.
+    input: z.object({
+      threadId: z.string().nullable(),
+      projectId: z.string().nullable(),
+    }),
+    output: z.object({ entries: z.array(syncEntrySchema) }),
+  },
+  sync_now: {
+    // The owner asks for a sync now; it waits its turn behind a running one.
+    input: z.object({
+      threadId: z.string().nullable(),
+      projectId: z.string().nullable(),
+    }),
     output: z.object({ message: z.string().nullable() }),
   },
   thread_reply: {

@@ -30,6 +30,7 @@ import type { SetupStatus } from "./contract.ts";
 import { AIRBENDER_RULES, RULES_START, claudeFileFor } from "./prompts.ts";
 import type { Folders } from "./folder.ts";
 import type { Store } from "./store.ts";
+import type { SyncStep } from "../sync/types.ts";
 
 /**
  * The ways of installing beads the tab can offer, each with the program it
@@ -71,6 +72,26 @@ const SETUP_POLL_MS = 1500;
 const SETUP_TIMEOUT_MS = 15 * 60_000;
 
 /**
+ * The file beads calls out of date, from what its check for an agent said.
+ *
+ * Beads' check (`bd setup <agent> --check`) fails both when nothing is set
+ * up and when everything is but the instructions it wrote no longer match
+ * what it would write now: "... integration installed but stale: <file>".
+ * Its wording follows the repository's configuration, so giving the issues
+ * a remote to sync with is enough to make it stale. Read as "not set up",
+ * that brought "Configure beads for Claude Code" back on a repository that
+ * had used beads for a week (bead-bb-0bz).
+ *
+ * @returns The file's name without its folder; null when the check failed
+ *   for another reason.
+ */
+export function staleFile(said: string): string | null {
+  const match = /installed but stale:\s*(\S+)/u.exec(said);
+  return match === null ? null : (match[1]!.split("/").pop() ?? null);
+}
+
+
+/**
  * Builds the setup operations for this plugin instance.
  *
  * @returns `setupStatus` (what is in place for a folder) and `runSetup`
@@ -81,10 +102,15 @@ export function createSetup({
   bb,
   folders,
   store,
+  syncSteps,
 }: {
   bb: BbPluginApi;
   folders: Folders;
   store: Store;
+  /** The setup steps the folder's issue sync offers now (server/sync.ts). */
+  syncSteps: (
+    path: string,
+  ) => Promise<{ on: SyncStep | null; fetch: SyncStep | null }>;
 }) {
   const { resolveFolder, findBd } = folders;
   const { readIssues } = store;
@@ -126,6 +152,7 @@ export function createSetup({
       rulesPresent: false,
       running: null,
       lastRun: null,
+      syncSteps: { on: null, fetch: null },
     };
     const folder = await resolveFolder(input);
     if ("reason" in folder) {
@@ -157,6 +184,7 @@ export function createSetup({
     const agents = [];
     if (bd !== null && folderReady) {
       for (const agent of SETUP_AGENTS) {
+        let stale: string | null = null;
         if (!met.agents.includes(agent.id)) {
           // bd's own check: it exits 0 when its files for that agent are
           // in place, and non-zero otherwise. Asked of the repository's
@@ -172,8 +200,13 @@ export function createSetup({
             (await folders.mainFolder(path)) ?? path,
           );
           if (check.kind === "ok") met.agents.push(agent.id);
+          else if (check.kind === "failed") stale = staleFile(check.message);
         }
-        agents.push({ ...agent, configured: met.agents.includes(agent.id) });
+        agents.push({
+          ...agent,
+          configured: met.agents.includes(agent.id) || stale !== null,
+          stale,
+        });
       }
     }
     if (!met.rules) {
@@ -191,6 +224,18 @@ export function createSetup({
       }
     }
     const rulesPresent = met.rules;
+    // What the folder's issue sync has to offer: switching it on where
+    // the issues are synced nowhere, or fetching them where the folder
+    // has none and its remote holds them. Asked only where it can apply.
+    const offered =
+      bd === null
+        ? { on: null, fetch: null }
+        : await syncSteps(path).catch(() => ({ on: null, fetch: null }));
+    /** A step without its command: the tab shows it, the server runs it. */
+    const shown = (step: SyncStep | null) =>
+      step === null
+        ? null
+        : { label: step.label, why: step.why, explain: step.explain };
     return {
       path,
       unavailable: null,
@@ -203,6 +248,7 @@ export function createSetup({
       rulesPresent,
       running: setupRunning.get(path) ?? null,
       lastRun: setupLastRun.get(path) ?? null,
+      syncSteps: { on: shown(offered.on), fetch: shown(offered.fetch) },
     };
   }
 
@@ -382,6 +428,21 @@ export function createSetup({
         }
         title = "Set up beads in this folder";
         command = `${shellQuote(bd)} init`;
+      } else if (action === "fetch" || action === "sync") {
+        // The issue sync's own steps: what they are called and what they
+        // run is the sync source's (sync/), asked for afresh here.
+        const offered = await syncSteps(path);
+        const step = action === "fetch" ? offered.fetch : offered.on;
+        if (step === null) {
+          return {
+            message:
+              action === "fetch"
+                ? "There are no issues to get for this folder."
+                : "This folder's issues are already synced, or there are none to sync.",
+          };
+        }
+        title = step.label;
+        command = step.command;
       } else {
         if (!status.folderReady) {
           return { message: "Set up beads in this folder first." };
@@ -390,10 +451,13 @@ export function createSetup({
           (candidate) => candidate.id === option,
         );
         if (agent === undefined) return { message: "Unknown agent." };
-        if (agent.configured) {
+        if (agent.configured && agent.stale === null) {
           return { message: `Beads is already configured for ${agent.label}.` };
         }
-        title = `Configure beads for ${agent.label}`;
+        title =
+          agent.stale === null
+            ? `Configure beads for ${agent.label}`
+            : `Update beads' instructions in ${agent.stale}`;
         command = `${shellQuote(bd)} setup ${agent.id}`;
       }
     }

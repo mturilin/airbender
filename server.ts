@@ -103,10 +103,12 @@ import { createStore } from "./server/store.ts";
 import { createTrackers } from "./server/trackers.ts";
 import { createWatcher } from "./server/watch.ts";
 import { createAutopilot } from "./server/autopilot.ts";
+import { createGithub } from "./server/github.ts";
+import { createSync } from "./server/sync.ts";
 import { createWork } from "./server/work.ts";
 import type { WorkEvents } from "./server/work.ts";
 import { createWorkTrees } from "./server/work-trees.ts";
-import { createWorkflowChoice } from "./server/workflow-choice.ts";
+import { createWorkflowChoice, repositoryKey } from "./server/workflow-choice.ts";
 import {
   BEAD_ID_PATTERN,
   QUICK_REPLIES,
@@ -149,6 +151,19 @@ export default async function plugin(bb: BbPluginApi) {
         "The provider the background agent runs on, as listed by `bb provider list`. Empty uses the project's default.",
       default: "claude-code",
     },
+    // The token "Sync with GitHub" hands to beads' own sync (bead-bb-rh3).
+    // A secret: BB keeps it in a file of its own on this computer, never
+    // in the repository and never sent to the tab. Not kept the beads way
+    // (`bd config set github.token`), which writes .beads/config.yaml, a
+    // file that is in git in many repositories.
+    githubToken: {
+      type: "string",
+      secret: true,
+      label: "GitHub token",
+      description:
+        "Optional. \"Sync with GitHub\" in the Airbender tab's menu uses the gh command's sign-in when this is empty. Set a personal access token here to use that one instead; it needs to read and write the issues of the repository. Kept on this computer only.",
+      default: "",
+    },
     sizingModel: {
       type: "string",
       label: "Sizing model",
@@ -176,7 +191,10 @@ export default async function plugin(bb: BbPluginApi) {
   // store.
   const folders = createFolders({ bb, bdCandidates });
   const currentBead = createCurrentBead(bb);
-  const { watchFolder } = await createWatcher(bb);
+  // The issue sync is built further down and listens to the watcher; the
+  // watcher is told through this until then.
+  let issuesChanged: (path: string) => void = () => {};
+  const { watchFolder } = await createWatcher(bb, (path) => issuesChanged(path));
   const workflowChoice = await createWorkflowChoice(bb);
   const trackers = createTrackers({
     findBd: folders.findBd,
@@ -237,7 +255,20 @@ export default async function plugin(bb: BbPluginApi) {
   workEvents.closed = autopilot.advance;
   workEvents.stuck = autopilot.stuck;
   workEvents.ownerCurrent = autopilot.ownerSteppedIn;
-  const { setupStatus, runSetup } = createSetup({ bb, folders, store });
+  const issueSync = await createSync({ bb, folders, store, repositoryKey });
+  issuesChanged = issueSync.changed;
+  const { setupStatus, runSetup } = createSetup({
+    bb,
+    folders,
+    store,
+    syncSteps: issueSync.steps,
+  });
+  const github = createGithub({
+    bb,
+    folders,
+    store,
+    readToken: async () => (await settings.get()).githubToken ?? "",
+  });
 
   // Every handler is one call into a module: what each does, and how it
   // reports a problem, is documented where it is written. All of them
@@ -253,6 +284,11 @@ export default async function plugin(bb: BbPluginApi) {
       }
       // Which issues have a conversation of their own in a work tree is
       // the plugin's knowledge, not beads': added here, for the tab.
+      // And for the issues' own sync with their remote, if the last one
+      // is old (the tab was just opened).
+      if (listed.state === "ok" && listed.path !== null) {
+        issueSync.opened(listed.path);
+      }
       // And the moment for autopilot to take up what a reload cut short.
       autopilot.consider(input.threadId);
       return {
@@ -286,6 +322,25 @@ export default async function plugin(bb: BbPluginApi) {
       };
     },
     autopilot_set: (input) => autopilot.set(input),
+    sync_status: async (input) => {
+      const folder = await folders.folderFor(input);
+      return "message" in folder
+        ? { source: null, remote: null, running: false, halted: false, last: null, syncedAt: null }
+        : issueSync.state(folder.path);
+    },
+    sync_log: async (input) => {
+      const folder = await folders.folderFor(input);
+      return { entries: "message" in folder ? [] : await issueSync.log(folder.path) };
+    },
+    sync_now: async (input) => {
+      const folder = await folders.folderFor(input);
+      return "message" in folder
+        ? { message: folder.message }
+        : issueSync.refresh(folder.path);
+    },
+    github_issues: (input) => github.issues(input),
+    github_sync: (input) => github.sync(input),
+    github_sync_progress: async (input) => github.progress(input),
     issue_set_size: (input) => work.resize(input),
     issue_request_sizing: async (input) => {
       const found = await store.issuesIn(input, input.beadId);

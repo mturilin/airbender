@@ -35,7 +35,14 @@ import { CHANGED_CHANNEL } from "../shared/constants.ts";
  * Side effects: file watches; one read of the plugin's key-value storage
  *   now, and a write whenever a new folder is added.
  */
-export async function createWatcher(bb: BbPluginApi) {
+export async function createWatcher(
+  bb: BbPluginApi,
+  /**
+   * Told the folder whenever its issues changed, beside the tabs: the
+   * issue sync listens (server/issue-sync.ts).
+   */
+  onChange: (path: string) => void = () => {},
+) {
   /** Most folders watched at once; the oldest is dropped beyond this. */
   const MAX_WATCHED_FOLDERS = 32;
 
@@ -76,6 +83,7 @@ export async function createWatcher(bb: BbPluginApi) {
           timer = null;
           bb.log.info("beads changed in " + path + "; telling open tabs");
           bb.realtime.publish(CHANGED_CHANNEL, { path });
+          onChange(path);
         }, WATCH_SETTLE_MS);
       });
     } catch (cause) {
