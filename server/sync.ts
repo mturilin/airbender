@@ -38,6 +38,7 @@ const LONG_MS = 5 * 60_000;
 
 /** How long an answer from a git remote is believed. */
 const REMOTE_ASKED_MS = 5 * 60_000;
+const REMOTE_EMPTY_MS = 30_000;
 
 /**
  * Builds the plugin's issue sync.
@@ -131,8 +132,15 @@ export async function createSync({
           : ran(bdPath, args, home, long ? LONG_MS : QUICK_MS),
       bdCommand: shellQuote(bdPath ?? "bd"),
       git: async (args) => {
+        // An answer with something in it is believed for a while; "nothing
+        // there" and "no answer" only briefly, since a setup step that
+        // has just run changes exactly that.
         const asked = remoteAsked.get(args.join(" "));
-        if (asked !== undefined && Date.now() - asked.at < REMOTE_ASKED_MS) {
+        if (
+          asked !== undefined &&
+          Date.now() - asked.at <
+            (asked.said === null || asked.said === "" ? REMOTE_EMPTY_MS : REMOTE_ASKED_MS)
+        ) {
           return asked.said;
         }
         const answer = await ran("git", args, home, 10_000);

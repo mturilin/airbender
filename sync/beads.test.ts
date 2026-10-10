@@ -95,6 +95,8 @@ function source(
   answers: Record<string, Ran | (() => Ran)>,
   issues: () => Seen[] | null,
   kept: number | null,
+  /** What the git remote answers when asked whether it holds issues. */
+  onRemote: string | null = "abc refs/dolt/data",
 ) {
   const state = { position: kept };
   const { bd, asked } = fakeBd(answers);
@@ -102,7 +104,7 @@ function source(
     home: "/repo",
     bd,
     bdCommand: "bd",
-    git: async () => "abc refs/dolt/data",
+    git: async () => onRemote,
     readIssues: async () => issues(),
     position: {
       get: async () => state.position,
@@ -118,7 +120,7 @@ test("a run reports what the journal says was sent and what the comparison says 
   let list = [seen("x-1", "1"), seen("x-2", "1")];
   const { made, asked, state } = source(
     {
-      "dolt remote list": ok('[{"name":"origin"}]'),
+      "dolt remote list": ok('[{"name":"origin","url":"git+https://example.com/r.git"}]'),
       "config get events-journal": ok("true\n"),
       "events tail --since 5": ok([record(6, "comment", "x-1")].join("\n")),
       "events tail --since 6": ok(""),
@@ -197,15 +199,38 @@ test("a position beads can no longer read is replaced, saying 'not known' once",
   assert.equal(state.position, 40);
 });
 
-test("setup: a folder with issues and no remote is offered syncing; one with a remote nothing", async () => {
+const GIT_REMOTE = ok('[{"name":"origin","url":"git+https://example.com/r.git"}]');
+
+test("setup: issues with no remote, or with one that holds nothing, are offered syncing", async () => {
   const none = source({ "dolt remote list": ok("[]") }, () => [seen("x-1", "1")], null);
   const steps = await none.made.steps();
   assert.equal(steps.fetch, null);
   assert.equal(steps.on?.label, "Sync issues to the repository's remote");
-  assert.equal(steps.on?.command, "bd sync --yes");
+  // Push first: a sync pulls first, and a first sync has nothing to pull.
+  assert.equal(steps.on?.command, "bd dolt push --yes && bd sync");
   assert.match(steps.on?.explain.points[0] ?? "", /publishes this folder's whole issue history/u);
-  const has = source({ "dolt remote list": ok('[{"name":"origin"}]') }, () => [seen("x-1", "1")], null);
-  assert.deepEqual(await has.made.steps(), { on: null, fetch: null });
+  // `bd init` leaves this: a remote taken from the git origin, nothing sent.
+  const empty = source({ "dolt remote list": GIT_REMOTE }, () => [seen("x-1", "1")], null, "");
+  assert.equal(await empty.made.remote(), null);
+  assert.notEqual((await empty.made.steps()).on, null);
+});
+
+test("a remote counts as syncing only when it holds the issues", async () => {
+  const holds = source({ "dolt remote list": GIT_REMOTE }, () => [seen("x-1", "1")], null);
+  assert.equal(await holds.made.remote(), "the repository's git remote");
+  assert.deepEqual(await holds.made.steps(), { on: null, fetch: null });
+  // Not reached: not on for now, and no step offered on a guess.
+  const offline = source({ "dolt remote list": GIT_REMOTE }, () => [seen("x-1", "1")], null, null);
+  assert.equal(await offline.made.remote(), null);
+  assert.deepEqual(await offline.made.steps(), { on: null, fetch: null });
+  // A remote that is not a git repository cannot be asked: taken as holding.
+  const hosted = source(
+    { "dolt remote list": ok('[{"name":"origin","url":"https://doltremoteapi.example.com/me/db"}]') },
+    () => [seen("x-1", "1")],
+    null,
+    "",
+  );
+  assert.equal(await hosted.made.remote(), "the repository's git remote");
 });
 
 test("setup: a folder without issues whose remote holds them is offered to fetch them", async () => {

@@ -26,7 +26,8 @@
 //   change to the watcher. The timed sync always runs; it is what brings
 //   in the other side's changes.
 // - After a conflict or a stuck state nothing runs by itself until a sync
-//   the owner asks for succeeds.
+//   the owner asks for succeeds. After other failures the wait before the
+//   next sync by itself doubles each time, up to an hour.
 // - A sync changes the local copy, which the host reports like any
 //   change. Changes reported during a run and just after are the run's
 //   own and ask for nothing.
@@ -140,6 +141,8 @@ export interface SyncTimes {
   ownChangesMs: number;
   /** How long before trying again when another process holds the lock. */
   lockedRetryMs: number;
+  /** The longest the wait between syncs grows to after failures. */
+  longestWaitMs: number;
 }
 
 const DEFAULT_TIMES: SyncTimes = {
@@ -148,6 +151,7 @@ const DEFAULT_TIMES: SyncTimes = {
   runTimeoutMs: 5 * 60_000,
   ownChangesMs: 8_000,
   lockedRetryMs: 30_000,
+  longestWaitMs: 60 * 60_000,
 };
 
 /** Most runs kept in a repository's log. */
@@ -195,6 +199,22 @@ export async function createSyncService({
   const halted = (key: string) => {
     const last = lastOf(key);
     return last !== null && haltsOn(last.end);
+  };
+  /**
+   * Whether a sync by itself is due. After runs that did not work, the
+   * time to the next one doubles with each: a sync that keeps failing is
+   * not hammered every few minutes (bead-bb-fmr), and one that works again
+   * is back to the usual pace at once. Asking for a sync is not held back.
+   */
+  const due = (key: string) => {
+    const log = logs.get(key) ?? [];
+    let failures = 0;
+    for (let at = log.length - 1; at >= 0 && log[at]!.end !== "synced"; at -= 1) {
+      failures += 1;
+    }
+    if (failures === 0) return true;
+    const wait = Math.min(t.everyMs * 2 ** failures, t.longestWaitMs);
+    return Date.now() - log.at(-1)!.at >= wait;
   };
 
   /** One run for a repository; never throws. */
@@ -295,7 +315,7 @@ export async function createSyncService({
      * at once; never throws.
      */
     changed(key: string): void {
-      if (Date.now() < (ownUntil.get(key) ?? 0) || halted(key)) return;
+      if (Date.now() < (ownUntil.get(key) ?? 0) || halted(key) || !due(key)) return;
       void isOn(key).then((on) => {
         if (!on) return;
         const waiting = quiet.get(key);
@@ -327,7 +347,7 @@ export async function createSyncService({
      * host has just started). Returns at once.
      */
     opened(key: string): void {
-      if (halted(key) || queue.running(key) || quiet.has(key)) return;
+      if (halted(key) || queue.running(key) || quiet.has(key) || !due(key)) return;
       if (Date.now() - (lastOf(key)?.at ?? 0) < t.everyMs) return;
       void isOn(key).then((on) => {
         if (on) ask(key, "opened");
@@ -356,7 +376,7 @@ export async function createSyncService({
      */
     tick(): void {
       for (const key of sources.keys()) {
-        if (halted(key) || queue.running(key)) continue;
+        if (halted(key) || queue.running(key) || !due(key)) continue;
         void isOn(key).then((on) => {
           if (on) ask(key, "timer");
         });

@@ -1031,6 +1031,15 @@ breaking a requirement above.
   pressed), how long it took, and the store's own message where it failed.
   The newest two hundred are kept, per repository, on this computer. Syncs
   that found nothing new are listed too.
+- Issues count as synced only when the remote really holds them. A
+  repository whose issue store names a remote to which nothing was ever
+  sent (the store does that by itself when a folder is set up) is treated
+  like one with no remote: nothing is synced by itself, and the setup step
+  is offered; that step sends the issues first and then syncs. When the
+  remote cannot be reached it is neither synced nor offered the step.
+- After a sync that did not work, the wait before the next one by itself
+  doubles each time, up to an hour, and is back to five minutes as soon as
+  one works; pressing refresh always tries at once.
 - A sync set off by a change is not run when nothing was really changed
   (an agent only read an issue); the five-minute sync always runs.
 - The state on the "Issue sync" row: "synced 1 minute ago", "syncing…",

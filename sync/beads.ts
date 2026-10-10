@@ -172,22 +172,52 @@ export function createBeadsSource({
   readIssues: () => Promise<Seen[] | null>;
   position: { get: () => Promise<number | null>; set: (seq: number) => void };
 }): SyncSource {
-  /** Once beads has named a remote it stays so: asked once. */
-  let hasRemote = false;
+  /** The remote is known to hold the issues: it stays so, asked once. */
+  let holds = false;
   /** The journal is known to be on. */
   let journalOn = false;
 
-  async function remote(): Promise<string | null> {
-    if (!hasRemote) {
-      const run = await bd(["dolt", "remote", "list", "--json"]);
-      try {
-        const remotes: unknown = JSON.parse(run.stdout);
-        hasRemote = run.code === 0 && Array.isArray(remotes) && remotes.length > 0;
-      } catch {
-        hasRemote = false;
-      }
+  /**
+   * Where the issues stand with a remote.
+   *
+   * - `none`: beads has no remote for them.
+   * - `empty`: it has one, and nothing was ever sent there. `bd init`
+   *   leaves a repository like this: it takes the git origin as the remote
+   *   and pushes nothing. Syncing is not on then, and must not be tried:
+   *   `bd sync` pulls first and fails on a remote with nothing on it, every
+   *   time (bead-bb-fmr: two repositories did so every five minutes).
+   * - `holds`: the remote holds the issues; syncing is on.
+   * - `unknown`: it could not be told now (the remote was not reached).
+   */
+  async function remoteState(): Promise<"none" | "empty" | "holds" | "unknown"> {
+    if (holds) return "holds";
+    const run = await bd(["dolt", "remote", "list", "--json"]);
+    let url: string | null = null;
+    try {
+      const remotes: unknown = JSON.parse(run.stdout);
+      if (run.code !== 0 || !Array.isArray(remotes)) return "unknown";
+      if (remotes.length === 0) return "none";
+      const first = (remotes[0] ?? {}) as { url?: unknown };
+      url = typeof first.url === "string" ? first.url : null;
+    } catch {
+      return "unknown";
     }
-    return hasRemote ? "the repository's git remote" : null;
+    // Beads keeps the issues on a git remote under refs/dolt/data. A remote
+    // that is not a git repository cannot be asked this way: taken as
+    // holding, as before.
+    if (url === null || !url.startsWith("git+")) {
+      holds = true;
+      return "holds";
+    }
+    const answer = await git(["ls-remote", url.slice("git+".length), "refs/dolt/data"]);
+    if (answer === null) return "unknown";
+    if (answer === "") return "empty";
+    holds = true;
+    return "holds";
+  }
+
+  async function remote(): Promise<string | null> {
+    return (await remoteState()) === "holds" ? "the repository's git remote" : null;
   }
 
   /**
@@ -310,23 +340,28 @@ export function createBeadsSource({
                 },
         };
       }
+      const state = await remoteState();
       return {
         fetch: null,
+        // Offered where the issues are synced nowhere: no remote, or one
+        // nothing was ever sent to. Not when it cannot be told.
         on:
-          (await remote()) !== null
+          state !== "none" && state !== "empty"
             ? null
             : {
                 label: "Sync issues to the repository's remote",
                 why: "This folder's issues are on this computer only: they are not in git and are synced nowhere. Syncing keeps a copy on the repository's remote and lets other computers get them.",
                 explain: {
-                  lead: "Runs `bd sync` in this folder, for the first time. Be aware of what it does:",
+                  lead: "Runs `bd dolt push` and then `bd sync` in this folder. Be aware of what it does:",
                   points: [
                     "It publishes this folder's whole issue history (every issue, with its text, comments and history) to the repository's git remote, where anyone who can read the repository can read it. It is kept apart from your branches.",
                     "Beads records the remote in `.beads/config.yaml` and makes a small git commit for that by itself. Pushing that commit is yours.",
                     "From then on the issues are kept in sync without your doing anything: every few minutes, and a little after they change.",
                   ],
                 },
-                command: `${bdCommand} sync --yes`,
+                // Push first: a sync pulls first, and fails on a remote
+                // that has nothing on it yet.
+                command: `${bdCommand} dolt push --yes && ${bdCommand} sync`,
               },
       };
     },

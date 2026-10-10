@@ -213,8 +213,11 @@ lists every step, greyed out when done or not yet possible:
    `AGENTS.md` (an `@AGENTS.md` line): a beads-generated
    `CLAUDE.md` becomes a short pointer, one with your own text keeps it,
    and none is created where there is none.
-5. **Sync issues to the repository's remote** — runs `bd sync --yes` for
-   the first time. `bd init` leaves the issue database on this computer
+5. **Sync issues to the repository's remote** — runs `bd dolt push --yes`
+   and then `bd sync`, for the first time (a sync pulls first and fails on
+   a remote that has nothing on it yet). Offered where beads has no remote
+   for the issues, or has one that holds none: `bd init` names the git
+   origin as the remote and sends nothing. `bd init` leaves the issue database on this computer
    only (it is not in git); this publishes it to the git remote under
    `refs/dolt/data`, and beads commits the remote into
    `.beads/config.yaml` by itself. Afterwards Airbender runs `bd sync`
