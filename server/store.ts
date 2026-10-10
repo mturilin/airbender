@@ -335,7 +335,15 @@ export function createStore({
     }
     if (input.type !== null) args.push("--type", input.type);
     if (input.priority !== null) args.push("--priority", `${input.priority}`);
-    if (input.parentId !== null) args.push("--parent", input.parentId);
+    // bd copies a parent's labels onto a new sub-issue unless told not to.
+    // This plugin keeps an issue's step, its size and an epic's branch as
+    // labels, so the copy started a sub-issue at its parent's step with
+    // its parent's size, and under an epic that holds a branch left it
+    // where no move is possible (bead-bb-ty5.4). The one thing a
+    // sub-issue takes from its parent, the category, is passed below.
+    if (input.parentId !== null) {
+      args.push("--parent", input.parentId, "--no-inherit-labels");
+    }
     let category: string | null = null;
     if (input.category !== null) {
       const cleaned = cleanCategory(input.category);

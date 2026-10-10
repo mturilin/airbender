@@ -881,6 +881,8 @@ breaking a requirement above.
   room the path is cut first; a long branch name is cut too, and both show
   whole in their tooltips. A path inside the owner's home folder is shown
   with `~` in its place (the owner's request); the tooltip has it in full.
+- A new sub-issue takes nothing from its parent but the category: not its
+  step, its size or an epic's branch.
 - Autopilot: it is an on/off switch in the epic band, with its name beside
   it (the owner chose a switch over a button), shown
   only in a conversation and where issues have steps. The next issue is
