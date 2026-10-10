@@ -309,6 +309,7 @@ export function SetupMenu({
   onStart,
   workflow,
   onChooseWorkflow,
+  onSyncGithub,
 }: {
   status: SetupStatus | null;
   /** Called when the menu opens, to fetch a fresh status. */
@@ -316,6 +317,11 @@ export function SetupMenu({
   onStart: (step: SetupStep) => void;
   workflow: WorkflowId | null;
   onChooseWorkflow: (id: WorkflowId) => void;
+  /**
+   * Opens the "Sync with GitHub" window; left out where there are no
+   * issues to sync (no folder with beads).
+   */
+  onSyncGithub?: () => void;
 }) {
   const { open, setOpen, root } = useMenu();
   return (
@@ -383,6 +389,30 @@ export function SetupMenu({
               <div className="my-1 border-t border-border" />
             </>
           )}
+          {/* Syncing with GitHub issues (bead-bb-rh3): an occasional task,
+              so it lives here and opens a window of its own. */}
+          {onSyncGithub === undefined ? null : (
+            <>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setOpen(false);
+                  onSyncGithub();
+                }}
+                className="flex w-full cursor-pointer items-start rounded px-2 py-1 text-left text-sm hover:bg-state-hover"
+              >
+                <span className="min-w-0">
+                  Sync with GitHub…
+                  <span className="block text-xs text-muted-foreground">
+                    Bring GitHub issues in, or send issues to GitHub. You
+                    choose which, and see a preview first.
+                  </span>
+                </span>
+              </button>
+              <div className="my-1 border-t border-border" />
+            </>
+          )}
           <div className="px-2 pb-1 text-xs font-medium text-muted-foreground">
             Setup
           </div>
@@ -417,8 +447,8 @@ export function SetupMenu({
               user asked to be directed there from here. */}
           <div className="my-1 border-t border-border" />
           <p className="px-2 py-1 text-xs text-muted-foreground">
-            Settings (background sizing and its model, the bd command): in
-            BB under Tools, then Airbender.
+            Settings (background sizing and its model, the bd command, the
+            GitHub token): in BB under Tools, then Airbender.
           </p>
         </MenuPanel>
       ) : null}

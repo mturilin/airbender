@@ -104,6 +104,11 @@ const issueSchema = z.object({
   /** When the issue was created (ISO); null when bd reported none. */
   createdAt: z.string().nullable(),
   /**
+   * The issue's counterpart in another tracker, as beads keeps it: for a
+   * GitHub issue its address, or `github:<number>`. Null when it has none.
+   */
+  externalRef: z.string().nullable(),
+  /**
    * Unfinished issues this one waits on. Empty for closed issues. Includes
    * what the issues it sits inside wait on: a sub-issue of a blocked issue
    * is blocked too, which is beads' own rule (`bd blocked` lists it).
@@ -462,6 +467,85 @@ export const rpcContract = defineRpcContract({
       workflow: z.enum(WORKFLOW_IDS),
     }),
     output: z.object({ message: z.string().nullable() }),
+  },
+  github_issues: {
+    // The GitHub issues of the folder's repository, open and closed, for
+    // the "Sync with GitHub" window. `state` says what is missing when it is not
+    // "ok": no folder, no GitHub remote, no token, or GitHub's refusal.
+    input: z.object({
+      threadId: z.string().nullable(),
+      projectId: z.string().nullable(),
+    }),
+    output: z.object({
+      state: z.enum(["ok", "unavailable", "no-repository", "no-token", "error"]),
+      message: z.string().nullable(),
+      /** "owner/name"; null when it could not be told. */
+      repository: z.string().nullable(),
+      issues: z.array(
+        z.object({
+          number: z.number(),
+          title: z.string(),
+          labels: z.array(z.string()),
+          url: z.string(),
+          closed: z.boolean(),
+          /** The beads issue it is linked to; null when not in beads. */
+          linkedId: z.string().nullable(),
+        }),
+      ),
+      /** Every link the beads issues carry: issue id and GitHub number. */
+      links: z.array(z.object({ id: z.string(), number: z.number() })),
+      /** There are more issues on GitHub than were read. */
+      truncated: z.boolean(),
+    }),
+  },
+  github_sync: {
+    // Runs beads' own `bd github sync` for the chosen issues: `pull` are
+    // GitHub issue numbers to bring in, `both` beads ids of linked issues
+    // to bring into step both ways, `push` beads ids to send. With
+    // `preview` nothing is changed anywhere.
+    input: z.object({
+      threadId: z.string().nullable(),
+      projectId: z.string().nullable(),
+      pull: z.array(z.number().int().positive()).max(500),
+      both: z.array(z.string()).max(500),
+      push: z.array(z.string()).max(500),
+      prefer: z.enum(["newer", "github", "local"]),
+      preview: z.boolean(),
+    }),
+    // Started, not finished: `jobId` is what `github_sync_progress` is
+    // asked about. Null with a `message` when nothing was started.
+    output: z.object({
+      jobId: z.string().nullable(),
+      message: z.string().nullable(),
+    }),
+  },
+  github_sync_progress: {
+    // How a sync is getting on; `stop` asks it to finish the issues it is
+    // on and start no more. When `done`, `message` is null if every run
+    // worked, `actions` are what would be done (preview), and after a real
+    // run the command's totals are in `notes`.
+    input: z.object({ jobId: z.string(), stop: z.boolean() }),
+    output: z.object({
+      known: z.boolean(),
+      done: z.boolean(),
+      stopping: z.boolean(),
+      total: z.number(),
+      finished: z.number(),
+      /** Which part is being done ("To GitHub"); null when none is. */
+      doing: z.string().nullable(),
+      seconds: z.number(),
+      /** The last lines the command printed. */
+      lines: z.array(z.string()),
+      message: z.string().nullable(),
+      actions: z.array(
+        z.object({
+          kind: z.enum(["import", "update-local", "create-remote", "update-remote"]),
+          what: z.string(),
+        }),
+      ),
+      notes: z.array(z.string()),
+      warnings: z.array(z.string()),
+    }),
   },
   autopilot_set: {
     // Turns autopilot on for an epic in a conversation, or off (epicId

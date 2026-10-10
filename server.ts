@@ -95,6 +95,7 @@ import { REPORT_TOOL, createSizing } from "./server/sizing.ts";
 import { createStore } from "./server/store.ts";
 import { createWatcher } from "./server/watch.ts";
 import { createAutopilot } from "./server/autopilot.ts";
+import { createGithub } from "./server/github.ts";
 import { createWork } from "./server/work.ts";
 import type { WorkEvents } from "./server/work.ts";
 import { createWorkTrees } from "./server/work-trees.ts";
@@ -140,6 +141,19 @@ export default async function plugin(bb: BbPluginApi) {
       description:
         "The provider the background agent runs on, as listed by `bb provider list`. Empty uses the project's default.",
       default: "claude-code",
+    },
+    // The token "Sync with GitHub" hands to beads' own sync (bead-bb-rh3).
+    // A secret: BB keeps it in a file of its own on this computer, never
+    // in the repository and never sent to the tab. Not kept the beads way
+    // (`bd config set github.token`), which writes .beads/config.yaml, a
+    // file that is in git in many repositories.
+    githubToken: {
+      type: "string",
+      secret: true,
+      label: "GitHub token",
+      description:
+        "Optional. \"Sync with GitHub\" in the Airbender tab's menu uses the gh command's sign-in when this is empty. Set a personal access token here to use that one instead; it needs to read and write the issues of the repository. Kept on this computer only.",
+      default: "",
     },
     sizingModel: {
       type: "string",
@@ -224,6 +238,12 @@ export default async function plugin(bb: BbPluginApi) {
   workEvents.stuck = autopilot.stuck;
   workEvents.ownerCurrent = autopilot.ownerSteppedIn;
   const { setupStatus, runSetup } = createSetup({ bb, folders, store });
+  const github = createGithub({
+    bb,
+    folders,
+    store,
+    readToken: async () => (await settings.get()).githubToken ?? "",
+  });
 
   // Every handler is one call into a module: what each does, and how it
   // reports a problem, is documented where it is written. All of them
@@ -272,6 +292,9 @@ export default async function plugin(bb: BbPluginApi) {
       };
     },
     autopilot_set: (input) => autopilot.set(input),
+    github_issues: (input) => github.issues(input),
+    github_sync: (input) => github.sync(input),
+    github_sync_progress: async (input) => github.progress(input),
     issue_set_size: (input) => work.resize(input),
     issue_request_sizing: async (input) => {
       const found = await store.issuesIn(input, input.beadId);

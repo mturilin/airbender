@@ -44,6 +44,7 @@ import { movesFor, stateOf } from "../shared/workflow.ts";
 import { DEFAULT_WORKFLOW_ID, workflowFor } from "../shared/workflows.ts";
 import { MoveIcon, WorkflowProvider } from "./workflow-controls.tsx";
 import { askPanelOnArrival } from "./arrival.ts";
+import { GithubSync } from "./github-sync.tsx";
 import { EpicBand, EpicReturn } from "./epic-band.tsx";
 import { useFocus } from "./use-focus.ts";
 import {
@@ -72,6 +73,8 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
   // The issue waiting for the user's "yes, switch to it", when making it
   // current would replace another current issue; null when none is.
   const [switching, setSwitching] = useState<Issue | null>(null);
+  // Whether the "Sync with GitHub" window is open.
+  const [syncingGithub, setSyncingGithub] = useState(false);
   // A warning waiting to be read in its message box; null when none is.
   const [warning, setWarning] = useState<string | null>(null);
   const navigate = useBbNavigate();
@@ -393,6 +396,7 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
               onOpen={setup.reload}
               onStart={setConfirmingStep}
               workflow={ok ? result.workflow : null}
+              onSyncGithub={ok ? () => setSyncingGithub(true) : undefined}
               onChooseWorkflow={(workflow) => {
                 rpc
                   .call("workflow_set", { threadId, projectId, workflow })
@@ -685,6 +689,14 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
             />
           </div>
         ) : null}
+        <GithubSync
+          open={syncingGithub}
+          onClose={() => setSyncingGithub(false)}
+          scope={scope}
+          rpc={rpc}
+          issues={result?.issues ?? []}
+          onSynced={refresh}
+        />
       </div>
     </IssueActionsProvider>
     </WorkflowProvider>

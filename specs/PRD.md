@@ -620,6 +620,26 @@ Rules:
   `[5qt]`
 - Buttons are ordinary gray. No green. `[d37]`
 
+## Syncing with GitHub
+
+- **The owner can sync issues with GitHub issues from a dialog, both
+  ways**: GitHub issues are brought into the folder's issues, and issues
+  are sent to GitHub. It is called "Sync with GitHub". `[rh3]`
+- **The owner selects the issues, and previews the result** before
+  anything is changed. `[rh3]`
+- **Closed issues are synced as well as open ones.** Comments are not
+  synced, for now. `[rh3]`
+- **A sync under way shows its progress**, and what the sync is printing,
+  so that the owner can tell it is not stuck. `[rh3]`
+- **It is one screen with three columns: sync to GitHub, linked, and sync
+  from GitHub. The owner selects in each, and a filter says whether
+  closed, not closed or all issues are shown.** `[rh3]`
+- It is done by the issue store's own GitHub sync; the product adds the
+  choosing, the preview and the confirmation, and does not sync by a method
+  of its own. `[rh3]`
+- **The GitHub token is stored, but never where it would be synced to the
+  repository.** `[rh3]`
+
 ## In the main window
 
 Outside the tab, around the message box of a conversation, so that the
@@ -931,6 +951,40 @@ breaking a requirement above.
   on again resumes. Leaving epic mode leaves it on. It is remembered
   across restarts, and it works with the panel closed. On an epic that has
   a branch it only starts issues in a folder on that branch.
+- Syncing with GitHub: it is an entry of the panel's menu and opens a
+  large window. The repository is the one the folder's "origin" remote
+  points at, on github.com only. The window has three columns side by side, in
+  which the owner selects: "To GitHub", the folder's issues that are not
+  on GitHub; "Linked", the issues that are both in the folder and on
+  GitHub, which are brought into step in both directions at once; and
+  "From GitHub", the repository's issues that are not in the folder
+  (without pull requests, the thousand most recently changed at most).
+  Nothing is ticked at first. Each column has a box that ticks all it
+  shows, and says how many are ticked. Above the columns, for all three,
+  are a filter by title or number and a filter for closed and not closed:
+  open (to begin with), closed, or all. A linked issue counts as open
+  while either side is open, and says its GitHub number and where one side
+  is closed and the other open. A row is the issue's id or number over its
+  title; a closed issue is struck through.
+  For an issue changed on both sides the owner chooses: the
+  newer one wins (preselected), GitHub wins, or the folder's wins. Preview
+  lists what would be imported, updated here, created on GitHub and
+  updated on GitHub. "Sync" is offered only for what was just previewed;
+  changing a tick asks for a new preview. Before issues are created on
+  GitHub it asks once more, with their number and the repository. A preview
+  or sync under way shows a bar, how many of the issues it has been
+  through, the time it has taken, the last lines the sync printed, and a
+  Stop button; it is done ten issues at a time, and Stop lets the ten
+  under way finish and starts no more, leaving done what was done. There
+  is no time limit on a whole sync. An issue that is closed in the folder
+  is closed on GitHub right after it is created there. After a
+  sync the window says what was done and the lists are read again. From
+  GitHub is done first, then the linked issues, then to GitHub. With no token set, the sign-in of the GitHub command-line
+  tool on the owner's computer is used for each sync, and nothing is
+  stored (the owner asked whether the token could come from that tool by
+  itself). A token set in the product's settings, kept on the owner's
+  computer, is used in its place. With neither, the window says both ways
+  to put that right. A refusal by GitHub is said in plain words.
 - The small step button on a row: lower than the icon buttons beside it,
   small text, no border, a soft grey fill that darkens under the pointer;
   it keeps its icon, label and tooltip. On the current issue it is the

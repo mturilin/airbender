@@ -34,6 +34,7 @@ function issue(id: string, over: Partial<Issue> = {}): Issue {
     labels: [],
     updatedAt: null,
     createdAt: null,
+    externalRef: null,
     blockedBy: [],
     subIssuesBlocked: false,
     blocks: [],

@@ -9,7 +9,9 @@ panel, beside a thread or on the New thread screen.
   request to one call. `server/contract.ts` is the typed contract with the
   frontend; `folder.ts` finds the folder and runs `bd`; `store.ts` holds the
   issue operations; `work.ts` moves an issue through its workflow; `autopilot.ts` starts an
-  epic's issues one after another;
+  epic's issues one after another; `github.ts` lists GitHub issues, open and closed, and
+  runs `bd github sync` for the ones chosen in the "Sync with GitHub"
+  window (`app/github-sync.tsx`);
   `current-bead.ts` is the thread's current issue; `issues.ts` turns beads'
   rows into issues (blocking, links, categories); `watch.ts` and `setup.ts`
   are what their names say; `prompts.ts` holds the wording sent
@@ -249,6 +251,15 @@ cannot open that page itself, see get-bb/bb#5014).
   by default `claude-code` and `claude-haiku-4-5-20251001`. The model must
   belong to the provider (`bb provider models <provider>` lists them). These
   three are read each time a sizing starts; no reload is needed.
+- `GitHub token` — optional. "Sync with GitHub" (the tab's "⋯" menu) uses
+  the `gh` command's sign-in (`gh auth token`) for each run when this is
+  empty, storing nothing. Set a personal access token here to use that one
+  instead, for example one that can only read and write this repository's
+  issues. A
+  secret: BB keeps it in a file of its own on this computer. It is handed
+  to `bd github sync` for each run and is never written into the
+  repository (beads' own `bd config set github.token` would put it in
+  `.beads/config.yaml`, which is in git here).
 
 ## Develop
 

@@ -39,6 +39,8 @@ export const bdIssueSchema = z.object({
   labels: z.array(z.string()).nullish(),
   created_at: z.string().optional(),
   updated_at: z.string().optional(),
+  /** The issue's counterpart in another tracker, when it has one. */
+  external_ref: z.string().nullish(),
   dependencies: z
     .array(z.object({ depends_on_id: z.string(), type: z.string() }))
     .nullish(),
@@ -302,6 +304,7 @@ export function toIssues(rows: BdIssue[]): Issue[] {
     ),
     updatedAt: row.updated_at ?? row.created_at ?? null,
     createdAt: row.created_at ?? null,
+    externalRef: row.external_ref ?? null,
     blockedBy: blockedBy.get(row.id) ?? [],
     subIssuesBlocked: isOpen(row) && allSubIssuesBlocked(row.id, new Set()),
     blocks: blocks.get(row.id) ?? [],
