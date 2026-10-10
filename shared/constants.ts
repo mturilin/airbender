@@ -82,7 +82,17 @@ export const QUICK_REPLIES = {
  * in the folder, beads configured for a coding agent, and Airbender's own
  * working rules in the folder's AGENTS.md.
  */
-export const SETUP_ACTIONS = ["install", "init", "agent", "rules"] as const;
+export const SETUP_ACTIONS = [
+  "install",
+  "init",
+  // Get the issues of a repository that already has them on its remote
+  // (a fresh clone), in place of "init".
+  "fetch",
+  "agent",
+  "rules",
+  // Give the folder's issues a remote and sync them for the first time.
+  "sync",
+] as const;
 export type SetupAction = (typeof SETUP_ACTIONS)[number];
 
 /** The coding agents beads' own setup is offered for: the ones BB runs. */

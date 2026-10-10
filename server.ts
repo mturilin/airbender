@@ -96,10 +96,11 @@ import { createStore } from "./server/store.ts";
 import { createWatcher } from "./server/watch.ts";
 import { createAutopilot } from "./server/autopilot.ts";
 import { createGithub } from "./server/github.ts";
+import { createIssueSync } from "./server/issue-sync.ts";
 import { createWork } from "./server/work.ts";
 import type { WorkEvents } from "./server/work.ts";
 import { createWorkTrees } from "./server/work-trees.ts";
-import { createWorkflowChoice } from "./server/workflow-choice.ts";
+import { createWorkflowChoice, repositoryKey } from "./server/workflow-choice.ts";
 import {
   BEAD_ID_PATTERN,
   QUICK_REPLIES,
@@ -182,7 +183,10 @@ export default async function plugin(bb: BbPluginApi) {
   // store.
   const folders = createFolders({ bb, bdCandidates });
   const currentBead = createCurrentBead(bb);
-  const { watchFolder } = await createWatcher(bb);
+  // The issue sync is built further down and listens to the watcher; the
+  // watcher is told through this until then.
+  let issuesChanged: (path: string) => void = () => {};
+  const { watchFolder } = await createWatcher(bb, (path) => issuesChanged(path));
   const workflowChoice = await createWorkflowChoice(bb);
   const store = createStore({
     bb,
@@ -237,7 +241,14 @@ export default async function plugin(bb: BbPluginApi) {
   workEvents.closed = autopilot.advance;
   workEvents.stuck = autopilot.stuck;
   workEvents.ownerCurrent = autopilot.ownerSteppedIn;
-  const { setupStatus, runSetup } = createSetup({ bb, folders, store });
+  const issueSync = await createIssueSync({ bb, folders, repositoryKey });
+  issuesChanged = issueSync.changed;
+  const { setupStatus, runSetup } = createSetup({
+    bb,
+    folders,
+    store,
+    isSynced: async (path) => (await issueSync.status(path)).enabled,
+  });
   const github = createGithub({
     bb,
     folders,
@@ -259,6 +270,11 @@ export default async function plugin(bb: BbPluginApi) {
       }
       // Which issues have a conversation of their own in a work tree is
       // the plugin's knowledge, not beads': added here, for the tab.
+      // And for the issues' own sync with their remote, if the last one
+      // is old (the tab was just opened).
+      if (listed.state === "ok" && listed.path !== null) {
+        issueSync.listed(listed.path);
+      }
       // And the moment for autopilot to take up what a reload cut short.
       autopilot.consider(input.threadId);
       return {
@@ -292,6 +308,18 @@ export default async function plugin(bb: BbPluginApi) {
       };
     },
     autopilot_set: (input) => autopilot.set(input),
+    sync_status: async (input) => {
+      const folder = await folders.folderFor(input);
+      return "message" in folder
+        ? { enabled: false, running: false, halted: false, last: null }
+        : issueSync.status(folder.path);
+    },
+    sync_now: async (input) => {
+      const folder = await folders.folderFor(input);
+      return "message" in folder
+        ? { message: folder.message }
+        : issueSync.now(folder.path);
+    },
     github_issues: (input) => github.issues(input),
     github_sync: (input) => github.sync(input),
     github_sync_progress: async (input) => github.progress(input),

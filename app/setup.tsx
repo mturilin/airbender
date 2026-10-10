@@ -45,7 +45,7 @@ import type { WorkflowId } from "../shared/workflows.ts";
 export interface SetupStep {
   /** Unique per step; also what "Skip" remembers. E.g. "agent:claude". */
   key: string;
-  action: "install" | "init" | "agent" | "rules";
+  action: "install" | "init" | "fetch" | "agent" | "rules" | "sync";
   /** The agent id for an "agent" step; null otherwise. */
   option: string | null;
   /** The button and menu label. */
@@ -59,6 +59,11 @@ export interface SetupStep {
    * first"); null when it can. The menu greys the item and shows this.
    */
   blocked: string | null;
+  /**
+   * For an agent step: beads is set up, and the step only brings beads'
+   * instructions in this file up to date. Left out or null otherwise.
+   */
+  update?: string | null;
 }
 
 /** The setup steps for a folder, in the order they make sense. */
@@ -78,37 +83,64 @@ function setupSteps(status: SetupStatus): SetupStep[] {
           ? "no installer found"
           : running,
     },
-    {
-      key: "init",
-      action: "init",
-      option: null,
-      label: "Set up beads in this folder",
-      why: "This folder has no issue database yet. Setting it up lets you track issues here.",
-      needed: status.bdInstalled && !status.folderReady,
-      blocked: status.folderReady
-        ? "done"
-        : !status.bdInstalled
-          ? "install beads first"
-          : running,
-    },
+    // A folder with no issues gets one of two steps: fetch them, where
+    // the repository's remote already holds them (a fresh clone of a
+    // repository whose issues are synced, bead-bb-0bz), or start empty.
+    status.remoteHasIssues && !status.folderReady
+      ? {
+          key: "fetch",
+          action: "fetch" as const,
+          option: null,
+          label: "Get this repository's issues",
+          why: "This folder has no issues yet, but the repository's remote holds them. Getting them brings this folder up to date with the other computers.",
+          needed: status.bdInstalled,
+          blocked: !status.bdInstalled ? "install beads first" : running,
+        }
+      : {
+          key: "init",
+          action: "init" as const,
+          option: null,
+          label: "Set up beads in this folder",
+          why: "This folder has no issue database yet. Setting it up lets you track issues here.",
+          needed: status.bdInstalled && !status.folderReady,
+          blocked: status.folderReady
+            ? "done"
+            : !status.bdInstalled
+              ? "install beads first"
+              : running,
+        },
     // Before the folder is set up the server reports no agents; the two BB
     // runs are listed anyway so the menu always shows the whole set.
     ...(status.agents.length > 0
       ? status.agents
       : SETUP_AGENTS.map((agent) => ({ ...agent, configured: false }))
-    ).map((agent) => ({
-      key: `agent:${agent.id}`,
-      action: "agent" as const,
-      option: agent.id,
-      label: `Configure beads for ${agent.label}`,
-      why: `Beads' own setup for ${agent.label} is not in this folder. It gives the agent beads' instructions when it starts.`,
-      needed: status.folderReady && !agent.configured,
-      blocked: agent.configured
-        ? "done"
-        : !status.folderReady
-          ? "set up the folder first"
-          : running,
-    })),
+    ).map((agent) => {
+      // Set up, but beads' own text in a file is out of date (it follows
+      // the repository's configuration): not something to be asked for on
+      // the card, only an update offered in the menu, named after the file
+      // (the user: "don't say claude code - say in AGENTS.md").
+      const stale = "stale" in agent ? agent.stale : null;
+      return {
+        key: `agent:${agent.id}`,
+        action: "agent" as const,
+        option: agent.id,
+        label:
+          stale === null
+            ? `Configure beads for ${agent.label}`
+            : `Update beads' instructions in ${stale}`,
+        why: `Beads' own setup for ${agent.label} is not in this folder. It gives the agent beads' instructions when it starts.`,
+        needed: status.folderReady && !agent.configured,
+        blocked:
+          stale !== null
+            ? running
+            : agent.configured
+              ? "done"
+              : !status.folderReady
+                ? "set up the folder first"
+                : running,
+        update: stale,
+      };
+    }),
     {
       key: "rules",
       action: "rules",
@@ -117,6 +149,19 @@ function setupSteps(status: SetupStatus): SetupStep[] {
       why: "The rules this tab's buttons rely on: agents take an issue one step at a time, leave closing to you, and commit when you accept it.",
       needed: status.folderReady && !status.rulesPresent,
       blocked: status.rulesPresent
+        ? "done"
+        : !status.folderReady
+          ? "set up the folder first"
+          : running,
+    },
+    {
+      key: "sync",
+      action: "sync",
+      option: null,
+      label: "Sync issues to the repository's remote",
+      why: "This folder's issues are on this computer only: they are not in git and are synced nowhere. Syncing keeps a copy on the repository's remote and lets other computers get them.",
+      needed: status.folderReady && !status.synced,
+      blocked: status.synced
         ? "done"
         : !status.folderReady
           ? "set up the folder first"
@@ -310,6 +355,7 @@ export function SetupMenu({
   workflow,
   onChooseWorkflow,
   onSyncGithub,
+  syncLine,
 }: {
   status: SetupStatus | null;
   /** Called when the menu opens, to fetch a fresh status. */
@@ -322,6 +368,11 @@ export function SetupMenu({
    * issues to sync (no folder with beads).
    */
   onSyncGithub?: () => void;
+  /**
+   * What to say about the issues' sync with the repository's remote; left
+   * out where there is no folder with issues.
+   */
+  syncLine?: string;
 }) {
   const { open, setOpen, root } = useMenu();
   return (
@@ -410,6 +461,21 @@ export function SetupMenu({
                   </span>
                 </span>
               </button>
+              <div className="my-1 border-t border-border" />
+            </>
+          )}
+          {/* The issues' own sync with the repository's remote
+              (bead-bb-0bz): when it last happened, or what went wrong. Only
+              said here: syncing runs by itself, and the refresh button
+              asks for one (the user: "the rest is in the menu"). */}
+          {syncLine === undefined ? null : (
+            <>
+              <div className="px-2 pb-1 text-xs font-medium text-muted-foreground">
+                Issue sync
+              </div>
+              <p className="whitespace-pre-wrap px-2 py-1 text-xs text-muted-foreground">
+                {syncLine}
+              </p>
               <div className="my-1 border-t border-border" />
             </>
           )}
@@ -542,6 +608,54 @@ export function SetupDialog({
             </ul>
             <p>It may ask a few questions in the terminal.</p>
           </div>
+        ) : step?.action === "fetch" ? (
+          <p className="text-sm">
+            Runs <span className="font-mono">bd bootstrap</span> in{" "}
+            <span className="break-all font-mono">{status?.path}</span>. It
+            downloads the issues that the repository's git remote holds into
+            a database in this folder. Nothing is published, and no existing
+            issue is deleted.
+          </p>
+        ) : step?.action === "sync" ? (
+          <div className="space-y-2 text-sm">
+            <p>
+              Runs <span className="font-mono">bd sync</span> in{" "}
+              <span className="break-all font-mono">{status?.path}</span>,
+              for the first time. Be aware of what it does:
+            </p>
+            <ul className="list-disc space-y-0.5 pl-5 text-muted-foreground">
+              <li>
+                <span className="text-foreground">
+                  it publishes this folder's whole issue history
+                </span>{" "}
+                (every issue, with its text, comments and history) to the
+                repository's git remote, where anyone who can read the
+                repository can read it. It is kept apart from your
+                branches;
+              </li>
+              <li>
+                beads records the remote in{" "}
+                <span className="font-mono">.beads/config.yaml</span> and
+                makes a small git commit for that by itself. Pushing that
+                commit is yours;
+              </li>
+              <li>
+                from then on Airbender keeps the issues in sync by itself: a
+                little after they change, and when this tab is opened.
+              </li>
+            </ul>
+          </div>
+        ) : step?.action === "agent" && step.update != null ? (
+          <p className="text-sm">
+            Runs <span className="font-mono">bd setup {step.option}</span> in{" "}
+            <span className="break-all font-mono">{status?.path}</span>. Beads
+            is set up here; the instructions it wrote into{" "}
+            <span className="font-mono">{step.update}</span> no longer match
+            what it would write now, because the repository's beads
+            configuration has changed since. This rewrites beads' own block
+            in that file, between its markers, and nothing outside it.
+            Nothing is wrong if you leave it.
+          </p>
         ) : step?.action === "agent" ? (
           <p className="text-sm">
             Runs <span className="font-mono">bd setup {step.option}</span> in{" "}

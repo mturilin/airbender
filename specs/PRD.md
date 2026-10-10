@@ -117,6 +117,23 @@ When something the panel needs is missing, the panel offers to set it up.
   place is not checked again**: the panel does not try to notice that
   something was removed afterwards.
 
+## Keeping the issues on the repository's remote
+
+- **The issues are not left on one computer.** Where a folder's issues are
+  synced nowhere, the panel says so and offers to sync them to the
+  repository's remote; from then on the product keeps them in sync by
+  itself. `[0bz]`
+- **Several open panels on the same repository must not sync at the same
+  time**: there is a lock, and syncs of one repository happen one after
+  another. `[0bz]`
+- **On another computer**, a copy of the repository whose issues are on
+  the remote is offered them, in place of an empty start. `[0bz]`
+- **Refresh and sync are one control**: the refresh button. **The issues
+  are synced every five minutes**, so no time is shown. **The button is
+  marked as an error, red, when the sync has been failing and nothing was
+  synced for more than ten minutes.** The rest of the information is in
+  the menu. `[0bz]`
+
 ## The groups
 
 In this order: `[02g]` `[a28]`
@@ -985,6 +1002,41 @@ breaking a requirement above.
   itself). A token set in the product's settings, kept on the owner's
   computer, is used in its place. With neither, the window says both ways
   to put that right. A refusal by GitHub is said in plain words.
+- Refresh and sync as one control: the refresh button reloads the list at
+  once and, where the issues have a remote, syncs with it, reloading again
+  when the sync ends; it turns while either goes on. It is red when the
+  latest sync failed and the last good one is more than ten minutes old
+  (or there never was one from this computer), and when syncing has
+  stopped on a conflict; its tooltip then says so in one line. It is not
+  red in a folder whose issues are synced nowhere, nor merely because the
+  app was closed for a while.
+- Beads' own instructions for an agent that have gone out of date (its
+  check says so, for example after the issues are given a remote) do not
+  bring the setup step back on the card: the agent counts as set up, and
+  the menu offers "Update beads' instructions in AGENTS.md", naming the
+  file beads names.
+- Keeping the issues on the remote: the step is one of the setup steps,
+  "Sync issues to the repository's remote", shown on the setup card like
+  the others and in the menu. It asks first, saying that the whole issue
+  history is published to the repository's remote, apart from the
+  branches, and that the issue store records the remote with a small
+  commit of its own, whose pushing is the owner's. After it the product
+  syncs (brings in what other computers changed, then sends what changed
+  here) every five minutes while the app runs, about two minutes after
+  the issues stop changing, when the panel is opened and the last sync is
+  more than five minutes old, and when the owner presses refresh. The
+  menu says, under "Issue sync", when the
+  issues were last synced, that a sync is under way, or that the last one
+  failed and why. One repository's syncs never overlap, whichever of its
+  work trees and however many panels and conversations ask; asking during
+  a sync leads to one more sync after it. A failed sync is tried again at
+  the next occasion. A change made on two computers that cannot be merged
+  stops the syncing by itself and is shown with the issue store's message;
+  the product does not settle it, and takes syncing up again after a sync
+  the owner asks for succeeds. Syncing happens only while the app runs.
+  On a copy of the repository with no issues, where the remote has them,
+  the setup step reads "Get this repository's issues" and downloads them;
+  nothing is published by it.
 - The small step button on a row: lower than the icon buttons beside it,
   small text, no border, a soft grey fill that darkens under the pointer;
   it keeps its icon, label and tooltip. On the current issue it is the

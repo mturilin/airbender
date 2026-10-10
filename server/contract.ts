@@ -240,7 +240,19 @@ const setupStatusSchema = z.object({
    * check is beads' own (`bd setup <agent> --check`).
    */
   agents: z.array(
-    z.object({ id: z.string(), label: z.string(), configured: z.boolean() }),
+    z.object({
+      id: z.string(),
+      label: z.string(),
+      configured: z.boolean(),
+      /**
+       * Beads is set up for the agent, but the instructions it wrote into
+       * this file no longer match what it would write now (its check says
+       * "installed but stale"): the file's name, e.g. "AGENTS.md". Null
+       * otherwise. Such an agent counts as configured; the instructions
+       * can be updated.
+       */
+      stale: z.string().nullable(),
+    }),
   ),
   /**
    * Whether Airbender's rules are in place: in the folder's AGENTS.md, with
@@ -265,6 +277,18 @@ const setupStatusSchema = z.object({
       tail: z.string(),
     })
     .nullable(),
+  /**
+   * Whether the folder's issues have a remote they are synced with. False
+   * while the folder is not set up, and when they exist on this computer
+   * only (bead-bb-0bz).
+   */
+  synced: z.boolean(),
+  /**
+   * For a folder that is not set up: the repository's git remote already
+   * holds its issues (a fresh clone), so they are to be fetched, not a new
+   * empty database made. False when not, and when it cannot be told.
+   */
+  remoteHasIssues: z.boolean(),
 });
 
 export type SetupStatus = z.infer<typeof setupStatusSchema>;
@@ -581,6 +605,36 @@ export const rpcContract = defineRpcContract({
     }),
     // `message` is null when the action was started (or, for the rules,
     // done), else the reason in plain words.
+    output: z.object({ message: z.string().nullable() }),
+  },
+  sync_status: {
+    // How the folder's issues stand with their remote. `enabled` false:
+    // they are synced nowhere. `last` is the last sync Airbender ran here.
+    input: z.object({
+      threadId: z.string().nullable(),
+      projectId: z.string().nullable(),
+    }),
+    output: z.object({
+      enabled: z.boolean(),
+      running: z.boolean(),
+      /** Syncing by itself has stopped until a sync asked for succeeds. */
+      halted: z.boolean(),
+      last: z
+        .object({
+          at: z.number(),
+          end: z.enum(["synced", "error", "conflict", "busy", "stuck"]),
+          message: z.string(),
+          syncedAt: z.number().nullable(),
+        })
+        .nullable(),
+    }),
+  },
+  sync_now: {
+    // The owner asks for a sync now; it waits its turn behind a running one.
+    input: z.object({
+      threadId: z.string().nullable(),
+      projectId: z.string().nullable(),
+    }),
     output: z.object({ message: z.string().nullable() }),
   },
   thread_reply: {

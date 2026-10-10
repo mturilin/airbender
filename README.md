@@ -9,7 +9,9 @@ panel, beside a thread or on the New thread screen.
   request to one call. `server/contract.ts` is the typed contract with the
   frontend; `folder.ts` finds the folder and runs `bd`; `store.ts` holds the
   issue operations; `work.ts` moves an issue through its workflow; `autopilot.ts` starts an
-  epic's issues one after another; `github.ts` lists GitHub issues, open and closed, and
+  epic's issues one after another; `issue-sync.ts` keeps a repository's issues on its git
+  remote with `bd sync`, one run at a time per repository;
+  `github.ts` lists GitHub issues, open and closed, and
   runs `bd github sync` for the ones chosen in the "Sync with GitHub"
   window (`app/github-sync.tsx`);
   `current-bead.ts` is the thread's current issue; `issues.ts` turns beads'
@@ -203,9 +205,23 @@ lists every step, greyed out when done or not yet possible:
    `AGENTS.md` (an `@AGENTS.md` line): a beads-generated
    `CLAUDE.md` becomes a short pointer, one with your own text keeps it,
    and none is created where there is none.
+5. **Sync issues to the repository's remote** — runs `bd sync --yes` for
+   the first time. `bd init` leaves the issue database on this computer
+   only (it is not in git); this publishes it to the git remote under
+   `refs/dolt/data`, and beads commits the remote into
+   `.beads/config.yaml` by itself. Afterwards Airbender runs `bd sync`
+   itself: every five minutes, two minutes after the issues stop
+   changing, and when you press the refresh button, which also reloads
+   the list. The button turns red when syncing has not worked for more
+   than ten minutes; the "⋯" menu says how the last sync went. One
+   repository is synced by one run at a time (a queue in the plugin, plus
+   the lock file `.beads/airbender-sync.lock`), whichever work tree asks.
 
-Steps 1 to 3 run in a BB terminal you can watch and type into; the tab
-reloads when it ends and shows the last output if it failed.
+In a fresh clone whose remote already holds the issues, step 2 reads
+**Get this repository's issues** and runs `bd bootstrap --yes` instead.
+
+Steps 1 to 3 and 5 run in a BB terminal you can watch and type into; the
+tab reloads when it ends and shows the last output if it failed.
 
 ## bend
 

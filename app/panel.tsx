@@ -45,6 +45,7 @@ import { DEFAULT_WORKFLOW_ID, workflowFor } from "../shared/workflows.ts";
 import { MoveIcon, WorkflowProvider } from "./workflow-controls.tsx";
 import { askPanelOnArrival } from "./arrival.ts";
 import { GithubSync } from "./github-sync.tsx";
+import { syncFailing, syncLine, useIssueSync } from "./use-issue-sync.ts";
 import { EpicBand, EpicReturn } from "./epic-band.tsx";
 import { useFocus } from "./use-focus.ts";
 import {
@@ -73,6 +74,12 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
   // The issue waiting for the user's "yes, switch to it", when making it
   // current would replace another current issue; null when none is.
   const [switching, setSwitching] = useState<Issue | null>(null);
+  // How the folder's issues stand with the repository's remote.
+  const issueSync = useIssueSync(scope, result?.state === "ok");
+  const syncStatus = issueSync.status;
+  // Why the refresh button is marked as failing; null when it is not.
+  const syncProblem =
+    syncStatus === null ? null : syncFailing(syncStatus, Date.now());
   // Whether the "Sync with GitHub" window is open.
   const [syncingGithub, setSyncingGithub] = useState(false);
   // A warning waiting to be read in its message box; null when none is.
@@ -371,12 +378,29 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
                 </span>
               )}
             </p>
+            {/* One control for "bring this up to date" (the user: "Let's
+                make them one control"). It reloads the list at once and,
+                where the issues have a remote, syncs with it; the list is
+                reloaded again when the sync ends. Two controls stood here
+                for a day, refresh and a sync mark: they meant nearly the
+                same, looked alike and spun together. Syncing runs every
+                five minutes by itself, so the button says nothing about it
+                unless it has not worked for a while: then it is red, with
+                the reason as its tooltip and the rest in the menu. */}
             <Button
               variant="ghost"
               size="icon"
-              className="size-8 shrink-0"
-              tip="Refresh the list"
-              aria-label="Refresh"
+              className={cn(
+                "size-8 shrink-0",
+                syncProblem !== null && "text-destructive hover:text-destructive",
+              )}
+              tip={
+                syncProblem ??
+                (syncStatus?.enabled === true
+                  ? "Refresh the list and sync the issues with the repository's remote"
+                  : "Refresh the list")
+              }
+              aria-label={syncProblem === null ? "Refresh" : `Refresh. ${syncProblem}`}
               disabled={loading}
               // Also re-checks what is set up for the folder. The user expects
               // Refresh to refresh everything on the tab; the setup check is
@@ -384,11 +408,20 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
               onClick={() => {
                 refresh();
                 setup.reload();
+                if (syncStatus?.enabled === true && !syncStatus.running) {
+                  issueSync.syncNow().then((message) => {
+                    setActionProblem(message);
+                    issueSync.reload();
+                  }, reportProblem);
+                }
               }}
             >
               <Icon
                 name="ArrowReloadHorizontal"
-                className={cn("size-4", loading && "animate-spin")}
+                className={cn(
+                  "size-4",
+                  (loading || syncStatus?.running === true) && "animate-spin",
+                )}
               />
             </Button>
             <SetupMenu
@@ -397,6 +430,11 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
               onStart={setConfirmingStep}
               workflow={ok ? result.workflow : null}
               onSyncGithub={ok ? () => setSyncingGithub(true) : undefined}
+              syncLine={
+                !ok || syncStatus === null
+                  ? undefined
+                  : syncLine(syncStatus, Date.now())
+              }
               onChooseWorkflow={(workflow) => {
                 rpc
                   .call("workflow_set", { threadId, projectId, workflow })
