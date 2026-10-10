@@ -96,7 +96,7 @@ import { createStore } from "./server/store.ts";
 import { createWatcher } from "./server/watch.ts";
 import { createAutopilot } from "./server/autopilot.ts";
 import { createGithub } from "./server/github.ts";
-import { createIssueSync } from "./server/issue-sync.ts";
+import { createSync } from "./server/sync.ts";
 import { createWork } from "./server/work.ts";
 import type { WorkEvents } from "./server/work.ts";
 import { createWorkTrees } from "./server/work-trees.ts";
@@ -241,13 +241,13 @@ export default async function plugin(bb: BbPluginApi) {
   workEvents.closed = autopilot.advance;
   workEvents.stuck = autopilot.stuck;
   workEvents.ownerCurrent = autopilot.ownerSteppedIn;
-  const issueSync = await createIssueSync({ bb, folders, repositoryKey });
+  const issueSync = await createSync({ bb, folders, store, repositoryKey });
   issuesChanged = issueSync.changed;
   const { setupStatus, runSetup } = createSetup({
     bb,
     folders,
     store,
-    isSynced: async (path) => (await issueSync.status(path)).enabled,
+    syncSteps: issueSync.steps,
   });
   const github = createGithub({
     bb,
@@ -273,7 +273,7 @@ export default async function plugin(bb: BbPluginApi) {
       // And for the issues' own sync with their remote, if the last one
       // is old (the tab was just opened).
       if (listed.state === "ok" && listed.path !== null) {
-        issueSync.listed(listed.path);
+        issueSync.opened(listed.path);
       }
       // And the moment for autopilot to take up what a reload cut short.
       autopilot.consider(input.threadId);
@@ -311,14 +311,18 @@ export default async function plugin(bb: BbPluginApi) {
     sync_status: async (input) => {
       const folder = await folders.folderFor(input);
       return "message" in folder
-        ? { enabled: false, running: false, halted: false, last: null }
-        : issueSync.status(folder.path);
+        ? { source: null, remote: null, running: false, halted: false, last: null, syncedAt: null }
+        : issueSync.state(folder.path);
+    },
+    sync_log: async (input) => {
+      const folder = await folders.folderFor(input);
+      return { entries: "message" in folder ? [] : await issueSync.log(folder.path) };
     },
     sync_now: async (input) => {
       const folder = await folders.folderFor(input);
       return "message" in folder
         ? { message: folder.message }
-        : issueSync.now(folder.path);
+        : issueSync.refresh(folder.path);
     },
     github_issues: (input) => github.issues(input),
     github_sync: (input) => github.sync(input),

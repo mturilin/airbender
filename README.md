@@ -9,8 +9,8 @@ panel, beside a thread or on the New thread screen.
   request to one call. `server/contract.ts` is the typed contract with the
   frontend; `folder.ts` finds the folder and runs `bd`; `store.ts` holds the
   issue operations; `work.ts` moves an issue through its workflow; `autopilot.ts` starts an
-  epic's issues one after another; `issue-sync.ts` keeps a repository's issues on its git
-  remote with `bd sync`, one run at a time per repository;
+  epic's issues one after another; `sync.ts` joins the issue sync (the `sync/` folder) to the
+  plugin;
   `github.ts` lists GitHub issues, open and closed, and
   runs `bd github sync` for the ones chosen in the "Sync with GitHub"
   window (`app/github-sync.tsx`);
@@ -26,6 +26,13 @@ panel, beside a thread or on the New thread screen.
   and `app/use-focus.ts` are epic mode; `app/place.ts` says whether an
   issue belongs to an epic with a branch and whether the folder is on it. Logic without React is
   in `app/issue-model.ts` and `app/quick-tags.ts`.
+- `sync/` — keeping a repository's issues in step with a remote, as a
+  layer of its own that knows neither BB nor one tracker: `types.ts` is
+  what every sync source offers (`SyncSource`) and reports; `service.ts`
+  runs any source one at a time per repository, decides when, and keeps
+  the log; `beads.ts` is the first source (`bd sync`, beads' events
+  journal for what was sent). Another tracker adds a source here and
+  changes one function, `sourceFor` in `server/sync.ts`.
 - `shared/` — what both halves use: `constants.ts` (the values they must
   agree on), `tree.ts` (walking sub-issues), and the workflow:
   `workflow.ts` says what a workflow is, `standard-workflow.ts` is the

@@ -218,6 +218,35 @@ export type IssuesResult = z.infer<typeof issuesResultSchema>;
  * The tab draws its setup panel, its suggestions and its "more" menu from
  * this one answer.
  */
+/** One setup step of the issue sync, as the tab shows it. */
+const syncStepSchema = z.object({
+  label: z.string(),
+  why: z.string(),
+  explain: z.object({ lead: z.string(), points: z.array(z.string()) }),
+});
+
+/** One run of the issue sync, as the log keeps it (sync/types.ts). */
+const syncEntrySchema = z.object({
+  at: z.number(),
+  seconds: z.number(),
+  cause: z.enum(["timer", "change", "opened", "refresh"]),
+  end: z.enum(["synced", "failed", "busy", "conflict", "stuck"]),
+  message: z.string(),
+  /** Issues changed here that this run sent; null when not known. */
+  sent: z
+    .array(
+      z.object({
+        id: z.string(),
+        kinds: z.array(
+          z.enum(["created", "updated", "closed", "deleted", "comment", "link"]),
+        ),
+      }),
+    )
+    .nullable(),
+  /** Issues this run brought in; null when not known. */
+  broughtIn: z.array(z.string()).nullable(),
+});
+
 const setupStatusSchema = z.object({
   /** The folder, or null when there is none on this machine. */
   path: z.string().nullable(),
@@ -278,17 +307,14 @@ const setupStatusSchema = z.object({
     })
     .nullable(),
   /**
-   * Whether the folder's issues have a remote they are synced with. False
-   * while the folder is not set up, and when they exist on this computer
-   * only (bead-bb-0bz).
+   * The setup steps the folder's issue sync offers now, each with the
+   * words to show for it: `on` to start syncing issues that are synced
+   * nowhere, `fetch` to get the issues of a folder that has none while its
+   * remote holds them (a fresh clone), in place of starting empty. Null
+   * for a step that does not apply. What they say and do is the sync
+   * source's (sync/), not this plugin's: another tracker's differ.
    */
-  synced: z.boolean(),
-  /**
-   * For a folder that is not set up: the repository's git remote already
-   * holds its issues (a fresh clone), so they are to be fetched, not a new
-   * empty database made. False when not, and when it cannot be told.
-   */
-  remoteHasIssues: z.boolean(),
+  syncSteps: z.object({ on: syncStepSchema.nullable(), fetch: syncStepSchema.nullable() }),
 });
 
 export type SetupStatus = z.infer<typeof setupStatusSchema>;
@@ -608,26 +634,33 @@ export const rpcContract = defineRpcContract({
     output: z.object({ message: z.string().nullable() }),
   },
   sync_status: {
-    // How the folder's issues stand with their remote. `enabled` false:
-    // they are synced nowhere. `last` is the last sync Airbender ran here.
+    // How the folder's issues stand with their remote, in the sync layer's
+    // words; nothing here names a tracker. `remote` null: they are synced
+    // with nothing. `last` is the last sync run from here.
     input: z.object({
       threadId: z.string().nullable(),
       projectId: z.string().nullable(),
     }),
     output: z.object({
-      enabled: z.boolean(),
+      /** The sync source's name; null when the folder has none. */
+      source: z.string().nullable(),
+      /** What the issues are synced with, in words; null when nothing. */
+      remote: z.string().nullable(),
       running: z.boolean(),
       /** Syncing by itself has stopped until a sync asked for succeeds. */
       halted: z.boolean(),
-      last: z
-        .object({
-          at: z.number(),
-          end: z.enum(["synced", "error", "conflict", "busy", "stuck"]),
-          message: z.string(),
-          syncedAt: z.number().nullable(),
-        })
-        .nullable(),
+      last: syncEntrySchema.nullable(),
+      /** When the last sync that worked ended; null when none did. */
+      syncedAt: z.number().nullable(),
     }),
+  },
+  sync_log: {
+    // The syncs run from here for the folder's repository, newest first.
+    input: z.object({
+      threadId: z.string().nullable(),
+      projectId: z.string().nullable(),
+    }),
+    output: z.object({ entries: z.array(syncEntrySchema) }),
   },
   sync_now: {
     // The owner asks for a sync now; it waits its turn behind a running one.

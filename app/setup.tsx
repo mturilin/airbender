@@ -64,6 +64,29 @@ export interface SetupStep {
    * instructions in this file up to date. Left out or null otherwise.
    */
   update?: string | null;
+  /**
+   * For a step whose words come from elsewhere (the issue sync's): what
+   * the confirmation says it does, an opening line and points. Text in
+   * backticks is a command or a file name.
+   */
+  explain?: { lead: string; points: string[] };
+}
+
+/** A sentence with its `backticked` parts in the code font. */
+function Marked({ text }: { text: string }) {
+  return (
+    <>
+      {text.split("`").map((part, index) =>
+        index % 2 === 1 ? (
+          <span key={index} className="font-mono">
+            {part}
+          </span>
+        ) : (
+          part
+        ),
+      )}
+    </>
+  );
 }
 
 /** The setup steps for a folder, in the order they make sense. */
@@ -84,17 +107,20 @@ function setupSteps(status: SetupStatus): SetupStep[] {
           : running,
     },
     // A folder with no issues gets one of two steps: fetch them, where
-    // the repository's remote already holds them (a fresh clone of a
-    // repository whose issues are synced, bead-bb-0bz), or start empty.
-    status.remoteHasIssues && !status.folderReady
+    // the folder's issue sync says its remote already holds them (a fresh
+    // clone, bead-bb-0bz), or start empty. What the fetch step is called
+    // and says is the sync source's, not written here: another tracker's
+    // differs (bead-bb-6a9).
+    status.syncSteps.fetch !== null && !status.folderReady
       ? {
           key: "fetch",
           action: "fetch" as const,
           option: null,
-          label: "Get this repository's issues",
-          why: "This folder has no issues yet, but the repository's remote holds them. Getting them brings this folder up to date with the other computers.",
+          label: status.syncSteps.fetch.label,
+          why: status.syncSteps.fetch.why,
           needed: status.bdInstalled,
           blocked: !status.bdInstalled ? "install beads first" : running,
+          explain: status.syncSteps.fetch.explain,
         }
       : {
           key: "init",
@@ -154,19 +180,23 @@ function setupSteps(status: SetupStatus): SetupStep[] {
           ? "set up the folder first"
           : running,
     },
-    {
-      key: "sync",
-      action: "sync",
-      option: null,
-      label: "Sync issues to the repository's remote",
-      why: "This folder's issues are on this computer only: they are not in git and are synced nowhere. Syncing keeps a copy on the repository's remote and lets other computers get them.",
-      needed: status.folderReady && !status.synced,
-      blocked: status.synced
-        ? "done"
-        : !status.folderReady
-          ? "set up the folder first"
-          : running,
-    },
+    // Switching the issue sync on, while the source offers it: listed
+    // only then, since what it is called is the source's to say. Once on,
+    // the "Issue sync" row above the steps says how it stands.
+    ...(status.syncSteps.on === null
+      ? []
+      : [
+          {
+            key: "sync",
+            action: "sync" as const,
+            option: null,
+            label: status.syncSteps.on.label,
+            why: status.syncSteps.on.why,
+            needed: status.folderReady,
+            blocked: !status.folderReady ? "set up the folder first" : running,
+            explain: status.syncSteps.on.explain,
+          },
+        ]),
   ];
   return steps;
 }
@@ -355,7 +385,7 @@ export function SetupMenu({
   workflow,
   onChooseWorkflow,
   onSyncGithub,
-  syncLine,
+  issueSync,
 }: {
   status: SetupStatus | null;
   /** Called when the menu opens, to fetch a fresh status. */
@@ -369,10 +399,11 @@ export function SetupMenu({
    */
   onSyncGithub?: () => void;
   /**
-   * What to say about the issues' sync with the repository's remote; left
-   * out where there is no folder with issues.
+   * How the issues' sync stands, for its row: the state in a word or two,
+   * a longer message when there is something to read, and the way to its
+   * log. Left out where there is no folder with issues.
    */
-  syncLine?: string;
+  issueSync?: { state: string; message: string | null; onLog: () => void };
 }) {
   const { open, setOpen, root } = useMenu();
   return (
@@ -468,14 +499,35 @@ export function SetupMenu({
               (bead-bb-0bz): when it last happened, or what went wrong. Only
               said here: syncing runs by itself, and the refresh button
               asks for one (the user: "the rest is in the menu"). */}
-          {syncLine === undefined ? null : (
+          {issueSync === undefined ? null : (
             <>
-              <div className="px-2 pb-1 text-xs font-medium text-muted-foreground">
-                Issue sync
+              {/* One row, the state at the right like a setup step's
+                  "done" (the user: "Similar to how setup works, install
+                  beads, it says installed. The same: issue sync, it was
+                  synced one minute ago"). Not a button: syncing runs by
+                  itself, and refresh asks for one. */}
+              <div className="flex items-baseline justify-between gap-3 px-2 py-1 text-sm">
+                <span className="min-w-0">Issue sync</span>
+                <span className="shrink-0 text-xs text-muted-foreground">
+                  {issueSync.state}
+                </span>
               </div>
-              <p className="whitespace-pre-wrap px-2 py-1 text-xs text-muted-foreground">
-                {syncLine}
-              </p>
+              {issueSync.message === null ? null : (
+                <p className="whitespace-pre-wrap px-2 pb-1 text-xs text-muted-foreground">
+                  {issueSync.message}
+                </p>
+              )}
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setOpen(false);
+                  issueSync.onLog();
+                }}
+                className="flex w-full cursor-pointer items-start rounded px-2 py-1 text-left text-sm hover:bg-state-hover"
+              >
+                Sync log…
+              </button>
               <div className="my-1 border-t border-border" />
             </>
           )}
@@ -608,41 +660,21 @@ export function SetupDialog({
             </ul>
             <p>It may ask a few questions in the terminal.</p>
           </div>
-        ) : step?.action === "fetch" ? (
-          <p className="text-sm">
-            Runs <span className="font-mono">bd bootstrap</span> in{" "}
-            <span className="break-all font-mono">{status?.path}</span>. It
-            downloads the issues that the repository's git remote holds into
-            a database in this folder. Nothing is published, and no existing
-            issue is deleted.
-          </p>
-        ) : step?.action === "sync" ? (
+        ) : step?.explain !== undefined ? (
+          // A step of the issue sync: said in the sync source's words.
           <div className="space-y-2 text-sm">
             <p>
-              Runs <span className="font-mono">bd sync</span> in{" "}
-              <span className="break-all font-mono">{status?.path}</span>,
-              for the first time. Be aware of what it does:
+              <Marked text={step.explain.lead} />{" "}
+              <span className="break-all font-mono text-muted-foreground">
+                {status?.path}
+              </span>
             </p>
             <ul className="list-disc space-y-0.5 pl-5 text-muted-foreground">
-              <li>
-                <span className="text-foreground">
-                  it publishes this folder's whole issue history
-                </span>{" "}
-                (every issue, with its text, comments and history) to the
-                repository's git remote, where anyone who can read the
-                repository can read it. It is kept apart from your
-                branches;
-              </li>
-              <li>
-                beads records the remote in{" "}
-                <span className="font-mono">.beads/config.yaml</span> and
-                makes a small git commit for that by itself. Pushing that
-                commit is yours;
-              </li>
-              <li>
-                from then on Airbender keeps the issues in sync by itself: a
-                little after they change, and when this tab is opened.
-              </li>
+              {step.explain.points.map((point) => (
+                <li key={point}>
+                  <Marked text={point} />
+                </li>
+              ))}
             </ul>
           </div>
         ) : step?.action === "agent" && step.update != null ? (

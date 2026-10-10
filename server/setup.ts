@@ -20,7 +20,6 @@
 // - Removing beads or the rules afterwards is not noticed until the plugin
 //   reloads.
 
-import { execFile } from "node:child_process";
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -31,6 +30,7 @@ import type { SetupStatus } from "./contract.ts";
 import { AIRBENDER_RULES, RULES_START, claudeFileFor } from "./prompts.ts";
 import type { Folders } from "./folder.ts";
 import type { Store } from "./store.ts";
+import type { SyncStep } from "../sync/types.ts";
 
 /**
  * The ways of installing beads the tab can offer, each with the program it
@@ -90,8 +90,6 @@ export function staleFile(said: string): string | null {
   return match === null ? null : (match[1]!.split("/").pop() ?? null);
 }
 
-/** How long an answer about a remote holding issues is believed. */
-const REMOTE_ASKED_MS = 5 * 60_000;
 
 /**
  * Builds the setup operations for this plugin instance.
@@ -104,13 +102,15 @@ export function createSetup({
   bb,
   folders,
   store,
-  isSynced,
+  syncSteps,
 }: {
   bb: BbPluginApi;
   folders: Folders;
   store: Store;
-  /** Whether a folder's issues have a remote (server/issue-sync.ts). */
-  isSynced: (path: string) => Promise<boolean>;
+  /** The setup steps the folder's issue sync offers now (server/sync.ts). */
+  syncSteps: (
+    path: string,
+  ) => Promise<{ on: SyncStep | null; fetch: SyncStep | null }>;
 }) {
   const { resolveFolder, findBd } = folders;
   const { readIssues } = store;
@@ -152,8 +152,7 @@ export function createSetup({
       rulesPresent: false,
       running: null,
       lastRun: null,
-      synced: false,
-      remoteHasIssues: false,
+      syncSteps: { on: null, fetch: null },
     };
     const folder = await resolveFolder(input);
     if ("reason" in folder) {
@@ -225,11 +224,18 @@ export function createSetup({
       }
     }
     const rulesPresent = met.rules;
-    // Whether the issues are synced anywhere; and, for a folder with no
-    // database, whether the repository's remote already holds them.
-    const synced = folderReady ? await isSynced(path) : false;
-    const remoteHasIssues =
-      bd !== null && !folderReady ? await remoteHolds(path) : false;
+    // What the folder's issue sync has to offer: switching it on where
+    // the issues are synced nowhere, or fetching them where the folder
+    // has none and its remote holds them. Asked only where it can apply.
+    const offered =
+      bd === null
+        ? { on: null, fetch: null }
+        : await syncSteps(path).catch(() => ({ on: null, fetch: null }));
+    /** A step without its command: the tab shows it, the server runs it. */
+    const shown = (step: SyncStep | null) =>
+      step === null
+        ? null
+        : { label: step.label, why: step.why, explain: step.explain };
     return {
       path,
       unavailable: null,
@@ -242,39 +248,8 @@ export function createSetup({
       rulesPresent,
       running: setupRunning.get(path) ?? null,
       lastRun: setupLastRun.get(path) ?? null,
-      synced,
-      remoteHasIssues,
+      syncSteps: { on: shown(offered.on), fetch: shown(offered.fetch) },
     };
-  }
-
-  /** What was learned about remotes holding issues, and when, per folder. */
-  const remoteAsked = new Map<string, { at: number; holds: boolean }>();
-
-  /**
-   * Whether the folder's git origin holds beads issues (beads keeps them
-   * there under refs/dolt/data): the sign of a fresh clone of a repository
-   * whose issues are synced.
-   *
-   * @returns False also when it cannot be told (no origin, no network).
-   * Side effects: one `git ls-remote`, at most every few minutes per
-   *   folder; it reads from the network and changes nothing.
-   */
-  async function remoteHolds(path: string): Promise<boolean> {
-    const known = remoteAsked.get(path);
-    if (known !== undefined && Date.now() - known.at < REMOTE_ASKED_MS) {
-      return known.holds;
-    }
-    const answer = await new Promise<string | null>((resolve) => {
-      execFile(
-        "git",
-        ["ls-remote", "origin", "refs/dolt/data"],
-        { cwd: path, timeout: 10_000, maxBuffer: 64 * 1024 },
-        (error, stdout) => resolve(error === null ? stdout.trim() : null),
-      );
-    });
-    const holds = answer !== null && answer !== "";
-    remoteAsked.set(path, { at: Date.now(), holds });
-    return holds;
   }
 
   /**
@@ -453,27 +428,21 @@ export function createSetup({
         }
         title = "Set up beads in this folder";
         command = `${shellQuote(bd)} init`;
-      } else if (action === "fetch") {
-        if (status.folderReady) {
-          return { message: "This folder already has its issues." };
+      } else if (action === "fetch" || action === "sync") {
+        // The issue sync's own steps: what they are called and what they
+        // run is the sync source's (sync/), asked for afresh here.
+        const offered = await syncSteps(path);
+        const step = action === "fetch" ? offered.fetch : offered.on;
+        if (step === null) {
+          return {
+            message:
+              action === "fetch"
+                ? "There are no issues to get for this folder."
+                : "This folder's issues are already synced, or there are none to sync.",
+          };
         }
-        // beads' own way to set up a fresh clone: it finds the issues on
-        // the git origin and downloads them, and never deletes anything.
-        title = "Get this repository's issues";
-        command = `${shellQuote(bd)} bootstrap --yes`;
-      } else if (action === "sync") {
-        if (!status.folderReady) {
-          return { message: "Set up beads in this folder first." };
-        }
-        if (status.synced) {
-          return { message: "This folder's issues are already synced." };
-        }
-        // The first sync: with --yes beads takes the git origin as the
-        // remote for the issues (the owner agreed in the tab's dialog),
-        // records it in .beads/config.yaml with a small git commit of its
-        // own, and pushes the whole issue history there.
-        title = "Sync issues to the repository's remote";
-        command = `${shellQuote(bd)} sync --yes`;
+        title = step.label;
+        command = step.command;
       } else {
         if (!status.folderReady) {
           return { message: "Set up beads in this folder first." };

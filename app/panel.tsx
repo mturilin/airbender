@@ -45,7 +45,8 @@ import { DEFAULT_WORKFLOW_ID, workflowFor } from "../shared/workflows.ts";
 import { MoveIcon, WorkflowProvider } from "./workflow-controls.tsx";
 import { askPanelOnArrival } from "./arrival.ts";
 import { GithubSync } from "./github-sync.tsx";
-import { syncFailing, syncLine, useIssueSync } from "./use-issue-sync.ts";
+import { SyncLog } from "./sync-log.tsx";
+import { refreshTip, syncFailing, syncState, useIssueSync } from "./use-issue-sync.ts";
 import { EpicBand, EpicReturn } from "./epic-band.tsx";
 import { useFocus } from "./use-focus.ts";
 import {
@@ -80,6 +81,8 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
   // Why the refresh button is marked as failing; null when it is not.
   const syncProblem =
     syncStatus === null ? null : syncFailing(syncStatus, Date.now());
+  // Whether the sync log's window is open.
+  const [showingSyncLog, setShowingSyncLog] = useState(false);
   // Whether the "Sync with GitHub" window is open.
   const [syncingGithub, setSyncingGithub] = useState(false);
   // A warning waiting to be read in its message box; null when none is.
@@ -394,12 +397,9 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
                 "size-8 shrink-0",
                 syncProblem !== null && "text-destructive hover:text-destructive",
               )}
-              tip={
-                syncProblem ??
-                (syncStatus?.enabled === true
-                  ? "Refresh the list and sync the issues with the repository's remote"
-                  : "Refresh the list")
-              }
+              // What it does, then when the last sync was and what it did;
+              // the reason first when it is marked as failing.
+              tip={refreshTip(syncStatus, Date.now())}
               aria-label={syncProblem === null ? "Refresh" : `Refresh. ${syncProblem}`}
               disabled={loading}
               // Also re-checks what is set up for the folder. The user expects
@@ -408,7 +408,7 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
               onClick={() => {
                 refresh();
                 setup.reload();
-                if (syncStatus?.enabled === true && !syncStatus.running) {
+                if (syncStatus?.remote != null && !syncStatus.running) {
                   issueSync.syncNow().then((message) => {
                     setActionProblem(message);
                     issueSync.reload();
@@ -430,10 +430,13 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
               onStart={setConfirmingStep}
               workflow={ok ? result.workflow : null}
               onSyncGithub={ok ? () => setSyncingGithub(true) : undefined}
-              syncLine={
+              issueSync={
                 !ok || syncStatus === null
                   ? undefined
-                  : syncLine(syncStatus, Date.now())
+                  : {
+                      ...syncState(syncStatus, Date.now()),
+                      onLog: () => setShowingSyncLog(true),
+                    }
               }
               onChooseWorkflow={(workflow) => {
                 rpc
@@ -727,6 +730,12 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
             />
           </div>
         ) : null}
+        <SyncLog
+          open={showingSyncLog}
+          onClose={() => setShowingSyncLog(false)}
+          load={issueSync.loadLog}
+          remote={syncStatus?.remote ?? null}
+        />
         <GithubSync
           open={syncingGithub}
           onClose={() => setSyncingGithub(false)}

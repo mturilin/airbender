@@ -128,6 +128,16 @@ When something the panel needs is missing, the panel offers to set it up.
   another. `[0bz]`
 - **On another computer**, a copy of the repository whose issues are on
   the remote is offered them, in place of an empty start. `[0bz]`
+- **Hovering the refresh button shows the time of the last sync and its
+  result**, for example whether it was one issue's update. `[6a9]`
+- **In the menu, "Issue sync" and its state are on the same line**, like a
+  setup step and its "installed": issue sync, synced one minute ago.
+  `[6a9]`
+- **The menu has a sync log**: a small window with all the syncs and what
+  each did, for troubleshooting. `[6a9]`
+- **The syncing is a part of its own that can be replaced**: the panel
+  does not assume one way of syncing. There will be several, the next for
+  GitHub. `[6a9]`
 - **Refresh and sync are one control**: the refresh button. **The issues
   are synced every five minutes**, so no time is shown. **The button is
   marked as an error, red, when the sync has been failing and nothing was
@@ -1002,6 +1012,30 @@ breaking a requirement above.
   itself). A token set in the product's settings, kept on the owner's
   computer, is used in its place. With neither, the window says both ways
   to put that right. A refusal by GitHub is said in plain words.
+- What a sync is said to have done: the issues changed here that it sent,
+  each with the kind of change (created, updated, closed, deleted, a
+  comment, a link), and the issues that came in new or changed from
+  elsewhere; in words, "nothing new", "sent 1 issue", "brought in 2
+  issues, sent 1 issue", with the first few ids named in the log. Where it
+  cannot be told, it says "synced" and no more. A failed sync says how it
+  ended. The refresh button's tooltip is one line: what the button does,
+  then "Last sync 1 minute ago:" and that; when the button is red the
+  reason comes first.
+- The sync log: an entry "Sync log…" under the "Issue sync" row; a small
+  window, newest first, each sync with its time, what it did, what set it
+  off (every five minutes, after a change here, the tab opened, refresh
+  pressed), how long it took, and the store's own message where it failed.
+  The newest two hundred are kept, per repository, on this computer. Syncs
+  that found nothing new are listed too.
+- A sync set off by a change is not run when nothing was really changed
+  (an agent only read an issue); the five-minute sync always runs.
+- The state on the "Issue sync" row: "synced 1 minute ago", "syncing…",
+  "not synced", "not yet synced from here", "failed", "stopped" or
+  "waiting"; a longer message appears under the row only for a folder
+  synced with nothing, a failure or a stop.
+- With beads as the store, what was sent is read from beads' own journal
+  of changes, which is switched on for the repository the first time it
+  is synced; changes made before that are not known and not guessed.
 - Refresh and sync as one control: the refresh button reloads the list at
   once and, where the issues have a remote, syncs with it, reloading again
   when the sync ends; it turns while either goes on. It is red when the
@@ -1025,7 +1059,7 @@ breaking a requirement above.
   here) every five minutes while the app runs, about two minutes after
   the issues stop changing, when the panel is opened and the last sync is
   more than five minutes old, and when the owner presses refresh. The
-  menu says, under "Issue sync", when the
+  menu says, on its "Issue sync" row, when the
   issues were last synced, that a sync is under way, or that the last one
   failed and why. One repository's syncs never overlap, whichever of its
   work trees and however many panels and conversations ask; asking during
