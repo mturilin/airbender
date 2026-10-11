@@ -11,10 +11,8 @@ panel, beside a thread or on the New thread screen.
   `folder.ts` finds the folder and the `bd` and `bend` programs; `bend.ts`
   runs bend, gives the tracker for a folder and turns bend's failures into
   what the tab shows;
-  `store.ts` holds the issue operations, each one a call on that tracker,
-  and keeps the last list read per repository
-  (`list-cache.ts`: reused while beads' `last-touched` file is unchanged,
-  dropped on every write of the plugin's, never older than a minute);
+  `store.ts` holds the issue operations, each one a call on that tracker
+  (it keeps no list itself: bend answers from its own copy of the issues);
   `work.ts` moves an issue through its workflow; `autopilot.ts` starts an
   epic's issues one after another; `sync.ts` joins the issue sync (the `sync/` folder) to the
   plugin;
@@ -337,6 +335,37 @@ For GitHub, sign in with `gh auth login` or set `GH_TOKEN`.
   beads folder, and a recording of everything a fixed series of commands
   prints (`testdata/recorded.txt`; record again with `BEND_RECORD=1`).
 - `.agents/skills/bend/SKILL.md` — tells agents when and how to use it.
+
+### Beads issues from a copy on this computer
+
+On a beads repository too, bend answers reads from a copy of the issues it
+keeps in the repository's shared git folder (`.git/bend/beads/`), so that a
+read does not start `bd`, which takes most of half a second to open its
+database and waits behind a running sync:
+
+- **A read from a fresh copy starts no `bd`** and takes a few thousandths
+  of a second.
+- **The copy knows it is behind** when the small file beads rewrites on
+  every change (`.beads/last-touched`) is newer than what it holds; so a
+  change made with `bd` directly shows in the next read. It is then reread,
+  with one `bd list`.
+- **A change through bend goes to `bd` at once**, as before, and its
+  answer is reported. Afterwards the copy is reread by a process bend
+  starts behind the command, so the next read is quick again.
+- **What that file does not show** (an issue deleted with `bd`, a sync run
+  by hand) shows when the copy is more than three minutes old: the read
+  still answers at once and the copy is reread behind it. A copy more than
+  a day old is reread first.
+- **Search and "ready" are beads' own answers.** Search always asks `bd`;
+  what is ready is asked once after each reread and kept.
+- `bend refresh` rereads it now; `bend list --fresh` rereads and lists.
+  Deleting the folder is harmless. `BEND_LIVE=1` asks `bd` every time.
+
+The code is `bend/internal/kept` (the copy, which knows no tracker) over
+`bend/internal/localcopy` (its files and locks). An adapter says how its
+changes are written (beads: straight through) and may give a cheap sign
+that its data changed. GitHub still has a copy of its own inside its
+adapter; moving it onto this one is bead-bb-c9l.15.
 
 ### GitHub issues from a copy on this computer
 

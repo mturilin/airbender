@@ -44,6 +44,7 @@ import (
 	"github.com/mturilin/airbender/bend/internal/detect"
 	"github.com/mturilin/airbender/bend/internal/facts"
 	"github.com/mturilin/airbender/bend/internal/github"
+	"github.com/mturilin/airbender/bend/internal/kept"
 	"github.com/mturilin/airbender/bend/internal/setup"
 	"github.com/mturilin/airbender/bend/internal/tracker"
 )
@@ -223,14 +224,14 @@ func oneOf(typed string, allowed []string, what string) (string, error) {
 // first and says so plainly when the bend it found is older than it needs,
 // instead of failing on an option that bend does not know. Raise it with
 // every such change.
-const Version = 3
+const Version = 4
 
 // statusWithCopy is what `bend status --json` prints: what the tracker
 // supports, and how the copy on this machine stands; null where the tracker
 // is not worked from one.
 type statusWithCopy struct {
 	tracker.Capabilities
-	Copy *github.CopyStatus `json:"copy"`
+	Copy *kept.Status `json:"copy"`
 }
 
 // AcceptVariable names the environment variable by which a caller says
@@ -490,6 +491,20 @@ func carryOut(command *Command, parsed *Parsed, surroundings Surroundings) (answ
 	if with, ok := issues.(interface{ LocalCopy() *github.Copy }); ok {
 		held = with.LocalCopy()
 	}
+	// The copy a tracker on this machine is answered from; nil otherwise.
+	local, _ := issues.(*kept.Tracker)
+	// copyNow says how whichever copy there is stands; nil for none.
+	copyNow := func() *kept.Status {
+		switch {
+		case local != nil:
+			status := local.Status()
+			return &status
+		case held != nil:
+			status := held.Status()
+			return &kept.Status{Folder: status.Folder, LastSync: status.LastSync, Waiting: status.Waiting, Refused: status.Refused}
+		}
+		return nil
+	}
 	// unsent fills in how many changes of each issue still wait to be sent.
 	unsent := func(listed []tracker.Issue) []tracker.Issue {
 		if held == nil {
@@ -512,10 +527,30 @@ func carryOut(command *Command, parsed *Parsed, surroundings Surroundings) (answ
 	}
 
 	switch command.Name {
+	case "refresh":
+		switch {
+		case local != nil:
+			if err := local.Reread(); err != nil {
+				return answer{}, err
+			}
+		case held != nil:
+			if _, err := held.WaitAndSync(false); err != nil {
+				return answer{}, err
+			}
+		default:
+			return did("There is no local copy here: the tracker is asked directly."), nil
+		}
+		return did("The local copy of the issues is fresh."), nil
+
 	case "list":
 		priority, err := priorityOption(parsed, "priority")
 		if err != nil {
 			return answer{}, err
+		}
+		if parsed.Flags["fresh"] && local != nil {
+			if err := local.Reread(); err != nil {
+				return answer{}, err
+			}
 		}
 		listed, err := issues.List(tracker.ListFilter{
 			Status:       value("status"),
@@ -817,22 +852,33 @@ func carryOut(command *Command, parsed *Parsed, surroundings Surroundings) (answ
 	case "status":
 		if parsed.Flags["quick"] {
 			about := issues.About()
+			// Where the copy is kept, for a caller that watches it for
+			// changes; null where there is none.
+			var folder *string
+			if status := copyNow(); status != nil {
+				folder = &status.Folder
+			}
+			// The tracker's own file that changes with its data (beads'
+			// "last touched"), for the same caller: a change made with the
+			// tracker's program reaches the copy only at the next read.
+			var watched *string
+			if local != nil && local.SignFile() != "" {
+				watched = tracker.Ptr(local.SignFile())
+			}
 			return answer{FormatAbout(about), fields{
 				{"tracker", about.Tracker},
 				{"repository", about.Repository},
 				{"linkKinds", about.LinkKinds},
 				{"root", found.Root},
+				{"copy", folder},
+				{"watch", watched},
 			}}, nil
 		}
 		capabilities, err := issues.Capabilities()
 		if err != nil {
 			return answer{}, err
 		}
-		reported := statusWithCopy{Capabilities: capabilities}
-		if held != nil {
-			status := held.Status()
-			reported.Copy = &status
-		}
+		reported := statusWithCopy{Capabilities: capabilities, Copy: copyNow()}
 		return answer{FormatStatus(capabilities) + FormatCopy(reported.Copy), reported}, nil
 
 	case "sync":
@@ -991,6 +1037,7 @@ func Run(argv []string, surroundings Surroundings) int {
 	// or found a few minutes old, is synced now, in a process of its own
 	// that this one does not wait for.
 	github.AfterCommand()
+	kept.AfterCommand()
 	if err == nil {
 		return status
 	}

@@ -40,6 +40,7 @@ About this repository:
   remember <text> [--key <key>]                               Save a standing fact for future sessions
   recall [words]                                              Show saved facts, all or those containing the words
   facts (--list | --ensure | --add-file <file> | --move-old)  Look after the facts file, for a program that sets a repository up
+  refresh                                                     Reread the local copy of the issues from the tracker
   sync [options]                                              Send waiting changes to a hosted tracker and bring in what changed there
   refused [options]                                           List the changes a hosted tracker refused for good, and dismiss or resend them
   setup [step | all] [options]                                See what a repository needs to be ready, and set it up step by step
@@ -107,6 +108,7 @@ About this repository:
   remember <text> [--key <key>]                               Save a standing fact for future sessions
   recall [words]                                              Show saved facts, all or those containing the words
   facts (--list | --ensure | --add-file <file> | --move-old)  Look after the facts file, for a program that sets a repository up
+  refresh                                                     Reread the local copy of the issues from the tracker
   sync [options]                                              Send waiting changes to a hosted tracker and bring in what changed there
   refused [options]                                           List the changes a hosted tracker refused for good, and dismiss or resend them
   setup [step | all] [options]                                See what a repository needs to be ready, and set it up step by step
@@ -148,6 +150,7 @@ Options:
   --parent <id>           Only the direct sub-issues of <id>
   --changed-since <time>  Only issues changed at or after this moment (ISO date and time)
   --with-body             With --json: add each issue's body (description and requirements as one text)
+  --fresh                 Reread the local copy from the tracker first
 
 Options for every command:
   -C, --dir <path>     Run as if started in <path>
@@ -648,12 +651,12 @@ Options for every command:
 
 $ bend version
 [exit 0]
-bend 3
+bend 4
 
 $ bend version --json
 [exit 0]
 {
-  "version": 3
+  "version": 4
 }
 
 $ bend status
@@ -678,6 +681,9 @@ Stored another way
 
 Worth knowing
   ! The beads database is not synced anywhere: the issues exist on this machine only (see `bd dolt remote`).
+Local copy
+  Kept in      <root>/.git/bend/beads
+  Last reread  never
 
 $ bend status --json
 [exit 0]
@@ -754,7 +760,12 @@ $ bend status --json
   "warnings": [
     "The beads database is not synced anywhere: the issues exist on this machine only (see `bd dolt remote`)."
   ],
-  "copy": null
+  "copy": {
+    "folder": "<root>/.git/bend/beads",
+    "lastSync": null,
+    "waiting": 0,
+    "refused": 0
+  }
 }
 
 $ bend status --quick
@@ -777,7 +788,9 @@ $ bend status --quick --json
     "validates",
     "supersedes"
   ],
-  "root": "<root>"
+  "root": "<root>",
+  "copy": "<root>/.git/bend/beads",
+  "watch": "<root>/.beads/last-touched"
 }
 
 $ bend list

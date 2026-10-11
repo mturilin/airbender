@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -38,10 +39,16 @@ func TestTheCopyIsInTheSharedGitFolder(t *testing.T) {
 	git(t, main, "commit", "-q", "--allow-empty", "-m", "start")
 	git(t, main, "worktree", "add", "-q", tree, "-b", "tree")
 	want := filepath.Join(main, ".git", "bend", "owner__name")
-	for _, from := range []string{main, filepath.Join(main, "deep"), tree} {
+	for _, from := range []string{main, tree} {
 		if got := FolderFor(from, "owner/name"); got != want {
 			t.Fatalf("from %s: got %s, want %s", from, got, want)
 		}
+	}
+	// A folder below the top is another place for a tracker: its own copy,
+	// in the same git folder.
+	deep := FolderFor(filepath.Join(main, "deep"), "owner/name")
+	if deep == want || filepath.Dir(deep) != filepath.Dir(want) {
+		t.Fatalf("a folder below the top got %s", deep)
 	}
 	// Another hosted repository gets a folder of its own.
 	if got := FolderFor(main, "owner/other"); got == want {
@@ -50,8 +57,14 @@ func TestTheCopyIsInTheSharedGitFolder(t *testing.T) {
 	// Outside git: under the user's data folder.
 	data := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", data)
-	if got := FolderFor(t.TempDir(), "owner/name"); got != filepath.Join(data, "bend", "owner__name") {
+	one, other := t.TempDir(), t.TempDir()
+	got := FolderFor(one, "owner/name")
+	if filepath.Dir(got) != filepath.Join(data, "bend") || !strings.HasPrefix(filepath.Base(got), "owner__name-") {
 		t.Fatalf("got %s", got)
+	}
+	// The same folder gives the same place; another folder, another.
+	if FolderFor(one, "owner/name") != got || FolderFor(other, "owner/name") == got {
+		t.Fatal("folders outside git do not each have their own copy")
 	}
 }
 

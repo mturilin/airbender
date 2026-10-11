@@ -23,6 +23,7 @@ import (
 
 	"github.com/mturilin/airbender/bend/internal/facts"
 	"github.com/mturilin/airbender/bend/internal/github"
+	"github.com/mturilin/airbender/bend/internal/kept"
 	"github.com/mturilin/airbender/bend/internal/setup"
 	"github.com/mturilin/airbender/bend/internal/tracker"
 )
@@ -290,7 +291,7 @@ func FormatSetup(state *setup.State) string {
 
 // FormatCopy gives the lines `bend status` adds about the copy a hosted
 // tracker is worked from; "" where there is none.
-func FormatCopy(status *github.CopyStatus) string {
+func FormatCopy(status *kept.Status) string {
 	if status == nil {
 		return ""
 	}
@@ -302,8 +303,14 @@ func FormatCopy(status *github.CopyStatus) string {
 		"",
 		"Local copy",
 		"  Kept in      " + status.Folder,
-		"  Last synced  " + synced,
-		"  Waiting      " + plural(status.Waiting, "change") + " made here not yet on the tracker",
+	}
+	if status.Straight {
+		// Changes go straight to the tracker: only how fresh matters.
+		lines = append(lines, "  Last reread  "+synced)
+	} else {
+		lines = append(lines,
+			"  Last synced  "+synced,
+			"  Waiting      "+plural(status.Waiting, "change")+" made here not yet on the tracker")
 	}
 	if status.Refused > 0 {
 		lines = append(lines, "  Refused      "+plural(status.Refused, "change")+" the tracker will not take: bend refused")

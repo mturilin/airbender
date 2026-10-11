@@ -45,7 +45,9 @@ import (
 	"encoding/json"
 	"errors"
 	"io/fs"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"sort"
@@ -345,6 +347,9 @@ type Tracker struct {
 	actor string
 	// command is the bd program to run.
 	command string
+	// home is the folder the repository's `.beads` folder is in; "" when it
+	// was not said.
+	home string
 }
 
 // New builds the beads adapter for one folder.
@@ -358,6 +363,43 @@ func New(dir, actor, command string) *Tracker {
 		command = "bd"
 	}
 	return &Tracker{dir: dir, actor: actor, command: command}
+}
+
+// At says where beads keeps the repository's database: the folder whose
+// `.beads` folder beads itself writes to. From a work tree that is the
+// repository's main folder, not the work tree, although a work tree has a
+// `.beads` folder of its own (the checked-in settings).
+// Without it the tracker has no sign to give (see Sign), and a copy of its
+// issues is believed only for a short while.
+func (beads *Tracker) At(home string) *Tracker {
+	beads.home = home
+	return beads
+}
+
+// SignFile is the file whose change is beads' sign (see Sign), for a
+// caller that watches for it; "" when where beads keeps its files was not
+// said.
+func (beads *Tracker) SignFile() string {
+	if beads.home == "" {
+		return ""
+	}
+	return filepath.Join(beads.home, ".beads", "last-touched")
+}
+
+// Sign gives beads' own mark of "something changed": the time and size of
+// the small file it rewrites on every change to an issue made through it.
+// Not on a delete, and not when a sync brings changes in; a copy's age
+// covers those.
+func (beads *Tracker) Sign() string {
+	if beads.home == "" {
+		return "unknown"
+	}
+	file, err := os.Stat(beads.SignFile())
+	if err != nil {
+		// Not written yet: its first writing is a change of the sign.
+		return "absent"
+	}
+	return strconv.FormatInt(file.ModTime().UnixNano(), 10) + "." + strconv.FormatInt(file.Size(), 10)
 }
 
 // bd runs one bd command and gives its standard output.
@@ -470,7 +512,7 @@ func (beads *Tracker) byIDs(ids []string) ([]tracker.Issue, error) {
 
 // About says what is known without running bd.
 func (beads *Tracker) About() tracker.About {
-	return tracker.About{Tracker: "beads", Repository: nil, LinkKinds: allKinds()}
+	return tracker.About{Tracker: "beads", Repository: nil, LinkKinds: allKinds(), Writes: tracker.WritesStraight}
 }
 
 // Capabilities says what beads holds and how.
@@ -507,80 +549,17 @@ func (beads *Tracker) Capabilities() (tracker.Capabilities, error) {
 	}, nil
 }
 
-// parseMoment reads a date and time in the forms a caller is likely to
-// write; ok is false for anything else. One written without an offset is
-// read as this machine's local time, as a person writing it means it.
-func parseMoment(text string) (moment time.Time, ok bool) {
-	text = strings.TrimSpace(text)
-	for _, layout := range []string{time.RFC3339Nano, "2006-01-02T15:04Z07:00", "2006-01-02 15:04:05Z07:00"} {
-		if parsed, err := time.Parse(layout, text); err == nil {
-			return parsed, true
-		}
-	}
-	for _, layout := range []string{"2006-01-02T15:04:05.999999999", "2006-01-02 15:04:05.999999999", "2006-01-02T15:04", "2006-01-02 15:04", "2006-01-02"} {
-		if parsed, err := time.ParseInLocation(layout, text, time.Local); err == nil {
-			return parsed, true
-		}
-	}
-	return time.Time{}, false
-}
-
 // List gives the issues the filter lets through; open ones by default.
 func (beads *Tracker) List(filter tracker.ListFilter) ([]tracker.Issue, error) {
-	var category *string
-	if filter.Category != nil {
-		name, err := tracker.CleanCategory(*filter.Category)
-		if err != nil {
-			return nil, err
-		}
-		category = &name
+	// Checked before bd is run, so that a wrong request costs nothing.
+	if _, err := tracker.Narrow(nil, filter); err != nil {
+		return nil, err
 	}
 	rows, err := beads.rows()
 	if err != nil {
 		return nil, err
 	}
-	same := func(have, want *string) bool { return want == nil || (have != nil && *have == *want) }
-	var since time.Time
-	sinceKnown := false
-	if filter.ChangedSince != nil {
-		// Refused, not answered with an empty list: a caller that keeps a
-		// copy would read "nothing" as "nothing has changed".
-		if since, sinceKnown = parseMoment(*filter.ChangedSince); !sinceKnown {
-			return nil, tracker.Usage("\"%s\" is not a date and time. Write it like 2026-01-31T14:00:00Z.", *filter.ChangedSince)
-		}
-	}
-	found := []tracker.Issue{}
-	for _, issue := range ToIssues(rows) {
-		switch {
-		case filter.Status == nil:
-			if issue.Status == closed {
-				continue
-			}
-		case *filter.Status != "all" && issue.Status != *filter.Status:
-			continue
-		}
-		if !same(issue.Type, filter.Type) || !same(issue.Category, category) ||
-			!same(issue.Assignee, filter.Assignee) || !same(issue.ParentID, filter.ParentID) {
-			continue
-		}
-		if filter.Priority != nil && (issue.Priority == nil || *issue.Priority != *filter.Priority) {
-			continue
-		}
-		if filter.ChangedSince != nil {
-			// Compared as moments, not as text: beads writes its times with
-			// an offset, and the caller's may be written another way. A
-			// moment that cannot be read lets nothing through.
-			if !sinceKnown || issue.UpdatedAt == nil {
-				continue
-			}
-			updated, ok := parseMoment(*issue.UpdatedAt)
-			if !ok || updated.Before(since) {
-				continue
-			}
-		}
-		found = append(found, issue)
-	}
-	return found, nil
+	return tracker.Narrow(ToIssues(rows), filter)
 }
 
 // idsFrom runs a bd command that answers with a list of rows and gives

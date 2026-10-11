@@ -63,7 +63,9 @@ function fromRows(rows: BdIssue[]): TrackerIssue[] {
     execFileSync(
       bend!,
       ["-C", folder, "list", "--status", "all", "--with-body", "--json"],
-      { env: { ...process.env, BEND_BD: fakeBd }, encoding: "utf8" },
+      // Asked directly: these rows change from test to test with nothing
+      // to tell bend's copy of them that they did.
+      { env: { ...process.env, BEND_BD: fakeBd, BEND_LIVE: "1" }, encoding: "utf8" },
     ),
   ) as TrackerIssue[];
 }

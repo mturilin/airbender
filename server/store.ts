@@ -34,8 +34,6 @@
 //   itself. Its refusals are in plain words and are passed on.
 
 import { homedir } from "node:os";
-import { statSync } from "node:fs";
-import { join } from "node:path";
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import {
   BEAD_ID_PATTERN,
@@ -43,7 +41,7 @@ import {
   CLOSED_STATUS,
 } from "../shared/constants.ts";
 import type { IssueType, LinkKind } from "../shared/constants.ts";
-import type { Tracker, Trackers } from "./bend.ts";
+import type { Tracker, Trackers, Watched } from "./bend.ts";
 import type { Issue, IssueComment, IssuesResult } from "./contract.ts";
 import type { CurrentBead } from "./current-bead.ts";
 import type { Folders } from "./folder.ts";
@@ -56,16 +54,8 @@ import {
   toIssues,
 } from "./issues.ts";
 import { DEFAULT_WORKFLOW_ID } from "../shared/workflows.ts";
-import { createListCache } from "./list-cache.ts";
 import { repositoryKey } from "./workflow-choice.ts";
 import type { WorkflowChoice } from "./workflow-choice.ts";
-
-/**
- * How long a kept list may be given out without being read again. It
- * covers what beads' "last touched" file does not show: an issue deleted
- * with bd, and a sync run by hand that brought changes in.
- */
-const LIST_KEPT_MS = 60_000;
 
 /** Which folder a request is about: a thread's, or a project's. */
 export interface FolderRef {
@@ -114,7 +104,7 @@ export function createStore({
   folders: Folders;
   trackers: Trackers;
   currentBead: CurrentBead;
-  watchFolder: (path: string) => void;
+  watchFolder: (path: string, watched?: Watched) => void;
   workflowChoice: WorkflowChoice;
 }) {
   const { folderFor, onOwnBranch, currentBranch, isWorkTree } = folders;
@@ -124,79 +114,80 @@ export function createStore({
   const changed = (threadId: string | null) =>
     bb.realtime.publish(CHANGED_CHANNEL, { threadId });
 
-  // The list is kept per repository and given out again while nothing has
-  // changed (server/list-cache.ts, bead-bb-3pr): a read costs a beads
-  // program that opens the whole database, and beads runs one at a time.
-  /** Repository key -> its main folder, where beads keeps its files. */
-  const homes = new Map<string, string>();
-  const lists = createListCache<IssuesRead>({
-    // Beads rewrites this small file on every change to an issue made
-    // through it (not on a delete or a sync: the age covers those).
-    stampOf: (key) => {
-      try {
-        const file = statSync(join(homes.get(key) ?? key, ".beads", "last-touched"));
-        return `${file.mtimeMs}.${file.size}`;
-      } catch {
-        return null;
-      }
-    },
-    maxAgeMs: LIST_KEPT_MS,
-    // A failed read is asked again; "no beads here" too, since setting the
-    // folder up changes exactly that.
-    keep: (read) => read.state === "ok",
-  });
+  // bend keeps a copy of the issues and answers from it (bead-bb-c9l.14),
+  // so nothing is kept here. Two small things remain: a folder whose issues
+  // were changed by something bend cannot know of is noted, so that the
+  // next read has bend reread its copy; and requests for the same folder
+  // that arrive together share one run of bend.
+  /**
+   * Repositories whose next read must have bend reread its copy. By
+   * repository, not by folder: the work trees of one repository share one
+   * copy and one set of issues.
+   */
+  const behind = new Set<string>();
+  /** The read under way for a folder; see readIssues for its key. */
+  const reading = new Map<string, Promise<IssuesRead>>();
+  /**
+   * How many times each repository's issues were changed from here. A read
+   * that began before a change must not be handed to a request made after
+   * it.
+   */
+  const changes = new Map<string, number>();
+
+  /** Notes that a repository's issues were, or are about to be, changed. */
+  function touched(path: string): void {
+    const key = repositoryKey(path);
+    changes.set(key, (changes.get(key) ?? 0) + 1);
+  }
 
   /**
-   * The folder's issues may have changed by something the plugin did or
-   * saw end (a write, a sync, a setup step): the kept list is dropped.
+   * The folder's issues may have changed by something the plugin did
+   * without bend (a sync, a setup step, the sync with GitHub): the next
+   * read has bend reread its copy.
    */
   function stale(path: string): void {
-    lists.stale(repositoryKey(path));
+    behind.add(repositoryKey(path));
+    touched(path);
   }
 
   /**
-   * Carries out something that may write to the folder's tracker, and
-   * drops the kept list around it: before, so that a reader arriving
-   * meanwhile does not get the old list as current, and after, so that
-   * the next reader sees the result.
-   */
-  async function writing<Result>(
-    path: string,
-    act: () => Promise<Result>,
-  ): Promise<Result> {
-    stale(path);
-    try {
-      return await act();
-    } finally {
-      stale(path);
-    }
-  }
-
-  /**
-   * Reads every issue of a folder. A plain read: nothing is written,
-   * watched or published.
+   * Reads every issue of a folder. A plain read: nothing is watched or
+   * published.
    *
    * Pre-condition: the folder exists (see folders.folderFor).
+   * @param fresh Have bend reread its copy from the tracker first: the
+   *   owner asked (refresh), or came back to the window.
    * @returns The issues, or which of the expected problems occurred.
-   * Side effects: one read of the folder's tracker, unless the list kept
-   *   for the folder's repository still stands.
-   *
-   * @param fresh Read anew whatever is kept: the owner asked (refresh), or
-   *   came back to the window.
+   * Side effects: one run of bend, shared with any other request for the
+   *   same folder that arrives while it runs.
    */
-  async function readIssues(path: string, fresh = false): Promise<IssuesRead> {
-    const key = repositoryKey(path);
-    if (!homes.has(key)) homes.set(key, (await folders.mainFolder(path)) ?? path);
-    return lists.read(key, () => readFresh(path), fresh);
+  function readIssues(path: string, fresh = false): Promise<IssuesRead> {
+    const repository = repositoryKey(path);
+    const anew = fresh || behind.has(repository);
+    // Shared only between requests for the same folder, of the same kind,
+    // made with no change from here in between.
+    const key = `${path}\n${anew}\n${changes.get(repository) ?? 0}`;
+    const under = reading.get(key);
+    if (under !== undefined) return under;
+    behind.delete(repository);
+    const read = readFresh(path, anew)
+      .then((result) => {
+        // Not reread after all: the mark stands for the next read.
+        if (anew && !fresh && result.state !== "ok") behind.add(repository);
+        return result;
+      })
+      .finally(() => reading.delete(key));
+    reading.set(key, read);
+    return read;
   }
 
   /** The read itself: one read of the folder's tracker. */
-  async function readFresh(path: string): Promise<IssuesRead> {
+  async function readFresh(path: string, anew: boolean): Promise<IssuesRead> {
     const found = await trackerFor(path);
     if ("state" in found) return found;
     try {
       // Every issue: the closed ones are shown too.
-      const issues = await found.tracker.list();
+      const issues = await found.tracker.list(anew);
       return { state: "ok", issues: toIssues(issues) };
     } catch (cause) {
       // Named, so that it is logged: a list that cannot be read is worth a
@@ -246,7 +237,7 @@ export function createStore({
     if (read.state !== "ok") {
       return { state: read.state, path, message: read.message, ...empty };
     }
-    watchFolder(path);
+    watchFolder(path, trackers.watchOf(path));
     const { issues } = read;
     // A closed issue is finished, so it is no longer what the thread works
     // on. The tab's own close button clears it directly, but an issue can
@@ -326,7 +317,11 @@ export function createStore({
     const found = await trackerFor(path);
     if ("state" in found) return { message: found.message };
     try {
-      await writing(path, () => act(found.tracker));
+      try {
+        await act(found.tracker);
+      } finally {
+        touched(path);
+      }
     } catch (cause) {
       return { message: problem(path, cause, what).message };
     }
@@ -386,21 +381,21 @@ export function createStore({
     const found = await trackerFor(folder.path);
     if ("state" in found) return fail(found.message);
     try {
-      const id = await writing(folder.path, () =>
-        found.tracker.create({
+      const id = await found.tracker.create({
         title: input.title,
         description: input.description,
         type: input.type ?? undefined,
         priority: input.priority ?? undefined,
         parentId: input.parentId ?? undefined,
         category: input.category ?? undefined,
-      }),
-      );
+      });
+      touched(folder.path);
       changed(input.threadId);
       return { id, message: null };
     } catch (cause) {
       // Published even so: the tracker may have created the issue and then
       // failed to say which one it is, and a reload shows whether it did.
+      touched(folder.path);
       changed(input.threadId);
       return fail(problem(folder.path, cause, "create").message);
     }
@@ -578,9 +573,11 @@ export function createStore({
       if (removeLabels.length === 0 && addLabels.length === 0) {
         return { message: null };
       }
-      await writing(path, () =>
-        found.tracker.edit(beadId, { addLabels, removeLabels }),
-      );
+      try {
+        await found.tracker.edit(beadId, { addLabels, removeLabels });
+      } finally {
+        touched(path);
+      }
     } catch (cause) {
       return { message: problem(path, cause, what).message };
     }
@@ -787,7 +784,7 @@ export function createStore({
    * copying of the GitHub sync.
    *
    * @returns Null when it was added; otherwise why not.
-   * Side effects: writes to the tracker; the kept list is dropped. No tab
+   * Side effects: writes to the tracker. No tab
    *   is told to reload: the caller does that once at its end.
    */
   async function commentAsIn(

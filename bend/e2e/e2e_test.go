@@ -119,7 +119,9 @@ func (repo *repository) bend(argv ...string) result {
 	repo.t.Helper()
 	command := exec.Command(program, argv...)
 	command.Dir = repo.root
-	command.Env = append(append(os.Environ(), "BD_ACTOR=tester"), repo.env...)
+	// No reread is started behind a command: the tests must not leave
+	// processes behind, and what they see must not depend on timing.
+	command.Env = append(append(os.Environ(), "BD_ACTOR=tester", "BEND_NO_BACKGROUND=1"), repo.env...)
 	command.Stdin = strings.NewReader("text from standard input")
 	var out, errOut bytes.Buffer
 	command.Stdout = &out

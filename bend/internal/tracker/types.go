@@ -259,6 +259,30 @@ type About struct {
 	Repository *string `json:"repository"`
 	// LinkKinds is every kind of link Link accepts here.
 	LinkKinds []string `json:"linkKinds"`
+	// Writes says how a change reaches the tracker, for the local copy bend
+	// answers from (internal/kept): WritesStraight, or WritesQueued. "" is
+	// taken as straight.
+	Writes string `json:"-"`
+}
+
+// How a tracker's changes are written; see About.Writes.
+const (
+	// WritesStraight: a change is made by the tracker at once and its
+	// answer is certain before the command returns. For a tracker on this
+	// machine.
+	WritesStraight = "straight"
+	// WritesQueued: a change is recorded on this machine and sent to the
+	// tracker afterwards. For a tracker reached over the network.
+	WritesQueued = "queued"
+)
+
+// Signed is implemented by a tracker that has a cheap sign which changes
+// whenever its data changes (a file's time, say). The local copy stores the
+// sign with what it holds, and knows by it that it is behind without asking
+// the tracker anything.
+type Signed interface {
+	// Sign gives the sign as it is now; never "". Nothing slow is done.
+	Sign() string
 }
 
 // UnlinkOptions narrow what Unlink removes.

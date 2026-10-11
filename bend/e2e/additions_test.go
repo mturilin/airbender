@@ -140,10 +140,16 @@ func TestFailuresSayWhichKindTheyAre(t *testing.T) {
 	same(t, repo.fails("show", "t-nope").Kind, "refused", "an issue that is not there")
 	same(t, repo.fails("list", "--wat").Kind, "usage", "an unknown option")
 	same(t, repo.fails("-C", t.TempDir(), "list").Kind, "not-set-up", "a folder without a tracker")
-	repo.env = []string{"BEND_BD=" + filepath.Join(repo.root, "no-such-bd")}
-	missing := repo.fails("list")
+	// In a repository bend has not read yet: with a fresh copy a read needs
+	// no beads program at all, and would succeed.
+	unread := newRepository(t)
+	unread.env = []string{"BEND_BD=" + filepath.Join(repo.root, "no-such-bd")}
+	missing := unread.fails("list")
 	same(t, missing.Kind, "no-program", "beads not installed")
 	same(t, missing.Status, 1, "its exit status")
+	// A change always needs it.
+	repo.env = unread.env
+	same(t, repo.fails("create", "No program").Kind, "no-program", "a change with beads not installed")
 	// A .beads folder that holds no database.
 	empty := t.TempDir()
 	if err := os.Mkdir(filepath.Join(empty, ".beads"), 0o755); err != nil {

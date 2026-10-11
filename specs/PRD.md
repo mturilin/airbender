@@ -792,6 +792,12 @@ panel. `[bwr]`
     notes.
   - As a marked "Links" section of the description: "discovered from" and
     "related", which GitHub does not have.
+- **`bend` answers reads from a copy of the issues kept on the computer,
+  for every tracker**, so that the agent in a terminal, the panel and the
+  sync see one and the same thing, and a read does not start the tracker's
+  program. With beads, a change still goes to beads at once and its answer
+  is certain before the command returns; a change made with beads' own
+  program in a terminal shows in the next read. `[c9l.14]`
 - **On a hosted tracker, `bend` works from a copy of the issues kept on
   the computer.** A read answers from the copy without waiting for the
   network; a change is recorded in the copy and sent afterwards; what others
@@ -1185,14 +1191,14 @@ breaking a requirement above.
   issue, how many comments would be copied; the progress and the result
   say how many were. A comment that cannot be copied is reported and does
   not stop the others.
-- Speed of switching: the product keeps the last list of issues it read
-  for a repository and shows it again while nothing has changed, so a
-  switch does not read the issues anew; a conversation switched back to
-  shows the list it last had at once and brings it up to date behind. A
-  change made in the panel shows at once. The refresh button, and coming
-  back to the app's window, always read the issues anew. One thing can
-  show late, by up to a minute, in a panel left untouched: an issue
-  removed outright, or a sync run by hand, in a terminal.
+- Speed of switching: `bend` keeps the list of a repository's issues it
+  last read and answers from it while nothing has changed, so a switch does
+  not read the issues anew; a conversation switched back to shows the list
+  it last had at once and brings it up to date behind. A change made in the
+  panel shows at once. The refresh button, and coming back to the app's
+  window, always read the issues anew. One thing can show late, by up to a
+  few minutes, in a panel left untouched: an issue removed outright, or a
+  sync run by hand, in a terminal. `[3pr]` `[c9l.14]`
 - The small step button on a row: lower than the icon buttons beside it,
   small text, no border, a soft grey fill that darkens under the pointer;
   it keeps its icon, label and tooltip. On the current issue it is the
@@ -1392,6 +1398,16 @@ breaking a requirement above.
   when it was asked for by hand. The labels that ask the tracker first are
   the workflow's step and the size. The size limit of one day and the three
   minutes are fixed numbers. `[c9l.5]`
+- bend's copy with beads: it is kept in the repository's shared git
+  folder; it knows it is behind by the small file beads rewrites on every
+  change; after a change through bend it is reread by a process started
+  behind the command; "ready" is beads' own answer, asked once after each
+  reread; comments are kept per issue and asked for again when the issue
+  changed; search is beads' own and always asks it. From a work tree the
+  copy and beads' file of changes are the main folder's. A read can succeed
+  with the beads program gone while the copy is fresh; a change cannot. The
+  panel keeps no list of its own and reloads when the copy changes.
+  `[c9l.14]`
 - bend: every command accepts: run in another folder, read the text from a
   file or standard input, and who is acting. The ending statuses are 0 done,
   1 refused, 2 asked wrongly, 3 not supported by this tracker.

@@ -64,10 +64,11 @@ var Commands = []Command{
 			{"--parent <id>", "Only the direct sub-issues of <id>"},
 			{"--changed-since <time>", "Only issues changed at or after this moment (ISO date and time)"},
 			withBodyOption,
+			{"--fresh", "Reread the local copy from the tracker first"},
 		},
 		Spec: OptionSpec{
 			Values: []string{"status", "type", "priority", "category", "assignee", "parent", "changed-since"},
-			Flags:  []string{"with-body"},
+			Flags:  []string{"with-body", "fresh"},
 		},
 		Group: groupFind,
 	},
@@ -272,6 +273,12 @@ var Commands = []Command{
 		},
 		Spec:  OptionSpec{Values: []string{"add-file"}, Flags: []string{"list", "ensure", "move-old"}},
 		Group: groupAbout,
+	},
+	{
+		Name:    "refresh",
+		Summary: "Reread the local copy of the issues from the tracker",
+		Details: "bend answers reads from a copy of the issues on this computer, and rereads\nit by itself: when the tracker says something changed, after a change made\nthrough bend, and when the copy is more than a few minutes old. This does\nit now. Deleting the copy is harmless: it is made anew.",
+		Group:   groupAbout,
 	},
 	{
 		Name:    "sync",

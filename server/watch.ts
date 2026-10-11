@@ -23,8 +23,9 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { existsSync, watch } from "node:fs";
 import type { FSWatcher } from "node:fs";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { CHANGED_CHANNEL } from "../shared/constants.ts";
+import type { Watched } from "./bend.ts";
 
 /**
  * Starts the change watcher: restores the folders watched before the last
@@ -69,15 +70,37 @@ export async function createWatcher(
    *   the watch fails, in which case it is dropped and restarted by the next
    *   list.
    */
-  function watchFolder(path: string): void {
-    if (watchers.has(path)) return;
-    const beadsDir = join(path, ".beads");
+  function watchFolder(
+    path: string,
+    watched: Watched = { copy: null, sign: null },
+  ): void {
+    // Beads' own mark of a change: where bend says it is (the repository's
+    // main folder, also for a work tree, whose own `.beads` folder beads
+    // never writes to), else in the folder itself.
+    const sign = watched.sign ?? join(path, ".beads", "last-touched");
+    watchOne(path, dirname(sign), basename(sign), path);
+    // bend's copy of the issues (bead-bb-c9l.14): it changes whenever any
+    // bend process rereads it and finds something new, whoever made the
+    // change.
+    if (watched.copy !== null) {
+      watchOne(path, watched.copy, "issues.json", `${path}\ncopy`);
+    }
+  }
+
+  /**
+   * Watches one file in one folder and tells the tabs of `path` when it
+   * changes.
+   *
+   * @param key What the watch is kept under; one watch per key.
+   */
+  function watchOne(path: string, beadsDir: string, file: string, key: string): void {
+    if (watchers.has(key)) return;
     if (!existsSync(beadsDir)) return;
     let timer: NodeJS.Timeout | null = null;
     let watcher: FSWatcher;
     try {
       watcher = watch(beadsDir, (_event, filename) => {
-        if (filename !== "last-touched") return;
+        if (filename !== file) return;
         if (timer !== null) clearTimeout(timer);
         timer = setTimeout(() => {
           timer = null;
@@ -93,25 +116,32 @@ export async function createWatcher(
     const stop = () => {
       if (timer !== null) clearTimeout(timer);
       watcher.close();
-      if (watchers.get(path) === watcher) watchers.delete(path);
+      if (watchers.get(key) === watcher) watchers.delete(key);
     };
     watcher.on("error", stop);
     watcher.on("close", () => {
       if (timer !== null) clearTimeout(timer);
     });
-    watchers.set(path, watcher);
-    if (watchers.size > MAX_WATCHED_FOLDERS) {
-      const oldest = watchers.keys().next().value;
-      if (oldest !== undefined) {
-        watchers.get(oldest)?.close();
-        watchers.delete(oldest);
+    watchers.set(key, watcher);
+    // A folder has up to two watches; the limit counts folders, and the
+    // oldest folder goes with both of its.
+    const folders = [...new Set([...watchers.keys()].map((kept) => kept.split("\n")[0]!))];
+    if (folders.length > MAX_WATCHED_FOLDERS) {
+      const oldest = folders[0]!;
+      for (const kept of [oldest, `${oldest}\ncopy`]) {
+        watchers.get(kept)?.close();
+        watchers.delete(kept);
       }
     }
     // Remember the folder so the watch comes back after the plugin is
     // reloaded or BB restarts. Not awaited: a failed save only costs the
     // watch until some tab next lists this folder.
     bb.storage.kv
-      .set(WATCHED_FOLDERS_KEY, [...watchers.keys()])
+      // Folders only: the copy's place is found again from bend.
+      .set(
+        WATCHED_FOLDERS_KEY,
+        [...watchers.keys()].filter((kept) => !kept.includes("\n")),
+      )
       .catch((cause) => bb.log.warn("could not save watched folders: " + cause));
   }
 

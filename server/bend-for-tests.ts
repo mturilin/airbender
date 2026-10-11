@@ -28,6 +28,10 @@ import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+// No reread behind a command while testing: a test must not leave
+// processes behind in folders it is about to delete.
+process.env.BEND_NO_BACKGROUND = "1";
+
 /** The program found or built; undefined until asked, null when there is none. */
 let found: string | null | undefined;
 

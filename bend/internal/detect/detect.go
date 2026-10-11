@@ -42,6 +42,7 @@ import (
 
 	"github.com/mturilin/airbender/bend/internal/beads"
 	"github.com/mturilin/airbender/bend/internal/github"
+	"github.com/mturilin/airbender/bend/internal/kept"
 	"github.com/mturilin/airbender/bend/internal/localcopy"
 	"github.com/mturilin/airbender/bend/internal/tracker"
 )
@@ -74,8 +75,8 @@ type Options struct {
 }
 
 // LiveVariable names the environment variable that, when set, makes bend
-// ask GitHub itself for every command instead of working from the copy on
-// this machine: for comparing the two, and for testing the connection.
+// ask the tracker itself for every command instead of working from the
+// copy on this machine: for comparing the two, and for testing an adapter.
 const LiveVariable = "BEND_LIVE"
 
 // gitTimeout is how long one of the read-only git commands may take.
@@ -178,7 +179,23 @@ func Tracker(dir string, options Options) (Found, error) {
 		bdCommand = beads.Find()
 	}
 	beadsIn := func(root, runIn string) Found {
-		return Found{Root: root, Tracker: beads.New(runIn, options.Actor, bdCommand)}
+		// Beads writes to the main folder's `.beads`, from whichever work
+		// tree it is run; that is where its sign of change is.
+		home := root
+		if main := mainFolderOf(root); main != "" && exists(filepath.Join(main, ".beads")) {
+			home = main
+		}
+		adapter := beads.New(runIn, options.Actor, bdCommand).At(home)
+		// Asked directly for every command only when the caller wants it.
+		if os.Getenv(LiveVariable) != "" {
+			return Found{Root: root, Tracker: adapter}
+		}
+		// From a copy on this machine (bead-bb-c9l.14): a read then starts
+		// no bd. Reread from where the command ran, so that bd is started
+		// there as the caller would start it.
+		held := kept.Open(adapter, localcopy.FolderFor(root, "beads"), kept.Options{Warn: options.Warn})
+		kept.Opened(held, start)
+		return Found{Root: root, Tracker: held}
 	}
 	githubIn := func(root, repository string) Found {
 		if options.GitHubClient != nil {

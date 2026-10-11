@@ -361,9 +361,19 @@ test("a folder without beads and a machine without bd are told apart", async (t)
   assert.match(none.message ?? "", /does not use beads yet/u);
   const noProgram = await storeIn(root, null).listIssues(here);
   assert.deepEqual([noProgram.state, noProgram.message], ["no-bd", "no bd here"]);
-  // Found by name, gone when run: the same answer, not a raw error.
-  const vanished = await storeIn(root, "bd-that-is-not-installed").listIssues(here);
-  assert.deepEqual([vanished.state, vanished.message], ["no-bd", "no bd here"]);
+  // Found by name, gone when run: the same answer, not a raw error. Asked
+  // with a change, which always needs the program; a read may be answered
+  // from bend's copy of the issues without it (bead-bb-c9l.14).
+  const vanished = await storeIn(root, "bd-that-is-not-installed").createIssue({
+    ...here,
+    title: "No program",
+    description: "",
+    type: null,
+    priority: null,
+    parentId: null,
+    category: null,
+  });
+  assert.deepEqual([vanished.id, vanished.message], [null, "no bd here"]);
   assert.equal(
     (await storeIn(empty).setIssueOpen("close", { ...here, beadId: "t-1" })).message,
     none.message,

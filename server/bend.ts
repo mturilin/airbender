@@ -24,6 +24,9 @@
 // - The beads program is looked for before bend and before the folder, so
 //   that a machine without beads is told so ("no-bd") even in a folder that
 //   has no issues yet. The setup screen offers a different step for each.
+// - bend answers reads from a copy of the issues it keeps on this machine
+//   (bead-bb-c9l.14), so asking for the list is cheap and nothing is kept
+//   here. `list(true)` has bend reread that copy first.
 // - What was found for a folder is remembered. It is forgotten when a run
 //   reports a program missing, so installing or building one is picked up
 //   without reloading the plugin. A folder with no tracker is not
@@ -42,7 +45,7 @@
 import { execFile } from "node:child_process";
 
 /** The bend this plugin needs at least; see `Version` in bend's cli. */
-export const NEEDED_VERSION = 2;
+export const NEEDED_VERSION = 4;
 
 /** How long one run of bend may take. */
 const BEND_TIMEOUT_MS = 60_000;
@@ -217,8 +220,13 @@ export function createRun(
 
 /** The operations the tab's store asks of a folder's tracker. */
 export interface Tracker {
-  /** Every issue, closed ones too. */
-  list(): Promise<TrackerIssue[]>;
+  /**
+   * Every issue, closed ones too.
+   *
+   * @param fresh Have bend reread its copy of the issues from the tracker
+   *   first, for when something changed that bend cannot know of.
+   */
+  list(fresh?: boolean): Promise<TrackerIssue[]>;
   show(id: string): Promise<TrackerIssue>;
   comments(id: string): Promise<TrackerComment[]>;
   /** @returns The new issue's id. */
@@ -256,8 +264,14 @@ export function trackerOver(run: Run): Tracker {
   const option = (name: string, value: string | number | undefined) =>
     value === undefined ? [] : [`--${name}`, `${value}`];
   return {
-    async list() {
-      return (await run(["list", "--status", "all", "--with-body"])) as TrackerIssue[];
+    async list(fresh = false) {
+      return (await run([
+        "list",
+        "--status",
+        "all",
+        "--with-body",
+        ...(fresh ? ["--fresh"] : []),
+      ])) as TrackerIssue[];
     },
     async show(id) {
       return (await run(["show", "--with-body", "--", id])) as TrackerIssue;
@@ -321,6 +335,19 @@ export function trackerOver(run: Run): Tracker {
       await run(["unlink", ...(onlyFrom ? ["--from-first"] : []), "--", id, otherId]);
     },
   };
+}
+
+/**
+ * What changes when a folder's issues do, as `bend status --quick` says.
+ */
+export interface Watched {
+  /** The folder bend keeps its copy of the issues in; null when none. */
+  copy: string | null;
+  /**
+   * The tracker's own file that changes with its data (beads' "last
+   * touched", in the repository's main folder); null when it has none.
+   */
+  sign: string | null;
 }
 
 /** One saved fact, as bend's `recall` prints it. */
@@ -405,7 +432,10 @@ export function createTrackers({
   warn: (line: string) => void;
 }) {
   /** What was found for a folder: its tracker, and how to run bend there. */
-  const known = new Map<string, { tracker: Tracker; run: Run }>();
+  const known = new Map<
+    string,
+    { tracker: Tracker; run: Run; watch: Watched }
+  >();
 
   /**
    * Turns a failed run into the tab's outcome.
@@ -491,19 +521,34 @@ export function createTrackers({
     if (bd === null) return { state: "no-bd", message: notFoundMessage };
     const bend = await bendIn(path, bd);
     if ("state" in bend) return bend;
+    let watch: Watched = { copy: null, sign: null };
     try {
       // The quick form asks the tracker nothing: it only says whether the
       // folder has one.
-      await bend.run(["status", "--quick"]);
+      const about = (await bend.run(["status", "--quick"])) as {
+        copy?: unknown;
+        watch?: unknown;
+      };
+      watch = {
+        copy: typeof about.copy === "string" ? about.copy : null,
+        sign: typeof about.watch === "string" ? about.watch : null,
+      };
     } catch (cause) {
       return problem(path, cause);
     }
-    const found = { tracker: trackerOver(bend.run), run: bend.run };
+    const found = { tracker: trackerOver(bend.run), run: bend.run, watch };
     known.set(path, found);
     return { tracker: found.tracker };
   }
 
-  return { trackerFor, bendIn, problem };
+  /**
+   * What to watch to learn that a folder's issues changed; nothing when the
+   * folder's tracker is not known yet.
+   */
+  const watchOf = (path: string): Watched =>
+    known.get(path)?.watch ?? { copy: null, sign: null };
+
+  return { trackerFor, bendIn, problem, watchOf };
 }
 
 /** What createTrackers returns; handed to the store and to setup. */
