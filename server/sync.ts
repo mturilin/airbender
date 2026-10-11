@@ -45,7 +45,7 @@ const REMOTE_EMPTY_MS = 30_000;
  *
  * @param repositoryKey Gives every work tree of a repository the same key
  *   (server/workflow-choice.ts).
- * @returns `state`, `log`, `steps`, `changed`, `opened` and `refresh`, each
+ * @returns `state`, `log`, `changed`, `opened` and `refresh`, each
  *   for a folder.
  * Side effects: reads the plugin's storage now; starts the timed sync,
  *   stopped when the plugin is disposed.
@@ -172,8 +172,7 @@ export async function createSync({
     });
     // A source made before beads was installed would never find it: it
     // is kept, and made known to the service, only once the program is
-    // there. Until then each look makes a fresh one, which can still say
-    // which setup steps apply.
+    // there. Until then each look makes a fresh one.
     if (bdPath !== null) {
       sources.set(key, source);
       service.use(key, source);
@@ -194,10 +193,6 @@ export async function createSync({
     /** The log of a folder's repository, newest first. */
     async log(path: string): Promise<SyncEntry[]> {
       return service.log((await sourceFor(path)).key);
-    },
-    /** The setup steps the folder's source offers now. */
-    async steps(path: string) {
-      return (await sourceFor(path)).source.steps();
     },
     /** The folder's issues changed (the watcher's report). */
     changed(path: string): void {

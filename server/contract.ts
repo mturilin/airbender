@@ -220,7 +220,7 @@ export type IssuesResult = z.infer<typeof issuesResultSchema>;
  * The tab draws its setup panel, its suggestions and its "more" menu from
  * this one answer.
  */
-/** One setup step of the issue sync, as the tab shows it. */
+/** A setup step whose words come from bend, as the tab shows it. */
 const syncStepSchema = z.object({
   label: z.string(),
   why: z.string(),
@@ -254,7 +254,18 @@ const setupStatusSchema = z.object({
   path: z.string().nullable(),
   /** Why nothing can be set up (no folder here); null when setup applies. */
   unavailable: z.string().nullable(),
-  /** Whether the beads program was found. */
+  /**
+   * The tracker the repository uses, "beads" or "github"; null when none
+   * is chosen yet. `trackerChosen` says the same as a condition.
+   */
+  tracker: z.string().nullable(),
+  trackerChosen: z.boolean(),
+  /**
+   * Why the issues cannot be prepared, when that is not for an earlier
+   * step (with GitHub issues: the repository cannot be told); else null.
+   */
+  issuesBlocked: z.string().nullable(),
+  /** Whether the tracker's program is there, or none is needed. */
   bdInstalled: z.boolean(),
   /**
    * The ways to install beads that this machine has the tools for. `command`
@@ -345,8 +356,8 @@ const setupStatusSchema = z.object({
    * words to show for it: `on` to start syncing issues that are synced
    * nowhere, `fetch` to get the issues of a folder that has none while its
    * remote holds them (a fresh clone), in place of starting empty. Null
-   * for a step that does not apply. What they say and do is the sync
-   * source's (sync/), not this plugin's: another tracker's differ.
+   * for a step that does not apply. What they say and do is bend's
+   * (`bend setup`), not this plugin's: another tracker's differ.
    */
   syncSteps: z.object({ on: syncStepSchema.nullable(), fetch: syncStepSchema.nullable() }),
 });

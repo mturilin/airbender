@@ -201,28 +201,20 @@ test("a position beads can no longer read is replaced, saying 'not known' once",
 
 const GIT_REMOTE = ok('[{"name":"origin","url":"git+https://example.com/r.git"}]');
 
-test("setup: issues with no remote, or with one that holds nothing, are offered syncing", async () => {
+test("issues with no remote, or with one that holds nothing, are synced nowhere", async () => {
   const none = source({ "dolt remote list": ok("[]") }, () => [seen("x-1", "1")], null);
-  const steps = await none.made.steps();
-  assert.equal(steps.fetch, null);
-  assert.equal(steps.on?.label, "Sync issues to the repository's remote");
-  // Push first: a sync pulls first, and a first sync has nothing to pull.
-  assert.equal(steps.on?.command, "bd dolt push --yes && bd sync");
-  assert.match(steps.on?.explain.points[0] ?? "", /publishes this folder's whole issue history/u);
+  assert.equal(await none.made.remote(), null);
   // `bd init` leaves this: a remote taken from the git origin, nothing sent.
   const empty = source({ "dolt remote list": GIT_REMOTE }, () => [seen("x-1", "1")], null, "");
   assert.equal(await empty.made.remote(), null);
-  assert.notEqual((await empty.made.steps()).on, null);
 });
 
 test("a remote counts as syncing only when it holds the issues", async () => {
   const holds = source({ "dolt remote list": GIT_REMOTE }, () => [seen("x-1", "1")], null);
   assert.equal(await holds.made.remote(), "the repository's git remote");
-  assert.deepEqual(await holds.made.steps(), { on: null, fetch: null });
-  // Not reached: not on for now, and no step offered on a guess.
+  // Not reached: not on for now.
   const offline = source({ "dolt remote list": GIT_REMOTE }, () => [seen("x-1", "1")], null, null);
   assert.equal(await offline.made.remote(), null);
-  assert.deepEqual(await offline.made.steps(), { on: null, fetch: null });
   // A remote that is not a git repository cannot be asked: taken as holding.
   const hosted = source(
     { "dolt remote list": ok('[{"name":"origin","url":"https://doltremoteapi.example.com/me/db"}]') },
@@ -231,12 +223,4 @@ test("a remote counts as syncing only when it holds the issues", async () => {
     "",
   );
   assert.equal(await hosted.made.remote(), "the repository's git remote");
-});
-
-test("setup: a folder without issues whose remote holds them is offered to fetch them", async () => {
-  const fresh = source({}, () => null, null);
-  const steps = await fresh.made.steps();
-  assert.equal(steps.on, null);
-  assert.equal(steps.fetch?.label, "Get this repository's issues");
-  assert.equal(steps.fetch?.command, "bd bootstrap --yes");
 });

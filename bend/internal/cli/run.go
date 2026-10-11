@@ -43,6 +43,7 @@ import (
 
 	"github.com/mturilin/airbender/bend/internal/detect"
 	"github.com/mturilin/airbender/bend/internal/facts"
+	"github.com/mturilin/airbender/bend/internal/setup"
 	"github.com/mturilin/airbender/bend/internal/tracker"
 )
 
@@ -56,6 +57,20 @@ type Surroundings struct {
 	Stdin func() string
 	// Cwd is the folder the command was started in.
 	Cwd string
+	// Interactive says that someone is at the keyboard and may be asked a
+	// question. Only the setup steps ask.
+	Interactive bool
+	// Ask prints a question and reads one line of answer from the keyboard.
+	// Only called when Interactive.
+	Ask func(question string) string
+	// Attach runs an outside command in a folder with the terminal handed
+	// to it, so its output and its own questions are seen, and gives its
+	// exit status; -1 when it could not be started. What the command prints
+	// must not land in bend's own answer (see cmd/bend).
+	// keyboard says whether the command may read the keyboard; when false
+	// its standard input is nothing, so a question of its own ends at once
+	// instead of waiting.
+	Attach func(dir string, keyboard bool, name string, args ...string) int
 	// Detect finds the tracker; detect.Tracker when nil. Replaced in tests.
 	Detect func(dir string, options detect.Options) (detect.Found, error)
 }
@@ -207,7 +222,7 @@ func oneOf(typed string, allowed []string, what string) (string, error) {
 // first and says so plainly when the bend it found is older than it needs,
 // instead of failing on an option that bend does not know. Raise it with
 // every such change.
-const Version = 1
+const Version = 2
 
 // AcceptVariable names the environment variable by which a caller says
 // which trackers it can work with, separated by commas, e.g. "beads". A
@@ -278,6 +293,64 @@ func folderOf(parsed *Parsed, surroundings Surroundings) string {
 		return *dir
 	}
 	return surroundings.Cwd
+}
+
+// setUp carries out `bend setup`: alone it reads what is in place; with a
+// step's name it carries that step out; with "all", every missing one.
+//
+// It needs no tracker in the folder: finding one is what it is for.
+// Side effects: none without a step; a step's own otherwise (see
+// internal/setup).
+func setUp(parsed *Parsed, surroundings Surroundings) (answer, error) {
+	dir := folderOf(parsed, surroundings)
+	options := setup.Options{}
+	if len(parsed.Positionals) > 1 {
+		return answer{}, tracker.Usage("Name one step, or all. Run `bend setup` to see the steps.")
+	}
+	if len(parsed.Positionals) == 0 {
+		state, err := setup.Read(dir, options)
+		if err != nil {
+			return answer{}, err
+		}
+		return answer{FormatSetup(state), state}, nil
+	}
+	terminal := setup.Terminal{
+		Interactive: surroundings.Interactive && !parsed.Flags["no-input"] && surroundings.Ask != nil,
+		Ask:         surroundings.Ask,
+		Say:         surroundings.Err,
+		Run:         func(string, string, ...string) int { return -1 },
+	}
+	if attach := surroundings.Attach; attach != nil {
+		terminal.Run = func(dir, name string, args ...string) int {
+			return attach(dir, terminal.Interactive, name, args...)
+		}
+	}
+	answers := setup.Answers{
+		Yes:        parsed.Flags["yes"],
+		Use:        orEmpty(parsed.value("use")),
+		Repository: orEmpty(parsed.value("repository")),
+		Method:     orEmpty(parsed.value("method")),
+		Keep:       parsed.Lists["keep"],
+		KeepAll:    parsed.Flags["keep-all"],
+		KeepNone:   parsed.Flags["keep-none"],
+	}
+	step := parsed.Positionals[0]
+	if step == "all" {
+		outcomes, err := setup.All(dir, terminal, answers, options)
+		if err != nil {
+			return answer{}, err
+		}
+		text := "Nothing was missing."
+		if len(outcomes) > 0 {
+			text = "Done: " + plural(len(outcomes), "step") + ". Run `bend setup` to see what is in place."
+		}
+		return answer{text, fields{{"ok", true}, {"steps", outcomes}}}, nil
+	}
+	outcome, err := setup.Run(step, dir, terminal, answers, options)
+	if err != nil {
+		return answer{}, err
+	}
+	return did(outcome.Message, field{"step", outcome.Step}, field{"changed", outcome.Changed}, field{"message", outcome.Message}), nil
 }
 
 // lookAfterFacts carries out the `facts` command.
@@ -374,6 +447,8 @@ func plural(count int, noun string) string {
 // Fails with an *tracker.Error; see the package comment for the kinds.
 func carryOut(command *Command, parsed *Parsed, surroundings Surroundings) (answer, error) {
 	switch command.Name {
+	case "setup":
+		return setUp(parsed, surroundings)
 	case "facts":
 		return lookAfterFacts(parsed, surroundings)
 	case "version":
@@ -771,6 +846,19 @@ func writeBody(issues tracker.Tracker, id, body string) error {
 	return nil
 }
 
+// shortForms gives the one-letter options a command accepts: the ones
+// every command has, and its own.
+func shortForms(command *Command) map[string]string {
+	short := map[string]string{}
+	for letter, name := range commonSpec.Short {
+		short[letter] = name
+	}
+	for letter, name := range command.Spec.Short {
+		short[letter] = name
+	}
+	return short
+}
+
 // asksForHelp says whether a command line asks for help: --help or -h
 // standing as an option.
 //
@@ -877,7 +965,7 @@ func run(argv []string, surroundings Surroundings, asJSON *bool) (int, error) {
 		Values: append(slices.Clone(commonSpec.Values), command.Spec.Values...),
 		Lists:  command.Spec.Lists,
 		Flags:  append(slices.Clone(commonSpec.Flags), command.Spec.Flags...),
-		Short:  commonSpec.Short,
+		Short:  shortForms(command),
 	})
 	if err != nil {
 		return 0, err

@@ -91,6 +91,13 @@ Rules for the layout:
 When something the panel needs is missing, the panel offers to set it up.
 `[80e]`
 
+- **Setting a repository up does not need the panel.** The same steps can
+  be run from a plain terminal with `bend setup`; the panel's setup shows
+  the state that command reports and runs its steps, so the two never
+  disagree. `[c9l.9]`
+- **The first step is choosing where the issues are kept**, beads or GitHub
+  issues, where nothing says so yet. The choice is recorded in the
+  repository. The panel offers it like any other step. `[c9l.9]`
 - **Three things can be set up**, in this order:
   1. **Install beads**, when the tracker's program is not on the computer.
      The owner **chooses the way of installing each time**, from the ways
@@ -808,6 +815,24 @@ panel. `[bwr]`
   link and unlink two issues (blocked by, discovered from, related); hand an
   issue over; report the repository's status; save and recall standing
   facts.
+- **It sets a repository up.** `bend setup` alone only reads: it says what
+  is in place and what is missing, and gives the same to a program. Each
+  subcommand is one setup step, and changes something; `bend setup all`
+  runs the missing ones in order, each exactly as it runs by itself.
+  `[c9l.9]`
+  - **Steps ask by default, and options answer in advance**, so that an
+    agent or the panel can run them without anyone typing. A yes-or-no
+    question is answered by one option for all; each choice has an option
+    of its own.
+  - **Where nobody is at a keyboard, a step never waits.** If an answer is
+    missing it changes nothing, says what it needed and which option gives
+    it, and ends at once.
+  - **Every step is idempotent**: if it is already done, it changes nothing.
+  - **Preparing the issues** gets them where the repository's remote
+    already holds them, and starts a new database where it does not.
+    **Publishing the issues** to the remote is a step of its own.
+  - **Anything that changes the machine, or sends data off it,** is shown
+    as the exact command first and needs a yes or an explicit option.
 - **It has no notion of a "current" issue.** That belongs to a working
   session, not to the tracker.
 - **Closing is available to agents.** That agents do not close on their own
@@ -1329,6 +1354,16 @@ breaking a requirement above.
   on the first issue. `[c9l.4]`
 - bend: the panel tells it which beads program to run and to pass over any
   tracker but beads. `[c9l.4]`
+- bend setup: the steps are called tracker, program, issues, instructions,
+  facts and publish. A repository that already has a beads folder counts as
+  having chosen beads; a GitHub remote alone does not count as a choice.
+  With GitHub issues the "issues" step is signing in, which is only offered
+  at a keyboard. Where the repository has no remote, publishing is not
+  offered and the reason is given. What another program prints during a
+  step (an installer, the tracker's program) is kept out of bend's own
+  answer. The panel keeps its own confirmation windows and hands bend the
+  answers; it keeps bend's answer about a folder for a short while, and
+  "everything is in place" until something is run. `[c9l.9]`
 - bend: every command accepts: run in another folder, read the text from a
   file or standard input, and who is acting. The ending statuses are 0 done,
   1 refused, 2 asked wrongly, 3 not supported by this tracker.

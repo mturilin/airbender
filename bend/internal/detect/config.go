@@ -47,6 +47,9 @@ type Setting struct {
 // repositoryName is how a repository is written: "owner/name".
 var repositoryName = regexp.MustCompile(`^[\w.-]+/[\w.-]+$`)
 
+// ValidRepository says whether a text names a repository as "owner/name".
+func ValidRepository(name string) bool { return repositoryName.MatchString(name) }
+
 // asWritten gives a JSON value as it stands in the file, on one line, for a
 // message about it.
 func asWritten(raw json.RawMessage) string {
@@ -92,4 +95,31 @@ func ReadSetting(folder string) (*Setting, error) {
 		}
 	}
 	return setting, nil
+}
+
+// WriteSetting writes a folder's setting file, replacing what was there.
+//
+// A field left "" is left out of the file.
+// Side effects: writes .bend.json in folder.
+func WriteSetting(folder string, setting Setting) error {
+	file := filepath.Join(folder, SettingFile)
+	fields := []string{}
+	if setting.Tracker != "" {
+		fields = append(fields, `"tracker": `+quoted(setting.Tracker))
+	}
+	if setting.Repository != "" {
+		fields = append(fields, `"repository": `+quoted(setting.Repository))
+	}
+	// Written by hand to keep the keys in this order, one line, as a person
+	// would write it.
+	if err := os.WriteFile(file, []byte("{"+strings.Join(fields, ", ")+"}\n"), 0o644); err != nil {
+		return tracker.Refused("%s could not be written.", file)
+	}
+	return nil
+}
+
+// quoted gives a text as a JSON string.
+func quoted(text string) string {
+	encoded, _ := json.Marshal(text)
+	return string(encoded)
 }

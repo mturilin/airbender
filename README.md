@@ -25,8 +25,8 @@ panel, beside a thread or on the New thread screen.
   `current-bead.ts` is the thread's current issue; `issues.ts` turns the
   tracker's issues into the tab's (its names for links, what it keeps in
   labels, and "blocked when every open sub-issue is"); `watch.ts` and `setup.ts`
-  are what their names say; `prompts.ts` holds the wording sent
-  to agents.
+  are what their names say (setup is buttons over `bend setup`). The rules
+  written for agents are in bend (`bend/internal/instructions`).
 - `app.tsx` and `app/` — the frontend. `app.tsx` registers the surfaces;
   the **Airbender** tab is `app/panel.tsx` and the files beside it (rows,
   opened issue, groups, new-issue field, menus, setup), and
@@ -55,8 +55,8 @@ panel, beside a thread or on the New thread screen.
   without knowing which tracker holds them (see "bend" below). It does not
   depend on the plugin or on BB. The tab's backend reads and changes issues
   by running it too, so there is one code path to the tracker; the only
-  `bd` commands in the plugin are the setup steps in `server/setup.ts` and
-  the syncing in `sync/` and `server/github.ts`.
+  `bd` commands in the plugin are the syncing in `sync/` and
+  `server/github.ts`; setting a repository up is `bend setup`.
 - `*.test.ts` — tests for the logic without React or BB; run `npm test`.
   The server's tests build bend from `bend/` first, so they need Go; where
   it is missing they are skipped.
@@ -217,6 +217,13 @@ When something is missing, the tab offers it in a card in the middle, each
 step with its button and a Skip; the "⋯" menu at the right of the toolbar
 lists every step, greyed out when done or not yet possible:
 
+Every step but "Build bend" is a step of `bend setup` (see "bend" below):
+the tab asks bend what is in place, asks you to confirm, and runs the same
+step a terminal would, so the two never disagree. First of all, where
+nothing says it yet, **Choose where the issues are kept**: beads or GitHub
+issues, recorded in `.bend.json`. (The tab can list only beads issues so
+far; with GitHub issues agents work them with bend.)
+
 1. **Install beads** — pick a method (install script, mise, Homebrew, npm).
    **Build bend** comes with it: the tab reads and changes issues with the
    `bend` program, built from the `bend` folder of the plugin with Go into
@@ -229,7 +236,7 @@ lists every step, greyed out when done or not yet possible:
 3. **Add Airbender's instructions for agents** — the working rules the
    buttons rely on, added to `AGENTS.md` between
    `<!-- airbender:rules:start -->` and `<!-- airbender:rules:end -->`
-   (`server/prompts.ts`). They are the only instructions about issues: in
+   (`bend/internal/instructions`). They are the only instructions about issues: in
    a repository set up the old way the step is called "Replace beads'
    instructions with Airbender's" and also removes beads' generated blocks
    from `AGENTS.md` and `CLAUDE.md` (between beads' own markers, nothing
@@ -278,6 +285,31 @@ bend --help
 
 The tab's setup step "Build bend" runs exactly that.
 
+### Setting a repository up from a terminal
+
+`bend setup` gets a repository ready with no BB:
+
+```sh
+bend setup                      # reads only: every step, done or missing, and the command for each
+bend setup all                  # does every missing step in order, asking as it goes
+bend setup tracker --use beads  # one step, its question answered by an option
+```
+
+The steps are `tracker` (beads or GitHub issues, recorded in `.bend.json`),
+`program` (install beads), `issues` (get the repository's issues on a fresh
+clone, or start a database; with GitHub issues, sign in), `instructions`
+(the rules for agents in `AGENTS.md`, the `CLAUDE.md` pointer, `FACTS.md`;
+beads' own blocks and hooks taken out), `facts` (carry facts saved in beads
+over) and `publish` (the issue database to the repository's remote).
+
+A step asks what it needs and shows what it will do, with the exact outside
+command, before doing it. Options answer in advance: `-y` for a yes, and one
+option for each choice (`--use`, `--method`, `--keep`). Where nobody is at
+the keyboard (an agent, a script) a step never waits: it changes nothing and
+ends at once, naming the option that was missing. A step that is already
+done changes nothing. `bend setup --json` gives the state to a program; the
+tab draws its setup card from it.
+
 Which tracker: a `.bend.json` file at the repository's root decides
 (`{"tracker": "github"}` or `{"tracker": "beads"}`, optionally
 `"repository": "owner/name"`); without it a `.beads` folder means beads,
@@ -296,6 +328,9 @@ For GitHub, sign in with `gh auth login` or set `GH_TOKEN`.
   "blocked by"), the connection to GitHub (login, requests, plain words
   for each failure), and an in-memory stand-in for the tests.
 - `bend/internal/facts` — standing facts, kept in `FACTS.md`.
+- `bend/internal/setup` — the setup steps and their state.
+  `bend/internal/instructions` — the rules written for agents (`rules.md`)
+  and how they are put into `AGENTS.md` and `CLAUDE.md`.
 - `bend/internal/cli` — the command: the table the help and the accepted
   options both come from, reading arguments, text and JSON output.
 - `bend/e2e` — tests that start the program: scenarios on a real throwaway
@@ -380,7 +415,7 @@ npm test               # run the tests (node's own test runner)
 
 The frontend may import only types from `server.ts` and `server/`; values
 both sides need go in `shared/`. Files that the tests load
-(`server/issues.ts`, `server/bend.ts`, `server/prompts.ts`, `app/issue-model.ts`,
+(`server/issues.ts`, `server/bend.ts`, `bend/internal/instructions/rules.md`, `app/issue-model.ts`,
 `app/quick-tags.ts`, everything in `shared/`) must not import React, the BB SDK or `@/...` paths.
 A new source folder must be added to `include` in `tsconfig.json`.
 

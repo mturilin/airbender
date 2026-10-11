@@ -159,7 +159,14 @@ func Tracker(dir string, options Options) (Found, error) {
 	// Lets a machine where bd is not on the PATH still be used.
 	bdCommand := strings.TrimSpace(options.BdCommand)
 	if bdCommand == "" {
+		// What the environment names is taken as it is, found or not, so
+		// that a wrong name is reported as "not found" with that name.
 		bdCommand = strings.TrimSpace(os.Getenv("BEND_BD"))
+	}
+	if bdCommand == "" {
+		// Also in the usual folders: an install may have put bd where no
+		// PATH reaches yet.
+		bdCommand = beads.Find()
 	}
 	beadsIn := func(root, runIn string) Found {
 		return Found{Root: root, Tracker: beads.New(runIn, options.Actor, bdCommand)}

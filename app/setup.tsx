@@ -100,19 +100,41 @@ function setupSteps(status: SetupStatus): SetupStep[] {
   // Without bend the folder cannot be asked whether it has issues, so the
   // steps that depend on that answer wait for it.
   const bendReady = status.bend === "ready";
+  // With GitHub issues there is no database to make: the step is signing in.
+  const onGitHub = status.tracker === "github";
   const steps: SetupStep[] = [
+    {
+      key: "tracker",
+      action: "tracker",
+      option: null,
+      label: "Choose where the issues are kept",
+      why: "Nothing says yet where this repository's issues are kept: in beads, a database inside the repository, or in GitHub issues.",
+      needed: bendReady && !status.trackerChosen,
+      blocked: status.trackerChosen
+        ? (status.tracker ?? "chosen")
+        : !bendReady
+          ? "build bend first"
+          : running,
+    },
     {
       key: "install",
       action: "install",
       option: null,
       label: "Install beads",
       why: "The beads program is not on this computer. The tab needs it to read and change issues.",
-      needed: !status.bdInstalled,
+      // It is bend that installs it, so bend comes first.
+      needed: !status.bdInstalled && status.trackerChosen && bendReady,
       blocked: status.bdInstalled
-        ? "installed"
-        : status.installMethods.length === 0
-          ? "no installer found"
-          : running,
+        ? onGitHub
+          ? "not needed"
+          : "installed"
+        : bendReady && !status.trackerChosen
+          ? "choose the tracker first"
+          : status.installMethods.length === 0 && bendReady
+            ? "no installer found"
+            : !bendReady
+              ? "build bend first"
+              : running,
     },
     {
       key: "bend",
@@ -174,16 +196,41 @@ function setupSteps(status: SetupStatus): SetupStep[] {
           key: "init",
           action: "init" as const,
           option: null,
-          label: "Set up beads in this folder",
-          why: "This folder has no issue database yet. Setting it up lets you track issues here.",
-          needed: status.bdInstalled && bendReady && !status.folderReady,
+          label: onGitHub ? "Sign in to GitHub" : "Set up beads in this folder",
+          // Where it cannot be done, the reason is said here: a step that
+          // cannot be started opens no confirmation to say it in.
+          why:
+            status.issuesBlocked !== null && status.bdInstalled && status.trackerChosen
+              ? status.issuesBlocked
+              : onGitHub
+                ? "There is no GitHub login on this computer. Issues on GitHub are read and changed as you."
+                : "This folder has no issue database yet. Setting it up lets you track issues here.",
+          needed:
+            status.bdInstalled && bendReady && status.trackerChosen && !status.folderReady,
           blocked: status.folderReady
             ? "done"
-            : !status.bdInstalled
-              ? "install beads first"
-              : !bendReady
-                ? "build bend first"
-                : running,
+            : !bendReady
+              ? "build bend first"
+              : !status.trackerChosen
+                ? "choose the tracker first"
+                : !status.bdInstalled
+                  ? "install beads first"
+                  : status.issuesBlocked !== null
+                    ? "not possible yet"
+                    : running,
+          // Signing in has words of its own; setting beads up keeps the
+          // confirmation written for it.
+          ...(onGitHub
+            ? {
+                explain: {
+                  lead: "Runs `gh auth login` in a terminal.",
+                  points: [
+                    "GitHub's own program asks how you want to sign in and opens a browser.",
+                    "Instead you can set a token yourself in the environment, as `GH_TOKEN`.",
+                  ],
+                },
+              }
+            : {}),
         },
     {
       key: "rules",
@@ -637,6 +684,10 @@ export function SetupDialog({
 }) {
   const methods = status?.installMethods ?? [];
   const [methodId, setMethodId] = useState<string | null>(null);
+  // The tracker step: beads unless the other is picked.
+  const [trackerId, setTrackerId] = useState<"beads" | "github">("beads");
+  // For GitHub issues, the repository when the remote does not say it.
+  const [repository, setRepository] = useState("");
   // The facts step: every saved fact is carried over unless unticked, so
   // nothing is dropped by pressing the button without reading.
   const facts = status?.savedFacts ?? [];
@@ -655,14 +706,60 @@ export function SetupDialog({
         <DialogHeader>
           <DialogTitle>{step?.label}</DialogTitle>
           <DialogDescription>
-            {step?.action === "rules"
+            {step?.action === "tracker"
+              ? "Says which tracker this repository uses. It writes one small file; nothing is run in a terminal."
+              : step?.action === "rules"
               ? "Makes Airbender's instructions the only ones about issues in this folder. It changes files in the repository; nothing is run in a terminal."
               : step?.action === "facts"
                 ? "Choose which saved facts agents should keep seeing."
                 : "Runs in a BB terminal, so you can watch it and answer anything it asks."}
           </DialogDescription>
         </DialogHeader>
-        {step?.action === "install" ? (
+        {step?.action === "tracker" ? (
+          <div className="space-y-2 text-sm">
+            <p>Where are this repository's issues kept?</p>
+            {(
+              [
+                ["beads", "beads", "A database inside the repository. This tab lists and changes the issues."],
+                ["github", "GitHub issues", "On the repository's page on github.com. Agents work them with bend; this tab cannot list them yet."],
+              ] as const
+            ).map(([id, label, note]) => (
+              <label
+                key={id}
+                className="flex cursor-pointer items-start gap-2 rounded px-2 py-1 hover:bg-state-hover"
+              >
+                <input
+                  type="radio"
+                  name="tracker"
+                  className="mt-1"
+                  checked={trackerId === id}
+                  onChange={() => setTrackerId(id)}
+                />
+                <span className="min-w-0">
+                  {label}
+                  <span className="block text-xs text-muted-foreground">{note}</span>
+                </span>
+              </label>
+            ))}
+            {trackerId === "github" ? (
+              <label className="block px-2 text-xs text-muted-foreground">
+                Repository, only if this folder's remote is not on github.com:
+                <input
+                  type="text"
+                  className="mt-1 block w-full rounded border border-border bg-transparent px-2 py-1 font-mono text-sm text-foreground"
+                  placeholder="owner/name"
+                  value={repository}
+                  onChange={(event) => setRepository(event.target.value)}
+                />
+              </label>
+            ) : null}
+            <p className="text-muted-foreground">
+              The choice is recorded in{" "}
+              <span className="font-mono">.bend.json</span> at the
+              repository's top folder, a small file to check in.
+            </p>
+          </div>
+        ) : step?.action === "install" ? (
           <div className="space-y-2 text-sm">
             <p>Choose how to install it:</p>
             {methods.map((candidate) => (
@@ -686,7 +783,7 @@ export function SetupDialog({
               </label>
             ))}
           </div>
-        ) : step?.action === "init" ? (
+        ) : step?.action === "init" && step.explain === undefined ? (
           <div className="space-y-2 text-sm">
             <p>
               Runs <span className="font-mono">bd init --skip-agents</span> in{" "}
@@ -852,7 +949,11 @@ export function SetupDialog({
                 step,
                 step.action === "install"
                   ? (method?.id ?? null)
-                  : step.action === "facts"
+                  : step.action === "tracker"
+                    ? trackerId === "github" && repository.trim() !== ""
+                      ? `github:${repository.trim()}`
+                      : trackerId
+                    : step.action === "facts"
                     ? JSON.stringify(
                         facts
                           .map((fact) => fact.key)
@@ -868,7 +969,9 @@ export function SetupDialog({
                 : "Add"
               : step?.action === "facts"
                 ? "Carry over"
-                : "Run in a terminal"}
+                : step?.action === "tracker"
+                  ? "Choose"
+                  : "Run in a terminal"}
           </Button>
         </DialogFooter>
       </DialogContent>

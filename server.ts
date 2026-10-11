@@ -8,8 +8,8 @@
 // on), store.ts (listing and changing issues, through that tracker),
 // work.ts (moving an issue through its workflow), issues.ts (turning the
 // tracker's issues into the tab's), bd.ts (running programs), watch.ts (noticing changes made
-// outside the plugin), setup.ts (getting a folder ready) and prompts.ts
-// (Airbender's rules for agents). The workflow itself, its steps and the
+// outside the plugin) and setup.ts (getting a folder ready, as buttons over
+// `bend setup`). The workflow itself, its steps and the
 // wording for each, is in shared/standard-workflow.ts. The notes below describe the backend as a whole.
 //
 // What: the data behind the Airbender tab. Lists the beads issues of the
@@ -278,7 +278,6 @@ export default async function plugin(bb: BbPluginApi) {
     folders,
     store,
     bendIn: trackers.bendIn,
-    syncSteps: issueSync.steps,
   });
   const github = createGithub({
     bb,

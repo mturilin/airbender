@@ -59,7 +59,6 @@ function fake(over: Partial<SyncSource> & { results?: SyncRun[] } = {}) {
       if (state.hold !== null) await state.hold;
       return mine;
     },
-    steps: async () => ({ on: null, fetch: null }),
     ...over,
   };
   return { source, state };

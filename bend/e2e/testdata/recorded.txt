@@ -40,6 +40,7 @@ About this repository:
   remember <text> [--key <key>]                               Save a standing fact for future sessions
   recall [words]                                              Show saved facts, all or those containing the words
   facts (--list | --ensure | --add-file <file> | --move-old)  Look after the facts file, for a program that sets a repository up
+  setup [step | all] [options]                                See what a repository needs to be ready, and set it up step by step
   version                                                     Which bend this is
 
 Options for every command:
@@ -104,6 +105,7 @@ About this repository:
   remember <text> [--key <key>]                               Save a standing fact for future sessions
   recall [words]                                              Show saved facts, all or those containing the words
   facts (--list | --ensure | --add-file <file> | --move-old)  Look after the facts file, for a program that sets a repository up
+  setup [step | all] [options]                                See what a repository needs to be ready, and set it up step by step
   version                                                     Which bend this is
 
 Options for every command:
@@ -530,6 +532,49 @@ Options for every command:
       --as <name>      Who is acting, for the tracker's history
   -h, --help           Help for bend or for one command
 
+$ bend setup --help
+[exit 0]
+See what a repository needs to be ready, and set it up step by step.
+
+Usage:
+  bend setup [step | all] [options]
+
+Alone, it only reads: every step, whether it is done, and the command for
+each one that is missing. With a step's name it does that step; `all` does
+every missing one in order.
+
+Steps: tracker | program | issues | instructions | facts | publish.
+  tracker       choose beads or GitHub issues, recorded in .bend.json
+  program       install the tracker's own program (beads)
+  issues        beads: get the repository's issues, or start a database;
+                GitHub: sign in
+  instructions  write the rules for agents into AGENTS.md, and take out
+                what beads wrote
+  facts         carry facts saved in beads over to FACTS.md
+  publish       publish the issue database to the repository's remote
+
+A step asks what it needs to know, and shows what it will do before it
+does it. Give the answers as options to run it without questions. Where
+nobody is at the keyboard a step never waits: it changes nothing and says
+which option was missing. A step that is already done changes nothing.
+
+Options:
+  -y, --yes                      Go ahead without asking for a yes
+      --no-input                 Never ask, also at a terminal
+      --use <tracker>            tracker: beads | github
+      --repository <owner/name>  tracker: the GitHub repository, when the remote does not say
+      --method <id>              program: the way to install, as `bend setup` lists them
+      --keep <key>               facts: a saved fact to carry over (repeatable)
+      --keep-all                 facts: carry all of them over
+      --keep-none                facts: carry none over
+
+Options for every command:
+  -C, --dir <path>     Run as if started in <path>
+      --json           Print machine-readable JSON
+      --text-file <f>  Read the text argument from a file ("-" for stdin)
+      --as <name>      Who is acting, for the tracker's history
+  -h, --help           Help for bend or for one command
+
 $ bend version --help
 [exit 0]
 Which bend this is.
@@ -549,12 +594,12 @@ Options for every command:
 
 $ bend version
 [exit 0]
-bend 1
+bend 2
 
 $ bend version --json
 [exit 0]
 {
-  "version": 1
+  "version": 2
 }
 
 $ bend status
@@ -1555,6 +1600,70 @@ $ bend recall --json
 $ bend recall "nothing like this"
 [exit 0]
 No saved facts.
+
+$ bend setup tracker
+[exit 0]
+Already done: this repository uses beads.
+
+$ bend setup tracker --json
+[exit 0]
+{
+  "ok": true,
+  "step": "tracker",
+  "changed": false,
+  "message": "Already done: this repository uses beads."
+}
+
+$ bend setup tracker --use linear
+[exit 2]
+[standard error]
+bend: Unknown tracker "linear". Use one of: beads, github.
+
+$ bend setup nonsense
+[exit 2]
+[standard error]
+bend: Unknown setup step "nonsense". There are: tracker, program, issues, instructions, facts, publish.
+
+$ bend setup tracker issues
+[exit 2]
+[standard error]
+bend: Name one step, or all. Run `bend setup` to see the steps.
+
+$ bend -C <empty> setup
+[exit 0]
+Folder    <empty>
+
+✗ tracker       Choose where the issues are kept
+                Nothing says yet where this repository's issues are kept: in beads, a database inside the repository, or in GitHub issues.
+                - Records the choice in `.bend.json` at the repository's top folder, a small file to check in, so it is the same for everyone who clones it.
+                To do it: bend setup tracker
+… program       Install beads
+                Choose the tracker first.
+… issues        Set up beads in this folder
+                Choose the tracker first.
+… instructions  Add Airbender's instructions for agents
+                Choose the tracker first.
+- facts         Carry saved facts over
+                There is no issue database to hold saved facts.
+… publish       Sync issues to the repository's remote
+                Choose the tracker first.
+
+✓ done   ✗ missing   … waits for an earlier step   - not needed here
+To do every missing step in order: bend setup all
+
+$ bend -C <empty> setup tracker
+[exit 2]
+[standard error]
+bend: Which tracker? Nobody is at the keyboard to ask, so say it with --use beads or --use github.
+
+$ bend -C <empty> setup issues -y --json
+[exit 1]
+{
+  "ok": false,
+  "status": 1,
+  "kind": "refused",
+  "error": "Choose the tracker first."
+}
 
 $ bend -C <empty> list
 [exit 1]

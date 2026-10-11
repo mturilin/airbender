@@ -3,8 +3,7 @@
 // What: the beads implementation of SyncSource: beads' own `bd sync`
 // (pull, check for conflicts, push) against the repository's git remote,
 // what was sent read from beads' journal of changes, what was brought in
-// worked out by comparing the issues before and after, and the two setup
-// steps beads needs.
+// worked out by comparing the issues before and after.
 //
 // Why: `bd init` leaves the issues on one computer (bead-bb-0bz), and the
 // owner wants to see what each sync did (bead-bb-6a9). It is one source
@@ -40,7 +39,6 @@ import type {
   SyncEnd,
   SyncRun,
   SyncSource,
-  SyncStep,
 } from "./types.ts";
 
 /** What `bd sync`'s exit code means, in the layer's words. */
@@ -329,58 +327,6 @@ export function createBeadsSource({
           before === null || after === null || mine === null
             ? null
             : broughtIn(before, after, changedHere),
-      };
-    },
-
-    async steps(): Promise<{ on: SyncStep | null; fetch: SyncStep | null }> {
-      const here = await readIssues();
-      if (here === null) {
-        // No issues in this folder. Beads keeps a repository's issues on
-        // its git remote under refs/dolt/data: if they are there, this is
-        // a fresh clone, and they are to be fetched.
-        const held = await git(["ls-remote", "origin", "refs/dolt/data"]);
-        return {
-          on: null,
-          fetch:
-            held === null || held === ""
-              ? null
-              : {
-                  label: "Get this repository's issues",
-                  why: "This folder has no issues yet, but the repository's remote holds them. Getting them brings this folder up to date with the other computers.",
-                  explain: {
-                    lead: "Runs `bd bootstrap` in this folder.",
-                    points: [
-                      "It downloads the issues that the repository's git remote holds into a database in this folder.",
-                      "Nothing is published, and no existing issue is deleted.",
-                    ],
-                  },
-                  command: `${bdCommand} bootstrap --yes`,
-                },
-        };
-      }
-      const state = await remoteState();
-      return {
-        fetch: null,
-        // Offered where the issues are synced nowhere: no remote, or one
-        // nothing was ever sent to. Not when it cannot be told.
-        on:
-          state !== "none" && state !== "empty"
-            ? null
-            : {
-                label: "Sync issues to the repository's remote",
-                why: "This folder's issues are on this computer only: they are not in git and are synced nowhere. Syncing keeps a copy on the repository's remote and lets other computers get them.",
-                explain: {
-                  lead: "Runs `bd dolt push` and then `bd sync` in this folder. Be aware of what it does:",
-                  points: [
-                    "It publishes this folder's whole issue history (every issue, with its text, comments and history) to the repository's git remote, where anyone who can read the repository can read it. It is kept apart from your branches.",
-                    "Beads records the remote in `.beads/config.yaml` and makes a small git commit for that by itself. Pushing that commit is yours.",
-                    "From then on the issues are kept in sync without your doing anything: every few minutes, and a little after they change.",
-                  ],
-                },
-                // Push first: a sync pulls first, and fails on a remote
-                // that has nothing on it yet.
-                command: `${bdCommand} dolt push --yes && ${bdCommand} sync`,
-              },
       };
     },
   };

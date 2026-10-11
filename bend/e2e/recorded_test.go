@@ -55,7 +55,7 @@ func makeIssue(name string, argv ...string) step {
 // helpOf is every command whose help is recorded.
 var helpOf = []string{
 	"list", "ready", "show", "comments", "search", "create", "edit", "write", "comment", "decide", "start",
-	"close", "reopen", "move", "link", "unlink", "handover", "status", "remember", "recall", "facts", "version",
+	"close", "reopen", "move", "link", "unlink", "handover", "status", "remember", "recall", "facts", "setup", "version",
 }
 
 // series is the commands recorded, in order.
@@ -158,6 +158,14 @@ var series = []step{
 	do("recall", "tuesday"),
 	do("recall", "--json"),
 	do("recall", "nothing like this"),
+	do("setup", "tracker"),
+	do("setup", "tracker", "--json"),
+	do("setup", "tracker", "--use", "linear"),
+	do("setup", "nonsense"),
+	do("setup", "tracker", "issues"),
+	do("-C", "{empty}", "setup"),
+	do("-C", "{empty}", "setup", "tracker"),
+	do("-C", "{empty}", "setup", "issues", "-y", "--json"),
 	do("-C", "{empty}", "list"),
 	do("-C", "{empty}", "list", "--json"),
 	do("-C", "{empty}/missing", "list"),

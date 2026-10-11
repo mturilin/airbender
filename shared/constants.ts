@@ -88,6 +88,9 @@ export const QUICK_REPLIES = {
  * its instructions contradict the workflow, and Airbender's replace them.
  */
 export const SETUP_ACTIONS = [
+  // Choose where the issues are kept: beads or GitHub issues
+  // (bead-bb-c9l.9). The option is the tracker's name.
+  "tracker",
   "install",
   // Build bend, the program the tab reads and changes issues with, from
   // the source that comes with the plugin (bead-bb-c9l.4).

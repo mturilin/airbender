@@ -22,6 +22,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/mturilin/airbender/bend/internal/facts"
+	"github.com/mturilin/airbender/bend/internal/setup"
 	"github.com/mturilin/airbender/bend/internal/tracker"
 )
 
@@ -236,6 +237,49 @@ func FormatFacts(found []facts.Fact) string {
 	lines := make([]string, 0, len(found))
 	for _, fact := range found {
 		lines = append(lines, fact.Key+": "+fact.Text)
+	}
+	return strings.Join(lines, "\n")
+}
+
+// FormatSetup gives what `bend setup` prints: every step with its state,
+// and for a missing one what it would do and the command that does it.
+func FormatSetup(state *setup.State) string {
+	lines := []string{"Folder    " + state.Root}
+	if state.Tracker != nil {
+		kept := *state.Tracker
+		if state.Repository != nil {
+			kept += " (" + *state.Repository + ")"
+		}
+		lines = append(lines, "Tracker   "+kept)
+	}
+	marks := map[string]string{setup.Done: "✓", setup.Missing: "✗", setup.Blocked: "…", setup.NotNeeded: "-"}
+	width := 0
+	for _, step := range state.Steps {
+		width = max(width, utf8.RuneCountInString(step.Name))
+	}
+	lines = append(lines, "")
+	for _, step := range state.Steps {
+		lines = append(lines, marks[step.State]+" "+padEnd(step.Name, width)+"  "+step.Title)
+		indent := strings.Repeat(" ", width+4)
+		if step.State != setup.Done {
+			lines = append(lines, indent+step.Why)
+		}
+		if step.State != setup.Missing {
+			continue
+		}
+		for _, point := range step.Explain {
+			lines = append(lines, indent+"- "+point)
+		}
+		if step.Runs != "" {
+			lines = append(lines, indent+"It runs: "+step.Runs)
+		}
+		lines = append(lines, indent+"To do it: "+step.Command)
+	}
+	lines = append(lines, "")
+	if state.Ready {
+		lines = append(lines, "Everything is in place.")
+	} else {
+		lines = append(lines, "✓ done   ✗ missing   … waits for an earlier step   - not needed here", "To do every missing step in order: bend setup all")
 	}
 	return strings.Join(lines, "\n")
 }

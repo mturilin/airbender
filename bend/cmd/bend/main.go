@@ -14,12 +14,30 @@
 package main
 
 import (
+	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 
 	"github.com/mturilin/airbender/bend/internal/cli"
 )
+
+// keyboard reads the lines a person types in answer to a question.
+var keyboard = bufio.NewReader(os.Stdin)
+
+// isTerminal says whether a file is a terminal: a character device, which a
+// pipe and a regular file are not. /dev/null is one too, but is named apart:
+// nobody types there.
+func isTerminal(file *os.File) bool {
+	info, err := file.Stat()
+	if err != nil || info.Mode()&os.ModeCharDevice == 0 {
+		return false
+	}
+	null, err := os.Stat(os.DevNull)
+	return err != nil || !os.SameFile(info, null)
+}
 
 func main() {
 	cwd, err := os.Getwd()
@@ -36,5 +54,34 @@ func main() {
 			return string(content)
 		},
 		Cwd: cwd,
+		// Someone is at the keyboard when standard input is a terminal and
+		// not a pipe or a file.
+		Interactive: isTerminal(os.Stdin),
+		Ask: func(question string) string {
+			fmt.Fprint(os.Stderr, question)
+			line, _ := keyboard.ReadString('\n')
+			return line
+		},
+		Attach: func(dir string, keyboard bool, name string, args ...string) int {
+			command := exec.Command(name, args...)
+			command.Dir = dir
+			// Without a keyboard its standard input stays nothing.
+			if keyboard {
+				command.Stdin = os.Stdin
+			}
+			// To standard error, both of them: standard output is bend's
+			// own answer, which a program may be reading as JSON. At a
+			// terminal the two look the same.
+			command.Stdout = os.Stderr
+			command.Stderr = os.Stderr
+			if err := command.Run(); err != nil {
+				var exit *exec.ExitError
+				if errors.As(err, &exit) {
+					return exit.ExitCode()
+				}
+				return -1
+			}
+			return 0
+		},
 	}))
 }

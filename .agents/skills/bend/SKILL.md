@@ -30,6 +30,19 @@ An issue's id is whatever `bend` prints for it: a short name with beads
 the network, so it takes a moment; `bend status` says what else is
 different there.
 
+## Getting a repository ready
+
+```bash
+bend setup                      # what is in place and what is missing; changes nothing
+bend setup instructions -y      # one missing step, its question answered in advance
+```
+
+Each missing step is listed with the command that does it. A step never
+waits for you: if it needs an answer you did not give, it changes nothing
+and names the option. Installing a program, signing in and publishing the
+issues change the owner's machine or send data off it: ask the owner before
+running those.
+
 ## While working on an issue
 
 ```bash

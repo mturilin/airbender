@@ -1,45 +1,119 @@
-// server/setup.test.ts — tests for how beads' list of saved facts is read.
+// server/setup.test.ts — the tab's setup, over `bend setup`.
 //
-// What: checks that the facts saved with `bd remember` are read from what
-// `bd memories --json` prints: one object, key to text, with the version
-// of its own schema beside them.
-// Why: setup offers these facts to the owner to carry over to FACTS.md
-// (bead-bb-c9l.8). The version line is not a fact, and an answer in another
-// shape must give "none", not an error on the setup screen. The shape is
-// what beads printed on 2026-10-10.
+// What: checks how bend's setup state is put into the shape the tab draws
+// (pure), and puts a real throwaway repository, set up the way beads does
+// it by default, through the tab's setup actions.
+//
+// Why: what the steps are and do is bend's and is tested there
+// (bend/e2e/setup_test.go). What is the plugin's is the translation, which
+// step the tab runs for which button, and that the tab's answer follows
+// what was done; a slip there shows the wrong card or runs the wrong step.
+//
+// Gotchas:
+// - The second test needs `bd`, `git` and Go (to build bend); it is skipped
+//   where they are missing. The pieces of BB the setup is built with are a
+//   few lines each.
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { savedFactsFrom } from "./setup.ts";
+import { fromBend, type BendSetup } from "./setup.ts";
 
-test("saved facts are read as key and text; the schema's version is not one", () => {
-  assert.deepEqual(
-    savedFactsFrom('{"build": "Run npm test", "ids": "Monospace", "schema_version": 1}'),
-    [
-      { key: "build", text: "Run npm test" },
-      { key: "ids", text: "Monospace" },
-    ],
+/** A step as bend gives it. */
+const step = (
+  name: string,
+  state: BendSetup["steps"][number]["state"],
+  over: Partial<BendSetup["steps"][number]> = {},
+) => ({ name, title: `Title of ${name}`, state, why: `Why ${name}.`, command: "", runs: "", explain: [], ...over });
+
+/** bend's state with these steps, and nothing else of note. */
+const bendState = (steps: BendSetup["steps"], over: Partial<BendSetup> = {}): BendSetup => ({
+  root: "/r",
+  tracker: "beads",
+  ready: false,
+  steps,
+  installMethods: [],
+  issuesHow: "",
+  instructions: { rules: "none", beadsBlocks: [], beadsHooks: [], machineWide: [], leftovers: [] },
+  savedFacts: [],
+  ...over,
+});
+
+test("bend's steps become the tab's conditions; 'not needed' counts as in place", () => {
+  const fresh = fromBend(
+    bendState(
+      [
+        step("tracker", "missing"),
+        step("program", "blocked"),
+        step("issues", "blocked"),
+        step("instructions", "blocked"),
+        step("facts", "not-needed"),
+        step("publish", "blocked"),
+      ],
+      { tracker: null },
+    ),
   );
-  assert.deepEqual(savedFactsFrom('{"schema_version": 1}'), []);
+  assert.deepEqual(
+    [fresh.trackerChosen, fresh.bdInstalled, fresh.folderReady, fresh.rulesPresent],
+    [false, false, false, false],
+  );
+  assert.deepEqual(fresh.syncSteps, { on: null, fetch: null });
+  // Blocked for an earlier step is still said: the tab names that step.
+  assert.equal(fresh.issuesBlocked, "Why issues.");
+
+  const onGitHub = fromBend(
+    bendState(
+      [
+        step("tracker", "done"),
+        step("program", "not-needed"),
+        step("issues", "done"),
+        step("instructions", "done"),
+        step("facts", "not-needed"),
+        step("publish", "not-needed"),
+      ],
+      { tracker: "github", ready: true },
+    ),
+  );
+  assert.deepEqual(
+    [onGitHub.tracker, onGitHub.trackerChosen, onGitHub.bdInstalled, onGitHub.folderReady, onGitHub.rulesPresent],
+    ["github", true, true, true, true],
+  );
 });
 
-test("anything else is no facts", () => {
-  for (const said of ["", "null", "[]", '"text"', "not json", '{"a": 3, "b": null}']) {
-    assert.deepEqual(savedFactsFrom(said), [], said);
-  }
+test("the steps whose words are bend's come through with what they run", () => {
+  const steps = [
+    step("tracker", "done"),
+    step("program", "done"),
+    step("issues", "missing", {
+      title: "Get this repository's issues",
+      runs: "bd bootstrap --yes",
+      explain: ["It downloads the issues."],
+    }),
+    step("instructions", "blocked"),
+    step("facts", "missing"),
+    step("publish", "missing", { runs: "bd dolt push --yes && bd sync", explain: ["It publishes."] }),
+  ];
+  const saved = [{ key: "build", text: "Run make" }];
+  const fetching = fromBend(bendState(steps, { issuesHow: "fetch", savedFacts: saved }));
+  assert.deepEqual(fetching.syncSteps.fetch, {
+    label: "Get this repository's issues",
+    why: "Why issues.",
+    explain: { lead: "Runs `bd bootstrap --yes` in this folder.", points: ["It downloads the issues."] },
+  });
+  assert.equal(fetching.syncSteps.on?.explain.lead, "Runs `bd dolt push --yes && bd sync` in this folder.");
+  assert.deepEqual(fetching.savedFacts, saved);
+  // Starting a database is the tab's own step, with its own words.
+  assert.equal(fromBend(bendState(steps, { issuesHow: "init" })).syncSteps.fetch, null);
+  // Facts are offered only while their step is missing.
+  const looked = steps.map((one) => (one.name === "facts" ? step("facts", "done") : one));
+  assert.deepEqual(fromBend(bendState(looked, { savedFacts: saved })).savedFacts, []);
 });
 
-// --- The switch-over, in a real repository (bead-bb-c9l.8) ---
-//
-// A throwaway repository is set up the way beads does it by default, with
-// beads' own setup for both coding agents, and then put through the two
-// setup steps. Needs `bd`, `git` and Go (the facts file is bend's to look
-// after); skipped where they are missing. The
-// pieces of BB the setup is built with are a few lines each.
+// --- The switch-over, in a real repository (bead-bb-c9l.8, now through
+// bend: bead-bb-c9l.9) ---
 
-test("a repository set up the old way is switched over: beads' text and hooks out, ours in", async (t) => {
+test("a repository set up the old way is switched over by the tab's actions", async (t) => {
   const { execFileSync } = await import("node:child_process");
-  const { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } = await import("node:fs");
+  const { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } = await import("node:fs");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
   const { createSetup } = await import("./setup.ts");
@@ -47,8 +121,7 @@ test("a repository set up the old way is switched over: beads' text and hooks ou
   const { builtBend } = await import("./bend-for-tests.ts");
   const bend = builtBend();
   if (bend === null) return t.skip("bend cannot be built here (Go is not installed)");
-  const { rulesIn, hasBeadsBlocks } = await import("./prompts.ts");
-  const root = mkdtempSync(join(tmpdir(), "airbender-setup-"));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "airbender-setup-")));
   try {
     const run = (program: string, ...args: string[]) =>
       execFileSync(program, args, { cwd: root, stdio: "pipe", encoding: "utf8" });
@@ -65,71 +138,67 @@ test("a repository set up the old way is switched over: beads' text and hooks ou
     // The owner's own text, around what beads wrote.
     const agentsFile = join(root, "AGENTS.md");
     writeFileSync(agentsFile, `${readFileSync(agentsFile, "utf8")}\n## Mine\n\nMy own rules.\n`);
-    const before = readFileSync(agentsFile, "utf8");
-    assert.ok(hasBeadsBlocks(before));
 
+    let published = 0;
     const setup = createSetup({
-      bb: { realtime: { publish: () => {} }, log: { warn: () => {} } } as never,
+      bb: { realtime: { publish: () => void (published += 1) }, log: { warn: () => {} } } as never,
       folders: {
         resolveFolder: async () => ({ path: root }),
         findBd: async () => "bd",
         findBend: async () => bend,
-        mainFolder: async () => root,
       } as never,
-      store: { readIssues: async () => ({ state: "ok", issues: [] }) } as never,
+      store: { stale: () => {} } as never,
       bendIn: async (path: string) => ({ run: createRun(bend, path) }),
-      syncSteps: async () => ({ on: null, fetch: null }),
     });
     const here = { threadId: null, projectId: "p" };
 
     let status = await setup.setupStatus(here);
-    assert.equal(status.rulesPresent, false);
+    assert.deepEqual(
+      [status.bend, status.tracker, status.trackerChosen, status.bdInstalled, status.folderReady, status.rulesPresent],
+      ["ready", "beads", true, true, true, false],
+    );
     assert.equal(status.instructions.rules, "none");
     assert.deepEqual(status.instructions.beadsBlocks, ["AGENTS.md", "CLAUDE.md"]);
     assert.deepEqual(status.instructions.beadsHooks, ["Claude Code", "Codex"]);
     assert.ok(status.instructions.leftovers.includes("Quick Reference"));
-    // The facts are offered only once the instructions are in place.
     assert.deepEqual(status.savedFacts.map((fact) => fact.key).sort(), ["build", "no-close"]);
+    // No remote to publish to: not offered.
+    assert.equal(status.syncSteps.on, null);
 
     assert.deepEqual(await setup.runSetup({ ...here, action: "rules", option: null }), { message: null });
+    assert.equal(published, 1);
     const after = readFileSync(agentsFile, "utf8");
-    assert.equal(hasBeadsBlocks(after), false);
-    assert.equal(rulesIn(after), "current");
+    assert.doesNotMatch(after, /BEGIN BEADS/u);
+    assert.match(after, /<!-- airbender:rules:start -->/u);
     assert.ok(after.includes("## Mine\n\nMy own rules.\n"));
-    // Beads' unmarked text is still there: it is the owner's to remove.
-    assert.match(after, /## Quick Reference/u);
-    assert.equal(hasBeadsBlocks(readFileSync(join(root, "CLAUDE.md"), "utf8")), false);
     assert.match(readFileSync(join(root, "CLAUDE.md"), "utf8"), /^@AGENTS\.md\n@FACTS\.md$/mu);
     assert.ok(existsSync(join(root, "FACTS.md")));
-    // Beads' own check now says neither agent is set up.
-    for (const agent of ["claude", "codex"]) {
-      assert.throws(() => run("bd", "setup", agent, "--check"), Error, agent);
-    }
-    // The hooks themselves are gone from their files, which is the point:
-    // beads' check alone says "not installed" as soon as its block is out
-    // of CLAUDE.md, with the session-start hook still in place.
     assert.doesNotMatch(readFileSync(join(root, ".claude", "settings.json"), "utf8"), /bd prime/u);
-    assert.equal(existsSync(join(root, ".codex", "hooks.json")), false);
-
+    // What was kept about the folder was dropped: the answer follows at once.
     status = await setup.setupStatus(here);
     assert.equal(status.rulesPresent, true);
-    assert.deepEqual(status.instructions.beadsBlocks, []);
-    assert.equal(
-      (await setup.runSetup({ ...here, action: "rules", option: null })).message,
-      "Airbender's instructions are already in place.",
-    );
+    assert.deepEqual(status.instructions.beadsHooks, []);
+    // Done twice: bend says so, and the tab passes its words on as success.
+    assert.deepEqual(await setup.runSetup({ ...here, action: "rules", option: null }), { message: null });
 
-    // One of the two facts is carried over; the other stays in beads, and
-    // neither is offered again.
-    assert.deepEqual(
-      await setup.runSetup({ ...here, action: "facts", option: '["build"]' }),
-      { message: null },
+    assert.match(
+      (await setup.runSetup({ ...here, action: "facts", option: "not json" })).message ?? "",
+      /not understood/u,
     );
+    assert.deepEqual(await setup.runSetup({ ...here, action: "facts", option: '["build"]' }), { message: null });
     const facts = readFileSync(join(root, "FACTS.md"), "utf8");
-    assert.match(facts, /^- \*\*build\*\* — Run npm test before handing over$/mu);
+    assert.match(facts, /- \*\*build\*\* — Run npm test before handing over/u);
     assert.doesNotMatch(facts, /no-close/u);
-    assert.deepEqual((await setup.setupStatus(here)).savedFacts, []);
-    assert.match(run("bd", "memories"), /no-close/u);
+    status = await setup.setupStatus(here);
+    assert.deepEqual(status.savedFacts, []);
+
+    // Steps that cannot apply are refused in words, and open no terminal
+    // (there is none to open here: that would throw).
+    assert.match((await setup.runSetup({ ...here, action: "init", option: null })).message ?? "", /already set up/u);
+    assert.match((await setup.runSetup({ ...here, action: "sync", option: null })).message ?? "", /already synced/u);
+    assert.match((await setup.runSetup({ ...here, action: "install", option: "script" })).message ?? "", /already installed/u);
+    assert.match((await setup.runSetup({ ...here, action: "tracker", option: "linear" })).message ?? "", /not understood/u);
+    assert.match((await setup.runSetup({ ...here, action: "bend", option: null })).message ?? "", /already built/u);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

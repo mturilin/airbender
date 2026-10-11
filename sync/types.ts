@@ -17,10 +17,9 @@
 //   translates its own signs into them (beads: `bd sync`'s exit codes).
 // - "Not known" is a value (null), for what was sent and what was brought
 //   in: a source that cannot tell says so, and nothing above guesses.
-// - A source says for itself what setting it up takes (its steps, with the
-//   words to show and the command to run), because that differs most
-//   between sources: beads has to be given a remote, a hosted tracker is
-//   its own remote.
+// - Setting a source up (giving beads a remote, getting the issues on a
+//   fresh clone) is not here: those are steps of `bend setup`
+//   (bead-bb-c9l.9).
 //
 // Gotchas:
 // - This file must stay free of imports from the plugin, from BB and from
@@ -73,18 +72,6 @@ export interface SyncRun {
   broughtIn: string[] | null;
 }
 
-/** One thing a source offers to do in setup, with what to show for it. */
-export interface SyncStep {
-  /** The step's name on its button and in the menu. */
-  label: string;
-  /** One line on why it is offered, for the setup card. */
-  why: string;
-  /** What it does, for the confirmation: an opening line, then points. */
-  explain: { lead: string; points: string[] };
-  /** What is run, in a terminal the owner can watch, in the folder. */
-  command: string;
-}
-
 /** One implementation of syncing, for one repository. */
 export interface SyncSource {
   /** The source's name, e.g. "beads". */
@@ -106,13 +93,6 @@ export interface SyncSource {
   pending(): Promise<Change[] | null>;
   /** One sync. Never rejects: a failure is an end. */
   run(): Promise<SyncRun>;
-  /**
-   * The setup steps that apply now: `on` switches syncing on for a
-   * repository whose issues are synced nowhere, `fetch` gets the issues of
-   * a repository that has none here while its remote holds them. Null for
-   * a step that does not apply.
-   */
-  steps(): Promise<{ on: SyncStep | null; fetch: SyncStep | null }>;
 }
 
 /** What set a sync off. */

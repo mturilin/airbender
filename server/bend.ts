@@ -42,7 +42,7 @@
 import { execFile } from "node:child_process";
 
 /** The bend this plugin needs at least; see `Version` in bend's cli. */
-export const NEEDED_VERSION = 1;
+export const NEEDED_VERSION = 2;
 
 /** How long one run of bend may take. */
 const BEND_TIMEOUT_MS = 60_000;
