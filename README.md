@@ -338,6 +338,40 @@ For GitHub, sign in with `gh auth login` or set `GH_TOKEN`.
   prints (`testdata/recorded.txt`; record again with `BEND_RECORD=1`).
 - `.agents/skills/bend/SKILL.md` — tells agents when and how to use it.
 
+### GitHub issues from a copy on this computer
+
+On a repository whose issues are on GitHub, bend does not ask GitHub for
+every command. It keeps a copy of the issues in the repository's shared git
+folder (`.git/bend/`, the same for every work tree, never committed):
+
+- **A read answers from the copy**, in a few thousandths of a second, with
+  no network.
+- **A change is recorded in the copy and sent afterwards**, by a process
+  bend starts in the background. With no network it waits and is sent by
+  the next sync, in the order it was made.
+- **Two things ask GitHub first and need the network**: making an issue
+  (only GitHub gives the number), and changing a `step:` or `size:` label,
+  which is refused if the issue was moved meanwhile.
+- **What others changed comes in with a sync**: after every change here,
+  after a read that found the copy more than three minutes old (the read
+  itself does not wait), with `bend sync`, and a copy more than a day old is
+  reread before a read answers. Once a day everything is reread, which
+  drops issues deleted on GitHub.
+- **Two sides' changes add up** where they can: different written parts of
+  one issue, and labels. Where both changed the same part, the later wins.
+- **A change GitHub will never take** goes to `bend refused`, with its
+  reason and text; `bend status` says how many changes wait and how many
+  were refused.
+
+One known limit: a change can reach GitHub twice if bend is stopped between
+sending it and taking it off its list, or if GitHub got the request but its
+answer was lost. For a comment that means the comment appears twice.
+
+`BEND_LIVE=1` makes bend ask GitHub directly for every command, as it used
+to; `BEND_NO_BACKGROUND=1` stops it starting a sync by itself. The code is
+`bend/internal/github/copy.go` (the copy), `background.go` (the sync after
+a command) and `bend/internal/localcopy` (its files and locks).
+
 For a program that runs bend (the tab does, `server/bend.ts`): `--json`
 prints JSON, and a failure as `{"ok": false, "status", "kind", "error"}`
 where the kind is one of `refused`, `usage`, `unsupported`, `no-program`
@@ -357,6 +391,9 @@ real GitHub and is skipped unless a scratch repository is named:
 ```sh
 cd bend && BEND_GITHUB_SCRATCH=mturilin/bend-scratch go test ./e2e -run GitHub
 ```
+
+(`github_test.go` asks GitHub directly; `github_copy_test.go` goes through
+the copy.)
 
 It creates and then deletes real issues there, and refuses any repository
 without "scratch" in its name.

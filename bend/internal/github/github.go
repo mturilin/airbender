@@ -523,6 +523,14 @@ func (github *adapter) rewrite(issue *Issue, change func(bodyParts) bodyParts) e
 	return github.client.Update(issue.Number, Changes{Body: &body})
 }
 
+// LocalCopy gives the copy on this machine that the adapter works from,
+// for a caller that shows or looks after it (the sync, what waits, what
+// was refused); nil when the adapter talks to GitHub directly.
+func (github *adapter) LocalCopy() *Copy {
+	held, _ := github.client.(*Copy)
+	return held
+}
+
 // About says what is known without asking GitHub anything: the tracker's
 // name, the repository, and the kinds of link accepted.
 func (github *adapter) About() tracker.About {
@@ -540,8 +548,8 @@ func (github *adapter) About() tracker.About {
 // signed in).
 func (github *adapter) Capabilities() (tracker.Capabilities, error) {
 	warnings := []string{
-		"GitHub is asked over the network: a command takes a moment, and there is a limit of about 5,000 requests an hour.",
-		"Search runs a little behind: an issue made a moment ago may not be found yet.",
+		"Issues are read from a copy on this computer and changes are sent to GitHub afterwards: what others changed shows after the next sync (`bend sync`), within a few minutes as a rule.",
+		"Making an issue, and moving one through its workflow, ask GitHub first and need the network.",
 		"Everything is done as the signed-in GitHub account. A comment written as someone else opens with that name.",
 	}
 	hasIssues, err := github.client.HasIssues()

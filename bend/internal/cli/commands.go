@@ -274,6 +274,30 @@ var Commands = []Command{
 		Group: groupAbout,
 	},
 	{
+		Name:    "sync",
+		Usage:   "[options]",
+		Summary: "Send waiting changes to a hosted tracker and bring in what changed there",
+		Details: "On a repository whose issues are on GitHub, bend works from a copy on this\ncomputer: reads answer from it at once, and changes are sent afterwards.\nbend syncs by itself after a change, and after a read that found the copy\nmore than a few minutes old. This does it now, and waits for it.\n\nChanges that cannot be sent now (no network, a limit) keep waiting and are\nsent by the next sync, in the order they were made. `bend status` says how\nmany wait; `bend refused` lists the ones GitHub refused for good.",
+		Options: [][2]string{
+			{"--all", "Reread every issue, which also drops the ones deleted on GitHub (done by itself once a day)"},
+			{"--no-wait", "Do nothing if another sync is running, instead of waiting for it"},
+		},
+		Spec:  OptionSpec{Flags: []string{"all", "no-wait"}},
+		Group: groupAbout,
+	},
+	{
+		Name:    "refused",
+		Usage:   "[options]",
+		Summary: "List the changes a hosted tracker refused for good, and dismiss or resend them",
+		Details: "A change GitHub will never accept (the issue is gone or locked, the text is\ntoo long) is taken out of the waiting changes and kept here, with GitHub's\nreason and the text it carried, so that nothing written is lost. The issue\nshows GitHub's version again.",
+		Options: [][2]string{
+			{"--dismiss <number|all>", "Take a refused change off the list"},
+			{"--again <number|all>", "Put a refused change back among the waiting ones, to be sent once more"},
+		},
+		Spec:  OptionSpec{Values: []string{"dismiss", "again"}},
+		Group: groupAbout,
+	},
+	{
 		Name:    "setup",
 		Usage:   "[step | all] [options]",
 		Summary: "See what a repository needs to be ready, and set it up step by step",

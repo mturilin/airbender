@@ -26,9 +26,15 @@ folder of the Airbender repository (`go build -o ~/.local/bin/bend
 Tell the owner rather than falling back to the tracker's own program.
 
 An issue's id is whatever `bend` prints for it: a short name with beads
-(`app-1x2`), a number on GitHub (`12`). On GitHub each command goes over
-the network, so it takes a moment; `bend status` says what else is
-different there.
+(`app-1x2`), a number on GitHub (`12`).
+
+On GitHub, `bend` works from a copy on this computer: reads are instant,
+and your changes are sent to GitHub a moment later by themselves. Two
+things to know. What someone else changed shows after a sync, so run `bend
+sync` before relying on an issue you have not looked at for a while. And if
+a change to an issue's step is refused because "it was changed on GitHub",
+read the issue again before doing anything else: someone moved it. `bend
+status` says how many changes still wait to be sent.
 
 ## Getting a repository ready
 

@@ -792,9 +792,28 @@ panel. `[bwr]`
     notes.
   - As a marked "Links" section of the description: "discovered from" and
     "related", which GitHub does not have.
-- **A hosted tracker is asked for no more than is needed**: showing one
-  issue does not read the whole list, and a list can be narrowed to what
-  changed since a given moment. `[c9l.1]`
+- **On a hosted tracker, `bend` works from a copy of the issues kept on
+  the computer.** A read answers from the copy without waiting for the
+  network; a change is recorded in the copy and sent afterwards; what others
+  changed is brought in by a sync. `[c9l.5]`
+  - **Making an issue waits for the tracker**, which alone gives its number.
+  - **A workflow move asks the tracker first** and is refused if the issue
+    was moved meanwhile.
+  - **A change that cannot be sent now** (no network, a limit, a login that
+    ran out) waits and is sent again, in order. **One the tracker will never
+    take** is put on a list of refused changes with its reason and its
+    text, and the issue shows the tracker's version again. Both are
+    visible.
+  - **When two sides change the same issue, the last change wins, but the
+    written parts** (description, requirements, done, plan, notes) **are
+    merged separately**, so changes to different parts both survive.
+  - **A read answers from the copy at once while it is less than a day
+    old**; older than that it is reread first. A read that finds it more
+    than three minutes old still answers at once and has it refreshed in
+    the background. Everything is reread once a day.
+  - **The copy is kept in the repository's git folder**, shared by all its
+    work trees, never committed. It holds issue texts, never the login.
+  - **No background service for now**; a sync can be asked for at any time.
 - **The panel itself works with beads only.** A repository whose issues
   are on GitHub is used through `bend`, not through the panel. `[c9l.1]`
 - **It does not depend on the app the panel runs in**, so it can be used, or
@@ -1364,6 +1383,15 @@ breaking a requirement above.
   answer. The panel keeps its own confirmation windows and hands bend the
   answers; it keeps bend's answer about a folder for a short while, and
   "everything is in place" until something is run. `[c9l.9]`
+- bend's copy of a hosted tracker: comments are kept per issue from the
+  first time they are asked for, and asked for again when the issue has
+  changed. Search searches the copy. Labels from two sides add up. The
+  sync after a change is a process of its own that outlives the command; a
+  setting switches it off, and another makes bend ask the tracker directly
+  for everything. A sync that finds another running does nothing, or waits
+  when it was asked for by hand. The labels that ask the tracker first are
+  the workflow's step and the size. The size limit of one day and the three
+  minutes are fixed numbers. `[c9l.5]`
 - bend: every command accepts: run in another folder, read the text from a
   file or standard input, and who is acting. The ending statuses are 0 done,
   1 refused, 2 asked wrongly, 3 not supported by this tracker.

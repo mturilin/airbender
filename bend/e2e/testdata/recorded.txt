@@ -40,6 +40,8 @@ About this repository:
   remember <text> [--key <key>]                               Save a standing fact for future sessions
   recall [words]                                              Show saved facts, all or those containing the words
   facts (--list | --ensure | --add-file <file> | --move-old)  Look after the facts file, for a program that sets a repository up
+  sync [options]                                              Send waiting changes to a hosted tracker and bring in what changed there
+  refused [options]                                           List the changes a hosted tracker refused for good, and dismiss or resend them
   setup [step | all] [options]                                See what a repository needs to be ready, and set it up step by step
   version                                                     Which bend this is
 
@@ -105,6 +107,8 @@ About this repository:
   remember <text> [--key <key>]                               Save a standing fact for future sessions
   recall [words]                                              Show saved facts, all or those containing the words
   facts (--list | --ensure | --add-file <file> | --move-old)  Look after the facts file, for a program that sets a repository up
+  sync [options]                                              Send waiting changes to a hosted tracker and bring in what changed there
+  refused [options]                                           List the changes a hosted tracker refused for good, and dismiss or resend them
   setup [step | all] [options]                                See what a repository needs to be ready, and set it up step by step
   version                                                     Which bend this is
 
@@ -532,6 +536,56 @@ Options for every command:
       --as <name>      Who is acting, for the tracker's history
   -h, --help           Help for bend or for one command
 
+$ bend sync --help
+[exit 0]
+Send waiting changes to a hosted tracker and bring in what changed there.
+
+Usage:
+  bend sync [options]
+
+On a repository whose issues are on GitHub, bend works from a copy on this
+computer: reads answer from it at once, and changes are sent afterwards.
+bend syncs by itself after a change, and after a read that found the copy
+more than a few minutes old. This does it now, and waits for it.
+
+Changes that cannot be sent now (no network, a limit) keep waiting and are
+sent by the next sync, in the order they were made. `bend status` says how
+many wait; `bend refused` lists the ones GitHub refused for good.
+
+Options:
+  --all      Reread every issue, which also drops the ones deleted on GitHub (done by itself once a day)
+  --no-wait  Do nothing if another sync is running, instead of waiting for it
+
+Options for every command:
+  -C, --dir <path>     Run as if started in <path>
+      --json           Print machine-readable JSON
+      --text-file <f>  Read the text argument from a file ("-" for stdin)
+      --as <name>      Who is acting, for the tracker's history
+  -h, --help           Help for bend or for one command
+
+$ bend refused --help
+[exit 0]
+List the changes a hosted tracker refused for good, and dismiss or resend them.
+
+Usage:
+  bend refused [options]
+
+A change GitHub will never accept (the issue is gone or locked, the text is
+too long) is taken out of the waiting changes and kept here, with GitHub's
+reason and the text it carried, so that nothing written is lost. The issue
+shows GitHub's version again.
+
+Options:
+  --dismiss <number|all>  Take a refused change off the list
+  --again <number|all>    Put a refused change back among the waiting ones, to be sent once more
+
+Options for every command:
+  -C, --dir <path>     Run as if started in <path>
+      --json           Print machine-readable JSON
+      --text-file <f>  Read the text argument from a file ("-" for stdin)
+      --as <name>      Who is acting, for the tracker's history
+  -h, --help           Help for bend or for one command
+
 $ bend setup --help
 [exit 0]
 See what a repository needs to be ready, and set it up step by step.
@@ -594,12 +648,12 @@ Options for every command:
 
 $ bend version
 [exit 0]
-bend 2
+bend 3
 
 $ bend version --json
 [exit 0]
 {
-  "version": 2
+  "version": 3
 }
 
 $ bend status
@@ -699,7 +753,8 @@ $ bend status --json
   ],
   "warnings": [
     "The beads database is not synced anywhere: the issues exist on this machine only (see `bd dolt remote`)."
-  ]
+  ],
+  "copy": null
 }
 
 $ bend status --quick
@@ -902,7 +957,8 @@ $ bend show <epic> --json
   "createdAt": "<time>",
   "updatedAt": "<time>",
   "metadata": {},
-  "externalRef": null
+  "externalRef": null,
+  "unsent": 0
 }
 
 $ bend show <child>
@@ -956,7 +1012,8 @@ $ bend show <child> --json
   "createdAt": "<time>",
   "updatedAt": "<time>",
   "metadata": {},
-  "externalRef": null
+  "externalRef": null,
+  "unsent": 0
 }
 
 $ bend show <blocker>
@@ -1026,7 +1083,8 @@ $ bend list --json
     "createdAt": "<time>",
     "updatedAt": "<time>",
     "metadata": {},
-    "externalRef": null
+    "externalRef": null,
+    "unsent": 0
   },
   {
     "id": "<child>",
@@ -1065,7 +1123,8 @@ $ bend list --json
     "createdAt": "<time>",
     "updatedAt": "<time>",
     "metadata": {},
-    "externalRef": null
+    "externalRef": null,
+    "unsent": 0
   },
   {
     "id": "<other>",
@@ -1105,7 +1164,8 @@ $ bend list --json
     "createdAt": "<time>",
     "updatedAt": "<time>",
     "metadata": {},
-    "externalRef": null
+    "externalRef": null,
+    "unsent": 0
   },
   {
     "id": "<blocker>",
@@ -1151,7 +1211,8 @@ $ bend list --json
     "createdAt": "<time>",
     "updatedAt": "<time>",
     "metadata": {},
-    "externalRef": null
+    "externalRef": null,
+    "unsent": 0
   },
   {
     "id": "<extra>",
@@ -1184,7 +1245,8 @@ $ bend list --json
     "createdAt": "<time>",
     "updatedAt": "<time>",
     "metadata": {},
-    "externalRef": null
+    "externalRef": null,
+    "unsent": 0
   }
 ]
 
@@ -1248,6 +1310,7 @@ $ bend list --parent <epic> --json --with-body
     "updatedAt": "<time>",
     "metadata": {},
     "externalRef": null,
+    "unsent": 0,
     "body": ""
   }
 ]
@@ -1600,6 +1663,25 @@ $ bend recall --json
 $ bend recall "nothing like this"
 [exit 0]
 No saved facts.
+
+$ bend sync
+[exit 0]
+Nothing to sync: this repository's issues are not worked from a copy of a hosted tracker.
+
+$ bend sync --json
+[exit 0]
+{
+  "ok": true
+}
+
+$ bend refused
+[exit 0]
+No refused changes.
+
+$ bend refused --dismiss 1 --again 1
+[exit 2]
+[standard error]
+bend: Give --dismiss or --again, not both.
 
 $ bend setup tracker
 [exit 0]

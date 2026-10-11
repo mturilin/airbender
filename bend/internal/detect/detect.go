@@ -42,6 +42,7 @@ import (
 
 	"github.com/mturilin/airbender/bend/internal/beads"
 	"github.com/mturilin/airbender/bend/internal/github"
+	"github.com/mturilin/airbender/bend/internal/localcopy"
 	"github.com/mturilin/airbender/bend/internal/tracker"
 )
 
@@ -64,10 +65,18 @@ type Options struct {
 	// Accept is the trackers the caller can work with; all of them when
 	// empty. One that is not accepted is passed over.
 	Accept []string
+	// Warn is told what is worth knowing and is not a failure (a copy that
+	// could not be refreshed); nothing is said when nil.
+	Warn func(text string)
 	// GitHubClient makes the connection to a GitHub repository; the real
 	// one when nil. Replaced in tests.
 	GitHubClient func(repository string) github.Client
 }
+
+// LiveVariable names the environment variable that, when set, makes bend
+// ask GitHub itself for every command instead of working from the copy on
+// this machine: for comparing the two, and for testing the connection.
+const LiveVariable = "BEND_LIVE"
 
 // gitTimeout is how long one of the read-only git commands may take.
 const gitTimeout = 5 * time.Second
@@ -172,11 +181,20 @@ func Tracker(dir string, options Options) (Found, error) {
 		return Found{Root: root, Tracker: beads.New(runIn, options.Actor, bdCommand)}
 	}
 	githubIn := func(root, repository string) Found {
-		makeClient := options.GitHubClient
-		if makeClient == nil {
-			makeClient = func(name string) github.Client { return github.NewClient(name, github.ClientOptions{}) }
+		if options.GitHubClient != nil {
+			return Found{Root: root, Tracker: github.New(options.GitHubClient(repository), options.Actor)}
 		}
-		return Found{Root: root, Tracker: github.New(makeClient(repository), options.Actor)}
+		var client github.Client = github.NewClient(repository, github.ClientOptions{})
+		// From a copy on this machine, synced with GitHub (bead-bb-c9l.5),
+		// unless the caller wants every command to ask GitHub itself.
+		if os.Getenv(LiveVariable) == "" {
+			held := github.OpenCopy(client, localcopy.FolderFor(root, repository), github.CopyOptions{Warn: options.Warn})
+			// Synced from where the command ran, so that the same setting
+			// file and the same repository are found again.
+			github.Opened(held, start)
+			client = held
+		}
+		return Found{Root: root, Tracker: github.New(client, options.Actor)}
 	}
 	// A setting file may name the repository without naming the tracker:
 	// "the remote is not where the issues are". The nearest one is kept for

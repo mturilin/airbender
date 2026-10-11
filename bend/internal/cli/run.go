@@ -43,6 +43,7 @@ import (
 
 	"github.com/mturilin/airbender/bend/internal/detect"
 	"github.com/mturilin/airbender/bend/internal/facts"
+	"github.com/mturilin/airbender/bend/internal/github"
 	"github.com/mturilin/airbender/bend/internal/setup"
 	"github.com/mturilin/airbender/bend/internal/tracker"
 )
@@ -222,7 +223,15 @@ func oneOf(typed string, allowed []string, what string) (string, error) {
 // first and says so plainly when the bend it found is older than it needs,
 // instead of failing on an option that bend does not know. Raise it with
 // every such change.
-const Version = 2
+const Version = 3
+
+// statusWithCopy is what `bend status --json` prints: what the tracker
+// supports, and how the copy on this machine stands; null where the tracker
+// is not worked from one.
+type statusWithCopy struct {
+	tracker.Capabilities
+	Copy *github.CopyStatus `json:"copy"`
+}
 
 // AcceptVariable names the environment variable by which a caller says
 // which trackers it can work with, separated by commas, e.g. "beads". A
@@ -466,14 +475,36 @@ func carryOut(command *Command, parsed *Parsed, surroundings Surroundings) (answ
 	if err != nil {
 		return answer{}, err
 	}
-	found, err := find(folderOf(parsed, surroundings), detect.Options{Actor: actor, Accept: accept})
+	found, err := find(folderOf(parsed, surroundings), detect.Options{
+		Actor: actor, Accept: accept,
+		Warn: func(text string) { surroundings.Err("bend: " + text) },
+	})
 	if err != nil {
 		return answer{}, err
 	}
 	issues := found.Tracker
 	value := parsed.value
+	// The copy on this machine the tracker is worked from; nil for a
+	// tracker that needs none (beads) or is asked directly.
+	var held *github.Copy
+	if with, ok := issues.(interface{ LocalCopy() *github.Copy }); ok {
+		held = with.LocalCopy()
+	}
+	// unsent fills in how many changes of each issue still wait to be sent.
+	unsent := func(listed []tracker.Issue) []tracker.Issue {
+		if held == nil {
+			return listed
+		}
+		for index := range listed {
+			if number, err := strconv.Atoi(listed[index].ID); err == nil {
+				listed[index].Unsent = held.Unsent(number)
+			}
+		}
+		return listed
+	}
 	// What a command that prints issues prints with --json.
 	printed := func(listed []tracker.Issue) any {
+		listed = unsent(listed)
 		if !parsed.Flags["with-body"] {
 			return listed
 		}
@@ -516,6 +547,7 @@ func carryOut(command *Command, parsed *Parsed, surroundings Surroundings) (answ
 		if err != nil {
 			return answer{}, err
 		}
+		issue = unsent([]tracker.Issue{issue})[0]
 		if parsed.Flags["with-body"] {
 			return answer{FormatIssue(issue), withBodies([]tracker.Issue{issue})[0]}, nil
 		}
@@ -796,7 +828,60 @@ func carryOut(command *Command, parsed *Parsed, surroundings Surroundings) (answ
 		if err != nil {
 			return answer{}, err
 		}
-		return answer{FormatStatus(capabilities), capabilities}, nil
+		reported := statusWithCopy{Capabilities: capabilities}
+		if held != nil {
+			status := held.Status()
+			reported.Copy = &status
+		}
+		return answer{FormatStatus(capabilities) + FormatCopy(reported.Copy), reported}, nil
+
+	case "sync":
+		if held == nil {
+			return did("Nothing to sync: this repository's issues are not worked from a copy of a hosted tracker."), nil
+		}
+		// Where another process is syncing (one started in the background
+		// a moment ago, say), it is waited for, so that this sync sends
+		// what that one did not see.
+		sync := held.WaitAndSync
+		if parsed.Flags["no-wait"] {
+			sync = held.Sync
+		}
+		result, err := sync(parsed.Flags["all"])
+		if err != nil {
+			return answer{}, err
+		}
+		return answer{FormatSync(result), result}, nil
+
+	case "refused":
+		if value("dismiss") != nil && value("again") != nil {
+			return answer{}, tracker.Usage("Give --dismiss or --again, not both.")
+		}
+		if held == nil {
+			return answer{"No refused changes.", []github.RefusedChange{}}, nil
+		}
+		which, again := value("dismiss"), false
+		if value("again") != nil {
+			which, again = value("again"), true
+		}
+		if which == nil {
+			refused := held.RefusedChanges()
+			return answer{FormatRefused(refused), refused}, nil
+		}
+		seq := 0
+		if *which != "all" {
+			if seq, err = strconv.Atoi(*which); err != nil || seq < 1 {
+				return answer{}, tracker.Usage("Say which refused change: its number, or all.")
+			}
+		}
+		taken, err := held.Dismiss(seq, again)
+		if err != nil {
+			return answer{}, err
+		}
+		words := "Dismissed " + plural(taken, "refused change") + "."
+		if again {
+			words = plural(taken, "refused change") + " put back to be sent again."
+		}
+		return did(words, field{"count", taken}), nil
 
 	case "remember":
 		text, err := textOf(parsed, 0, surroundings, false)
@@ -902,6 +987,10 @@ func asksForHelp(rest []string, command *Command) bool {
 func Run(argv []string, surroundings Surroundings) int {
 	asJSON := slices.Contains(argv, "--json")
 	status, err := run(argv, surroundings, &asJSON)
+	// Whatever the command did: a copy of a hosted tracker that it changed,
+	// or found a few minutes old, is synced now, in a process of its own
+	// that this one does not wait for.
+	github.AfterCommand()
 	if err == nil {
 		return status
 	}

@@ -22,6 +22,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/mturilin/airbender/bend/internal/facts"
+	"github.com/mturilin/airbender/bend/internal/github"
 	"github.com/mturilin/airbender/bend/internal/setup"
 	"github.com/mturilin/airbender/bend/internal/tracker"
 )
@@ -150,6 +151,9 @@ func FormatIssue(issue tracker.Issue) string {
 	part("DONE MEANS", issue.Done)
 	part("PLAN", issue.Plan)
 	part("NOTES", issue.Notes)
+	if issue.Unsent > 0 {
+		lines = append(lines, "", plural(issue.Unsent, "change")+" made here not yet on the tracker: bend sync")
+	}
 	if issue.CommentCount > 0 {
 		word := "comments"
 		if issue.CommentCount == 1 {
@@ -282,4 +286,63 @@ func FormatSetup(state *setup.State) string {
 		lines = append(lines, "✓ done   ✗ missing   … waits for an earlier step   - not needed here", "To do every missing step in order: bend setup all")
 	}
 	return strings.Join(lines, "\n")
+}
+
+// FormatCopy gives the lines `bend status` adds about the copy a hosted
+// tracker is worked from; "" where there is none.
+func FormatCopy(status *github.CopyStatus) string {
+	if status == nil {
+		return ""
+	}
+	synced := "never"
+	if status.LastSync != nil {
+		synced = strings.Replace(strings.TrimSuffix(*status.LastSync, "Z"), "T", " ", 1) + " UTC"
+	}
+	lines := []string{
+		"",
+		"Local copy",
+		"  Kept in      " + status.Folder,
+		"  Last synced  " + synced,
+		"  Waiting      " + plural(status.Waiting, "change") + " made here not yet on the tracker",
+	}
+	if status.Refused > 0 {
+		lines = append(lines, "  Refused      "+plural(status.Refused, "change")+" the tracker will not take: bend refused")
+	}
+	return "\n" + strings.Join(lines[1:], "\n")
+}
+
+// FormatSync gives what `bend sync` prints.
+func FormatSync(result github.SyncResult) string {
+	if result.Busy {
+		return "Another sync is running; nothing to do."
+	}
+	lines := []string{"Sent " + plural(result.Sent, "change") + "."}
+	if result.Refused > 0 {
+		lines = append(lines, plural(result.Refused, "change")+" refused for good: bend refused")
+	}
+	if result.Waiting > 0 {
+		lines = append(lines, plural(result.Waiting, "change")+" still waiting: "+result.Problem)
+	}
+	brought := "Brought in " + plural(result.BroughtIn, "issue") + " changed since the last sync."
+	if result.Full {
+		brought = "Reread all " + plural(result.BroughtIn, "issue") + "."
+	}
+	return strings.Join(append(lines, brought), "\n")
+}
+
+// FormatRefused gives what `bend refused` prints.
+func FormatRefused(refused []github.RefusedChange) string {
+	if len(refused) == 0 {
+		return "No refused changes."
+	}
+	blocks := make([]string, 0, len(refused))
+	for _, one := range refused {
+		block := fmt.Sprintf("%d  issue %s: %s\n   Refused: %s", one.Seq, one.Issue, one.What, one.Reason)
+		if text := strings.TrimSpace(one.Text); text != "" {
+			block += "\n   " + strings.ReplaceAll(text, "\n", "\n   ")
+		}
+		blocks = append(blocks, block)
+	}
+	return strings.Join(blocks, "\n\n") +
+		"\n\nbend refused --dismiss <number|all> takes one off this list; --again <number|all> sends it once more."
 }

@@ -44,6 +44,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -413,6 +414,18 @@ func explainFailure(status int, headers http.Header, detail string) string {
 	}
 }
 
+// mayWorkLater says whether a failed request may work when made again
+// later: the login was not accepted (signing in cures it), GitHub was
+// having trouble, or a limit was reached. Anything else GitHub said no to
+// is the request's own fault.
+func mayWorkLater(status int, headers http.Header, detail string) bool {
+	if status == http.StatusUnauthorized || status >= 500 || status == http.StatusTooManyRequests {
+		return true
+	}
+	return status == http.StatusForbidden && (headers.Get("x-ratelimit-remaining") == "0" ||
+		headerNumber(headers, "retry-after") > 0 || slowDownWords.MatchString(detail))
+}
+
 // noSuchRepository is the failure for a repository that is not there, or
 // that this login may not see.
 func noSuchRepository() error {
@@ -549,12 +562,20 @@ func failureDetail(body []byte) string {
 func (client *realClient) request(method, path string, body, answer any) error {
 	client.tokenOnce.Do(func() { client.bearer, client.tokenErr = client.token() })
 	if client.tokenErr != nil {
+		// Signing in cures it: a change that waits to be sent keeps waiting.
+		var failure *tracker.Error
+		if errors.As(client.tokenErr, &failure) {
+			later := *failure
+			later.Later = true
+			return &later
+		}
 		return client.tokenErr
 	}
 	client.sent.Add(1)
 	// The cause of a failure to send is not passed on: it can name the
 	// request, and nothing about the request belongs in a message.
 	unreachable := tracker.Refused("GitHub could not be reached. Check the network connection and try again.")
+	unreachable.Later = true
 	var payload io.Reader
 	if body != nil {
 		encoded, err := json.Marshal(body)
@@ -584,11 +605,14 @@ func (client *realClient) request(method, path string, body, answer any) error {
 		return unreachable
 	}
 	if response.StatusCode < 200 || response.StatusCode > 299 {
-		words := explainFailure(response.StatusCode, response.Header, failureDetail(text))
+		detail := failureDetail(text)
+		words := explainFailure(response.StatusCode, response.Header, detail)
+		failure := tracker.Refused("%s", words)
 		if response.StatusCode == http.StatusUnauthorized {
-			return tracker.Failed(tracker.KindNotSignedIn, "%s", words)
+			failure = tracker.Failed(tracker.KindNotSignedIn, "%s", words)
 		}
-		return tracker.Refused("%s", words)
+		failure.Later = mayWorkLater(response.StatusCode, response.Header, detail)
+		return failure
 	}
 	if answer == nil {
 		return nil
@@ -625,7 +649,9 @@ func (client *realClient) graphql(query string, variables map[string]any, data a
 			continue
 		}
 		if failure.Type == "RATE_LIMITED" {
-			return tracker.Refused("GitHub's hourly limit on requests is used up. Try again within the hour.")
+			limited := tracker.Refused("GitHub's hourly limit on requests is used up. Try again within the hour.")
+			limited.Later = true
+			return limited
 		}
 		messages = append(messages, failure.Message)
 	}

@@ -120,6 +120,10 @@ type Issue struct {
 	// ExternalRef is the issue's counterpart in another tracker, when it has
 	// one.
 	ExternalRef *string `json:"externalRef"`
+	// Unsent is how many changes to this issue were made on this machine
+	// and have not reached the tracker yet. Always 0 for a tracker that is
+	// not worked from a local copy.
+	Unsent int `json:"unsent"`
 }
 
 // Tidy gives the issue with every list made a real, possibly empty, list and
@@ -333,6 +337,13 @@ const (
 type Error struct {
 	Kind    Kind
 	Message string
+	// Later says that the same request may work if it is made again later:
+	// the network was down, the service was having trouble, a limit was
+	// reached, a login had run out. False for a failure of the request
+	// itself, which trying again does not cure. A caller that keeps changes
+	// to send (the local copy of a hosted tracker) keeps them for one and
+	// gives up on the other.
+	Later bool
 }
 
 func (failure *Error) Error() string { return failure.Message }
@@ -367,6 +378,13 @@ func Unsupported(format string, args ...any) *Error {
 // Failed makes a failure of any kind.
 func Failed(kind Kind, format string, args ...any) *Error {
 	return &Error{Kind: kind, Message: fmt.Sprintf(format, args...)}
+}
+
+// MayWorkLater says whether an error is one that trying again later may
+// cure; see Error.Later.
+func MayWorkLater(err error) bool {
+	var failure *Error
+	return errors.As(err, &failure) && failure.Later
 }
 
 // KindOf gives the kind of any error: its own when it is an *Error, and a

@@ -149,6 +149,9 @@ func newScratch(t *testing.T) *scratch {
 		t.Fatal(err)
 	}
 	made := &scratch{repository: &repository{t: t, root: root}, name: name, token: token}
+	// These tests are of the connection itself: every command asks GitHub.
+	// The copy on this machine has tests of its own (github_copy_test.go).
+	made.env = []string{"BEND_LIVE=1"}
 	// Registered after t.TempDir, so it runs before the folder is removed:
 	// closing what could not be deleted still needs the folder.
 	t.Cleanup(made.cleanUp)
