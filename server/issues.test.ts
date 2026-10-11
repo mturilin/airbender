@@ -4,8 +4,9 @@
 // (who is blocked and why, links from both ends, what is kept in labels),
 // and the shared descendantsOf walk.
 //
-// Design notes: the rows go through the tracker core's beads adapter first
-// (tracker/beads.ts) and then through the tab's own step (server/issues.ts),
+// Design notes: the rows go through bend's beads adapter first
+// (in bend, run for real with a stand-in for bd) and then through the tab's
+// own step (server/issues.ts),
 // as they do in the running tab. The expectations are the ones from before
 // the tab was moved onto the core (bead-bb-c9l.2): they are what "the tab
 // behaves as before" means for the rules below.
@@ -16,15 +17,58 @@
 //
 // Run with `npm test` (node's built-in test runner; no extra dependency).
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { execFileSync } from "node:child_process";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { after, test as nodeTest } from "node:test";
 import { branchOf, toIssues as toTabIssues } from "./issues.ts";
 import { descendantsOf } from "../shared/tree.ts";
-import { toIssues as fromRows, type BdRow } from "../tracker/beads.ts";
+import { builtBend } from "./bend-for-tests.ts";
+import type { TrackerIssue } from "./bend.ts";
 
-/** A row of beads, as the tests write it. */
-type BdIssue = BdRow;
+/** A row of beads, as the tests write it: what `bd list --json` prints. */
+interface BdIssue {
+  id: string;
+  title: string;
+  status: string;
+  parent?: string | null;
+  description?: string;
+  design?: string;
+  acceptance_criteria?: string;
+  notes?: string;
+  labels?: string[];
+  metadata?: unknown;
+  dependencies?: { depends_on_id: string; type: string }[];
+}
 
-/** Rows of beads to the tab's issues: the adapter, then the tab's step. */
+const bend = builtBend();
+/** Skipped where bend cannot be built (no Go on this machine). */
+const test = bend === null ? nodeTest.skip : nodeTest;
+
+// A folder that looks like a beads repository, and a stand-in for bd that
+// prints the rows a test wrote, whatever it is asked.
+const folder = mkdtempSync(join(tmpdir(), "airbender-issues-"));
+mkdirSync(join(folder, ".beads"));
+const rowsFile = join(folder, "rows.json");
+const fakeBd = join(folder, "bd");
+writeFileSync(fakeBd, `#!/bin/sh\ncat ${JSON.stringify(rowsFile)}\n`);
+chmodSync(fakeBd, 0o755);
+after(() => rmSync(folder, { recursive: true, force: true }));
+
+/** Rows of beads as bend gives them: its beads adapter, for real. */
+function fromRows(rows: BdIssue[]): TrackerIssue[] {
+  writeFileSync(rowsFile, JSON.stringify(rows));
+  return JSON.parse(
+    execFileSync(
+      bend!,
+      ["-C", folder, "list", "--status", "all", "--with-body", "--json"],
+      { env: { ...process.env, BEND_BD: fakeBd }, encoding: "utf8" },
+    ),
+  ) as TrackerIssue[];
+}
+
+/** Rows of beads to the tab's issues: bend, then the tab's step. */
 const toIssues = (rows: BdIssue[]) => toTabIssues(fromRows(rows));
 
 /** A row as `bd list --json` gives it; `blockers` become "blocks" links. */

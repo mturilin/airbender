@@ -2,13 +2,13 @@
 // folder.
 //
 // What: runs the store's operations (server/store.ts) in a throwaway
-// repository, through the tracker core and the real `bd`, and checks what
-// the tab would then list.
+// repository, through the real `bend` program (built from bend/) and the
+// real `bd`, and checks what the tab would then list.
 //
-// Why: the tab reads and changes issues through the tracker core
-// (bead-bb-c9l.2). What must not change is what the tab shows and does, and
-// that is decided by three layers together: the store, the core's beads
-// adapter, and bd itself. Only a test through all three catches a mismatch
+// Why: the tab reads and changes issues by running bend (bead-bb-c9l.4).
+// What must not change is what the tab shows and does, and that is decided
+// by three layers together: the store, bend with its beads adapter, and bd
+// itself. Only a test through all three catches a mismatch
 // between them.
 //
 // Design notes:
@@ -33,9 +33,12 @@ import type { Issue } from "./contract.ts";
 import type { CurrentBead } from "./current-bead.ts";
 import type { Folders } from "./folder.ts";
 import { createStore } from "./store.ts";
-import { createTrackers } from "./trackers.ts";
+import { builtBend } from "./bend-for-tests.ts";
+import { createTrackers } from "./bend.ts";
 import type { WorkflowChoice } from "./workflow-choice.ts";
 
+/** The bend built from this repository's source; null without Go. */
+const bend = builtBend();
 let root = "";
 let empty = "";
 let skip: string | false = false;
@@ -52,6 +55,7 @@ before(() => {
   } catch {
     skip = "bd or git is not available";
   }
+  if (bend === null) skip = "bend cannot be built here (Go is not installed)";
 });
 after(() => {
   for (const folder of [root, empty]) {
@@ -85,7 +89,9 @@ function storeIn(path: string, bd: string | null = "bd") {
     } as unknown as Folders,
     trackers: createTrackers({
       findBd: async () => bd,
+      findBend: async () => bend ?? "missing",
       notFoundMessage: "no bd here",
+      bendMessages: { missing: "no bend here", old: "an old bend here" },
       warn: () => {},
     }),
     currentBead: {
@@ -300,7 +306,7 @@ test("links of every kind, what blocks what, and moving", async (t) => {
   // A kind beads does not have is refused in plain words, not passed to bd.
   assert.match(
     (await link(a, b, "duplicates" as (typeof LINK_KINDS)[number])).message ?? "",
-    /Beads has no "duplicates" link/u,
+    /Unknown kind of link "duplicates"/u,
   );
 
   // Moving in and out; never inside itself or its own sub-issue.

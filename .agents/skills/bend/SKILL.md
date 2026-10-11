@@ -20,6 +20,11 @@ bend comments <id> # its history: decisions, hand-overs, discussion
 
 Run `bend --help` for every command and `bend <command> --help` for one.
 
+If `bend` is not found: it is one program built with Go from the `bend`
+folder of the Airbender repository (`go build -o ~/.local/bin/bend
+./cmd/bend`); the Airbender tab's setup step "Build bend" does the same.
+Tell the owner rather than falling back to the tracker's own program.
+
 An issue's id is whatever `bend` prints for it: a short name with beads
 (`app-1x2`), a number on GitHub (`12`). On GitHub each command goes over
 the network, so it takes a moment; `bend status` says what else is

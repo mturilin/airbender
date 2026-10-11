@@ -1,5 +1,5 @@
-// server/folder.ts — finding the folder, the beads program, and what git
-// says about the folder.
+// server/folder.ts — finding the folder, the beads and bend programs, and
+// what git says about the folder.
 //
 // What: works out which folder on this machine a thread or project works
 // in, finds the beads program among the places it may be installed, and
@@ -13,8 +13,9 @@
 // Design notes:
 // - A thread's own checkout wins over the project's default folder, because
 //   it may be a worktree.
-// - Issues are not read or changed here: that goes through the tracker
-//   core (server/trackers.ts), which is handed the program `findBd` finds.
+// - Issues are not read or changed here: that goes through the bend
+//   program (server/bend.ts), which is handed what `findBd` and `findBend`
+//   find.
 //
 // Gotchas:
 // - A missing folder and a missing program look the same to the operating
@@ -27,6 +28,7 @@ import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { readGit, runBd } from "./bd.ts";
+import { findBendAmong } from "./bend.ts";
 
 /**
  * Builds the folder and bd helpers for this plugin instance.
@@ -37,12 +39,28 @@ import { readGit, runBd } from "./bd.ts";
 export function createFolders({
   bb,
   bdCandidates,
+  bendCandidates,
 }: {
   bb: BbPluginApi;
   bdCandidates: string[];
+  /** Program names or paths to try for bend, in order. */
+  bendCandidates: string[];
 }) {
   const BD_NOT_FOUND_MESSAGE =
     "BB could not find the bd command. Install beads, or set its full path under this plugin's settings (bd command) and reload the plugin.";
+
+  /** What the tab says when there is no bend program, or only an old one. */
+  const BEND_MESSAGES = {
+    missing:
+      "BB could not find the bend command, which Airbender reads and changes issues with. Build it with the setup step \"Build bend\", or set its full path under this plugin's settings (bend command) and reload the plugin.",
+    old: "The bend command on this machine is older than this version of Airbender needs. Build it again with the setup step \"Build bend\".",
+  };
+
+  /**
+   * The bend program that works on this machine: the first of the known
+   * locations that runs and is new enough; else "missing" or "old".
+   */
+  const findBend = (cwd: string) => findBendAmong(bendCandidates, cwd);
 
   /**
    * Finds the folder on the BB server machine that a thread or project works
@@ -300,6 +318,8 @@ export function createFolders({
     deleteMergedBranch,
     hasUncommittedChanges,
     BD_NOT_FOUND_MESSAGE,
+    BEND_MESSAGES,
+    findBend,
     resolveFolder,
     folderFor,
     findBd,

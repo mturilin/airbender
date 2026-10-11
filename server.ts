@@ -3,8 +3,8 @@
 // Where things are: this file reads the settings, wires the pieces together
 // and holds the table of request handlers and the agent tool. The pieces are
 // in server/: contract.ts (the typed contract with the frontend), folder.ts
-// (finding the folder and the bd program), trackers.ts (the tracker core's
-// adapter for a folder), current-bead.ts (which issue a thread is working
+// (finding the folder and the bd and bend programs), bend.ts (running the
+// bend program, which reads and changes issues), current-bead.ts (which issue a thread is working
 // on), store.ts (listing and changing issues, through that tracker),
 // work.ts (moving an issue through its workflow), issues.ts (turning the
 // tracker's issues into the tab's), bd.ts (running programs), watch.ts (noticing changes made
@@ -15,18 +15,18 @@
 // What: the data behind the Airbender tab. Lists the beads issues of the
 // folder a thread (or project) works in, creates and changes them, remembers
 // which issue each thread is working on, and gets a folder ready for beads.
-// Issues are read and changed through the tracker core in tracker/, the
-// layer the `bend` command is built on (bead-bb-c9l.2); for beads that core
-// runs the `bd` command-line tool.
+// Issues are read and changed by running `bend`, the Go program in bend/
+// that agents use too (bead-bb-c9l.4); for beads, bend runs the `bd`
+// command-line tool.
 //
 // Why: beads keeps a repo's issues in a database inside the repo, and the only
 // supported way to read it is the `bd` tool. The browser cannot run a program,
 // so the tab asks this backend over RPC.
 //
 // Design notes:
-// - No bd command for an issue is written in this plugin's backend: the
-//   beads adapter (tracker/beads.ts) holds them all, and the store calls
-//   the tracker. Reading runs `bd --readonly`. The writes are creating,
+// - No bd command for an issue is written in this plugin's backend: bend's
+//   beads adapter (bend/internal/beads) holds them all, and the store
+//   calls bend. Reading runs `bd --readonly`. The writes are creating,
 //   closing and reopening an issue, changing its type, priority, title,
 //   description, parent, category or labels, adding a comment, and adding
 //   or removing links between issues; nothing here deletes an issue or
@@ -100,7 +100,7 @@ import { createFolders } from "./server/folder.ts";
 import { createSetup } from "./server/setup.ts";
 import { REPORT_TOOL, createSizing } from "./server/sizing.ts";
 import { createStore } from "./server/store.ts";
-import { createTrackers } from "./server/trackers.ts";
+import { createTrackers } from "./server/bend.ts";
 import { createWatcher } from "./server/watch.ts";
 import { createAutopilot } from "./server/autopilot.ts";
 import { createGithub } from "./server/github.ts";
@@ -132,6 +132,13 @@ export default async function plugin(bb: BbPluginApi) {
       description:
         "Name or full path of the beads command-line tool. Leave as bd unless BB cannot find it.",
       default: "bd",
+    },
+    bendCommand: {
+      type: "string",
+      label: "bend command",
+      description:
+        "Name or full path of bend, the program Airbender reads and changes issues with. Leave as bend unless BB cannot find it.",
+      default: "bend",
     },
     // Background sizing (bead-bb-zkc). On BB's own page because a tab
     // cannot open a settings screen of the plugin's; the tab's menu says
@@ -172,7 +179,7 @@ export default async function plugin(bb: BbPluginApi) {
       default: "claude-haiku-4-5-20251001",
     },
   });
-  const { bdCommand } = await settings.get();
+  const { bdCommand, bendCommand } = await settings.get();
 
   // Tried in order until one exists. The extra locations cover installs that
   // are on a login shell's PATH but not on the BB server's.
@@ -189,7 +196,14 @@ export default async function plugin(bb: BbPluginApi) {
   // issue first, the watcher, the store of issue operations on top of those,
   // then work (moving issues through their workflow) and setup on top of the
   // store.
-  const folders = createFolders({ bb, bdCandidates });
+  // The setup step "Build bend" puts it in the first of the extra places.
+  const bendCandidates = [
+    bendCommand.trim() || "bend",
+    join(homedir(), ".local", "bin", "bend"),
+    join(homedir(), "go", "bin", "bend"),
+    "/usr/local/bin/bend",
+  ];
+  const folders = createFolders({ bb, bdCandidates, bendCandidates });
   const currentBead = createCurrentBead(bb);
   // The issue sync is built further down and listens to the watcher; the
   // watcher is told through this until then.
@@ -198,7 +212,9 @@ export default async function plugin(bb: BbPluginApi) {
   const workflowChoice = await createWorkflowChoice(bb);
   const trackers = createTrackers({
     findBd: folders.findBd,
+    findBend: folders.findBend,
     notFoundMessage: folders.BD_NOT_FOUND_MESSAGE,
+    bendMessages: folders.BEND_MESSAGES,
     warn: (line) => bb.log.warn(line),
   });
   const store = createStore({
@@ -261,6 +277,7 @@ export default async function plugin(bb: BbPluginApi) {
     bb,
     folders,
     store,
+    bendIn: trackers.bendIn,
     syncSteps: issueSync.steps,
   });
   const github = createGithub({

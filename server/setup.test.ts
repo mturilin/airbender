@@ -33,7 +33,8 @@ test("anything else is no facts", () => {
 //
 // A throwaway repository is set up the way beads does it by default, with
 // beads' own setup for both coding agents, and then put through the two
-// setup steps. Needs `bd` and `git`; skipped where they are missing. The
+// setup steps. Needs `bd`, `git` and Go (the facts file is bend's to look
+// after); skipped where they are missing. The
 // pieces of BB the setup is built with are a few lines each.
 
 test("a repository set up the old way is switched over: beads' text and hooks out, ours in", async (t) => {
@@ -42,6 +43,10 @@ test("a repository set up the old way is switched over: beads' text and hooks ou
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
   const { createSetup } = await import("./setup.ts");
+  const { createRun } = await import("./bend.ts");
+  const { builtBend } = await import("./bend-for-tests.ts");
+  const bend = builtBend();
+  if (bend === null) return t.skip("bend cannot be built here (Go is not installed)");
   const { rulesIn, hasBeadsBlocks } = await import("./prompts.ts");
   const root = mkdtempSync(join(tmpdir(), "airbender-setup-"));
   try {
@@ -68,9 +73,11 @@ test("a repository set up the old way is switched over: beads' text and hooks ou
       folders: {
         resolveFolder: async () => ({ path: root }),
         findBd: async () => "bd",
+        findBend: async () => bend,
         mainFolder: async () => root,
       } as never,
       store: { readIssues: async () => ({ state: "ok", issues: [] }) } as never,
+      bendIn: async (path: string) => ({ run: createRun(bend, path) }),
       syncSteps: async () => ({ on: null, fetch: null }),
     });
     const here = { threadId: null, projectId: "p" };

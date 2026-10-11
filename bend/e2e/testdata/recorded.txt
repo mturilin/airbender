@@ -1,0 +1,1577 @@
+$ bend 
+[exit 2]
+bend — read and change a repository's issues, whatever tracker holds them.
+
+The tracker is detected from the folder you are in. Commands, fields and
+output are the same for every tracker. Where a tracker has no home for
+something, bend keeps it in a fitting place or says so; it never drops it
+silently. Run `bend status` to see what applies here.
+
+Usage:
+  bend <command> [arguments] [options]
+
+Find and read:
+  list [options]           List issues (open ones unless --status says otherwise)
+  ready [options]          List issues that can be worked on now
+  show <id> [options]      Show one issue in full, with its links and sub-issues
+  comments <id>            Show an issue's comments, oldest first
+  search <text> [options]  Find issues by words in the title or id
+
+Create and change:
+  create <title> [options]  Create an issue
+  edit <id> [options]       Change title, type, priority, category, assignee, labels or kept data
+  write <id> <part> [text]  Replace one written part of an issue
+  comment <id> [text]       Add a comment
+  decide <id> [text]        Record a decision and its reason
+  start <id>                Mark an issue as being worked on
+  close <id> [options]      Close an issue
+  reopen <id>               Reopen a closed issue
+
+Structure:
+  move <id> (--under <parent> | --top)  Put an issue under a parent, or back at the top level
+  link <id> <other-id> --kind <kind>    Link two issues
+  unlink <id> <other-id> [options]      Remove the link between two issues
+
+Finishing:
+  handover <id> --done <text> --checked <text> --not-checked <text>  Hand an issue over to the owner to validate
+
+About this repository:
+  status [options]                                            Which tracker is used here and what it supports
+  remember <text> [--key <key>]                               Save a standing fact for future sessions
+  recall [words]                                              Show saved facts, all or those containing the words
+  facts (--list | --ensure | --add-file <file> | --move-old)  Look after the facts file, for a program that sets a repository up
+  version                                                     Which bend this is
+
+Options for every command:
+  -C, --dir <path>     Run as if started in <path>
+      --json           Print machine-readable JSON
+      --text-file <f>  Read the text argument from a file ("-" for stdin)
+      --as <name>      Who is acting, for the tracker's history
+  -h, --help           Help for bend or for one command
+
+Exit status: 0 done · 1 refused, with the reason in plain words
+             2 usage error · 3 not supported by this repository's tracker
+
+Examples:
+  bend ready
+  bend show APP-142
+  bend create "Login fails on Safari" --type bug --priority 1
+  bend write APP-142 plan --text-file plan.md
+  bend decide APP-142 "Keep the old endpoint, because mobile still calls it"
+  bend link APP-150 APP-142 --kind blocked-by
+
+Run `bend <command> --help` for one command.
+
+$ bend --help
+[exit 0]
+bend — read and change a repository's issues, whatever tracker holds them.
+
+The tracker is detected from the folder you are in. Commands, fields and
+output are the same for every tracker. Where a tracker has no home for
+something, bend keeps it in a fitting place or says so; it never drops it
+silently. Run `bend status` to see what applies here.
+
+Usage:
+  bend <command> [arguments] [options]
+
+Find and read:
+  list [options]           List issues (open ones unless --status says otherwise)
+  ready [options]          List issues that can be worked on now
+  show <id> [options]      Show one issue in full, with its links and sub-issues
+  comments <id>            Show an issue's comments, oldest first
+  search <text> [options]  Find issues by words in the title or id
+
+Create and change:
+  create <title> [options]  Create an issue
+  edit <id> [options]       Change title, type, priority, category, assignee, labels or kept data
+  write <id> <part> [text]  Replace one written part of an issue
+  comment <id> [text]       Add a comment
+  decide <id> [text]        Record a decision and its reason
+  start <id>                Mark an issue as being worked on
+  close <id> [options]      Close an issue
+  reopen <id>               Reopen a closed issue
+
+Structure:
+  move <id> (--under <parent> | --top)  Put an issue under a parent, or back at the top level
+  link <id> <other-id> --kind <kind>    Link two issues
+  unlink <id> <other-id> [options]      Remove the link between two issues
+
+Finishing:
+  handover <id> --done <text> --checked <text> --not-checked <text>  Hand an issue over to the owner to validate
+
+About this repository:
+  status [options]                                            Which tracker is used here and what it supports
+  remember <text> [--key <key>]                               Save a standing fact for future sessions
+  recall [words]                                              Show saved facts, all or those containing the words
+  facts (--list | --ensure | --add-file <file> | --move-old)  Look after the facts file, for a program that sets a repository up
+  version                                                     Which bend this is
+
+Options for every command:
+  -C, --dir <path>     Run as if started in <path>
+      --json           Print machine-readable JSON
+      --text-file <f>  Read the text argument from a file ("-" for stdin)
+      --as <name>      Who is acting, for the tracker's history
+  -h, --help           Help for bend or for one command
+
+Exit status: 0 done · 1 refused, with the reason in plain words
+             2 usage error · 3 not supported by this repository's tracker
+
+Examples:
+  bend ready
+  bend show APP-142
+  bend create "Login fails on Safari" --type bug --priority 1
+  bend write APP-142 plan --text-file plan.md
+  bend decide APP-142 "Keep the old endpoint, because mobile still calls it"
+  bend link APP-150 APP-142 --kind blocked-by
+
+Run `bend <command> --help` for one command.
+
+$ bend list --help
+[exit 0]
+List issues (open ones unless --status says otherwise).
+
+Usage:
+  bend list [options]
+
+Options:
+  --status <status>       open | in_progress | closed | … | all
+  --type <type>           Only this type
+  --priority <0-4>        Only this priority
+  --category <name>       Only this category
+  --assignee <name>       Only issues assigned to this person
+  --parent <id>           Only the direct sub-issues of <id>
+  --changed-since <time>  Only issues changed at or after this moment (ISO date and time)
+  --with-body             With --json: add each issue's body (description and requirements as one text)
+
+Options for every command:
+  -C, --dir <path>     Run as if started in <path>
+      --json           Print machine-readable JSON
+      --text-file <f>  Read the text argument from a file ("-" for stdin)
+      --as <name>      Who is acting, for the tracker's history
+  -h, --help           Help for bend or for one command
+
+$ bend ready --help
+[exit 0]
+List issues that can be worked on now.
+
+Usage:
+  bend ready [options]
+
+Open issues that wait for nothing, by the tracker's own judgement.
+
+Options:
+  --with-body  With --json: add each issue's body (description and requirements as one text)
+
+Options for every command:
+  -C, --dir <path>     Run as if started in <path>
+      --json           Print machine-readable JSON
+      --text-file <f>  Read the text argument from a file ("-" for stdin)
+      --as <name>      Who is acting, for the tracker's history
+  -h, --help           Help for bend or for one command
+
+$ bend show --help
+[exit 0]
+Show one issue in full, with its links and sub-issues.
+
+Usage:
+  bend show <id> [options]
+
+Options:
+  --with-body  With --json: add each issue's body (description and requirements as one text)
+
+Options for every command:
+  -C, --dir <path>     Run as if started in <path>
+      --json           Print machine-readable JSON
+      --text-file <f>  Read the text argument from a file ("-" for stdin)
+      --as <name>      Who is acting, for the tracker's history
+  -h, --help           Help for bend or for one command
+
+$ bend comments --help
+[exit 0]
+Show an issue's comments, oldest first.
+
+Usage:
+  bend comments <id>
+
+Options for every command:
+  -C, --dir <path>     Run as if started in <path>
+      --json           Print machine-readable JSON
+      --text-file <f>  Read the text argument from a file ("-" for stdin)
+      --as <name>      Who is acting, for the tracker's history
+  -h, --help           Help for bend or for one command
+
+$ bend search --help
+[exit 0]
+Find issues by words in the title or id.
+
+Usage:
+  bend search <text> [options]
+
+Options:
+  --with-body  With --json: add each issue's body (description and requirements as one text)
+
+Options for every command:
+  -C, --dir <path>     Run as if started in <path>
+      --json           Print machine-readable JSON
+      --text-file <f>  Read the text argument from a file ("-" for stdin)
+      --as <name>      Who is acting, for the tracker's history
+  -h, --help           Help for bend or for one command
+
+$ bend create --help
+[exit 0]
+Create an issue.
+
+Usage:
+  bend create <title> [options]
+
+Prints the new issue's id.
+
+Options:
+  --description <text>  What is wanted and why
+  --done <text>         What "done" means
+  --type <type>         task | feature | bug | epic | chore | decision
+  --priority <0-4>      0 is most urgent
+  --category <name>     One category; the parent's if left out
+  --parent <id>         Create it as a sub-issue of <id>
+  --from <id>           It was discovered while working on <id>
+  --blocked-by <id>     It waits for <id> (repeatable)
+
+Options for every command:
+  -C, --dir <path>     Run as if started in <path>
+      --json           Print machine-readable JSON
+      --text-file <f>  Read the text argument from a file ("-" for stdin)
+      --as <name>      Who is acting, for the tracker's history
+  -h, --help           Help for bend or for one command
+
+$ bend edit --help
+[exit 0]
+Change title, type, priority, category, assignee, labels or kept data.
+
+Usage:
+  bend edit <id> [options]
+
+Kept data is free-form data a program keeps with an issue, by name;
+not every tracker has a place for it.
+
+Options:
+  --title <text>             New title
+  --type <type>              New type
+  --priority <0-4>           New priority
+  --category <name>          New category
+  --no-category              Remove the category
+  --assignee <name>          New assignee
+  --no-assignee              Remove the assignee
+  --add-label <label>        Add a label (repeatable)
+  --remove-label <label>     Remove a label (repeatable)
+  --set-data <name>=<value>  Keep a piece of data with the issue (repeatable)
+  --unset-data <name>        Remove a piece of kept data (repeatable)
+
+Options for every command:
+  -C, --dir <path>     Run as if started in <path>
+      --json           Print machine-readable JSON
+      --text-file <f>  Read the text argument from a file ("-" for stdin)
+      --as <name>      Who is acting, for the tracker's history
+  -h, --help           Help for bend or for one command
+
+$ bend write --help
+[exit 0]
+Replace one written part of an issue.
+
+Usage:
+  bend write <id> <part> [text]
+
+Parts: description | requirements | done | plan | notes | body.
+The text replaces what was there; an empty text clears the part.
+For long text use --text-file.
+The body is the description and the requirements as one text, the
+requirements in a marked section; a program that shows the two together
+writes them together.
+
+Options for every command:
+  -C, --dir <path>     Run as if started in <path>
+      --json           Print machine-readable JSON
+      --text-file <f>  Read the text argument from a file ("-" for stdin)
+      --as <name>      Who is acting, for the tracker's history
+  -h, --help           Help for bend or for one command
+
+$ bend comment --help
+[exit 0]
+Add a comment.
+
+Usage:
+  bend comment <id> [text]
+
+Options for every command:
+  -C, --dir <path>     Run as if started in <path>
+      --json           Print machine-readable JSON
+      --text-file <f>  Read the text argument from a file ("-" for stdin)
+      --as <name>      Who is acting, for the tracker's history
+  -h, --help           Help for bend or for one command
+
+$ bend decide --help
+[exit 0]
+Record a decision and its reason.
+
+Usage:
+  bend decide <id> [text]
+
+Say what was decided and why, and whose decision it was, e.g.
+  bend decide APP-1 "Keep the old endpoint, because mobile still calls it (the owner's decision)"
+
+Options for every command:
+  -C, --dir <path>     Run as if started in <path>
+      --json           Print machine-readable JSON
+      --text-file <f>  Read the text argument from a file ("-" for stdin)
+      --as <name>      Who is acting, for the tracker's history
+  -h, --help           Help for bend or for one command
+
+$ bend start --help
+[exit 0]
+Mark an issue as being worked on.
+
+Usage:
+  bend start <id>
+
+With --as, the issue is also assigned to that name.
+
+Options for every command:
+  -C, --dir <path>     Run as if started in <path>
+      --json           Print machine-readable JSON
+      --text-file <f>  Read the text argument from a file ("-" for stdin)
+      --as <name>      Who is acting, for the tracker's history
+  -h, --help           Help for bend or for one command
+
+$ bend close --help
+[exit 0]
+Close an issue.
+
+Usage:
+  bend close <id> [options]
+
+Options:
+  --reason <text>  Why it is closed
+
+Options for every command:
+  -C, --dir <path>     Run as if started in <path>
+      --json           Print machine-readable JSON
+      --text-file <f>  Read the text argument from a file ("-" for stdin)
+      --as <name>      Who is acting, for the tracker's history
+  -h, --help           Help for bend or for one command
+
+$ bend reopen --help
+[exit 0]
+Reopen a closed issue.
+
+Usage:
+  bend reopen <id>
+
+Options for every command:
+  -C, --dir <path>     Run as if started in <path>
+      --json           Print machine-readable JSON
+      --text-file <f>  Read the text argument from a file ("-" for stdin)
+      --as <name>      Who is acting, for the tracker's history
+  -h, --help           Help for bend or for one command
+
+$ bend move --help
+[exit 0]
+Put an issue under a parent, or back at the top level.
+
+Usage:
+  bend move <id> (--under <parent> | --top)
+
+Options:
+  --under <id>  Make it a sub-issue of <id>
+  --top         Take it out of its parent
+
+Options for every command:
+  -C, --dir <path>     Run as if started in <path>
+      --json           Print machine-readable JSON
+      --text-file <f>  Read the text argument from a file ("-" for stdin)
+      --as <name>      Who is acting, for the tracker's history
+  -h, --help           Help for bend or for one command
+
+$ bend link --help
+[exit 0]
+Link two issues.
+
+Usage:
+  bend link <id> <other-id> --kind <kind>
+
+Kinds: blocked-by | discovered-from | related, and any kind of the
+tracker's own that `bend status` lists.
+Read it as a sentence: `bend link A B --kind blocked-by` records that A is blocked by B.
+
+Options:
+  --kind <kind>  blocked-by | discovered-from | related | one of the tracker's own
+
+Options for every command:
+  -C, --dir <path>     Run as if started in <path>
+      --json           Print machine-readable JSON
+      --text-file <f>  Read the text argument from a file ("-" for stdin)
+      --as <name>      Who is acting, for the tracker's history
+  -h, --help           Help for bend or for one command
+
+$ bend unlink --help
+[exit 0]
+Remove the link between two issues.
+
+Usage:
+  bend unlink <id> <other-id> [options]
+
+Whichever way round the link was recorded, unless --from-first says otherwise.
+
+Options:
+  --kind <kind>  Only a link of this kind
+  --from-first   Only the link recorded on <id>, not one recorded on <other-id>
+
+Options for every command:
+  -C, --dir <path>     Run as if started in <path>
+      --json           Print machine-readable JSON
+      --text-file <f>  Read the text argument from a file ("-" for stdin)
+      --as <name>      Who is acting, for the tracker's history
+  -h, --help           Help for bend or for one command
+
+$ bend handover --help
+[exit 0]
+Hand an issue over to the owner to validate.
+
+Usage:
+  bend handover <id> --done <text> --checked <text> --not-checked <text>
+
+All three are required. If everything was checked, say so: --not-checked "nothing".
+The issue is left in progress; the owner validates and closes it.
+
+Options:
+  --done <text>         What was done
+  --checked <text>      How it was checked
+  --not-checked <text>  What was not checked
+
+Options for every command:
+  -C, --dir <path>     Run as if started in <path>
+      --json           Print machine-readable JSON
+      --text-file <f>  Read the text argument from a file ("-" for stdin)
+      --as <name>      Who is acting, for the tracker's history
+  -h, --help           Help for bend or for one command
+
+$ bend status --help
+[exit 0]
+Which tracker is used here and what it supports.
+
+Usage:
+  bend status [options]
+
+Options:
+  --quick  Only what is known without asking the tracker: its name, the repository, its kinds of link
+
+Options for every command:
+  -C, --dir <path>     Run as if started in <path>
+      --json           Print machine-readable JSON
+      --text-file <f>  Read the text argument from a file ("-" for stdin)
+      --as <name>      Who is acting, for the tracker's history
+  -h, --help           Help for bend or for one command
+
+$ bend remember --help
+[exit 0]
+Save a standing fact for future sessions.
+
+Usage:
+  bend remember <text> [--key <key>]
+
+Facts are kept in the repository's FACTS.md, one line per key.
+Saving under a key that exists replaces that fact.
+
+Options:
+  --key <key>  The fact's name; made from its first words if left out
+
+Options for every command:
+  -C, --dir <path>     Run as if started in <path>
+      --json           Print machine-readable JSON
+      --text-file <f>  Read the text argument from a file ("-" for stdin)
+      --as <name>      Who is acting, for the tracker's history
+  -h, --help           Help for bend or for one command
+
+$ bend recall --help
+[exit 0]
+Show saved facts, all or those containing the words.
+
+Usage:
+  bend recall [words]
+
+Options for every command:
+  -C, --dir <path>     Run as if started in <path>
+      --json           Print machine-readable JSON
+      --text-file <f>  Read the text argument from a file ("-" for stdin)
+      --as <name>      Who is acting, for the tracker's history
+  -h, --help           Help for bend or for one command
+
+$ bend facts --help
+[exit 0]
+Look after the facts file, for a program that sets a repository up.
+
+Usage:
+  bend facts (--list | --ensure | --add-file <file> | --move-old)
+
+It works on the folder it is run in, which needs no tracker.
+--list shows the facts in that folder's own file.
+--ensure makes FACTS.md when there is none.
+--add-file saves several facts at once, read as a JSON list of {"key": …, "text": …}.
+--move-old moves facts still kept in the old section of AGENTS.md into FACTS.md.
+
+Options:
+  --list             Show the facts kept in this folder
+  --ensure           Make the facts file when it is missing
+  --add-file <file>  Save the facts in a JSON file ("-" for stdin)
+  --move-old         Move facts out of the old section of AGENTS.md
+
+Options for every command:
+  -C, --dir <path>     Run as if started in <path>
+      --json           Print machine-readable JSON
+      --text-file <f>  Read the text argument from a file ("-" for stdin)
+      --as <name>      Who is acting, for the tracker's history
+  -h, --help           Help for bend or for one command
+
+$ bend version --help
+[exit 0]
+Which bend this is.
+
+Usage:
+  bend version
+
+A number that goes up whenever bend's commands, options or JSON change,
+for a program that runs bend to check it has one new enough.
+
+Options for every command:
+  -C, --dir <path>     Run as if started in <path>
+      --json           Print machine-readable JSON
+      --text-file <f>  Read the text argument from a file ("-" for stdin)
+      --as <name>      Who is acting, for the tracker's history
+  -h, --help           Help for bend or for one command
+
+$ bend version
+[exit 0]
+bend 1
+
+$ bend version --json
+[exit 0]
+{
+  "version": 1
+}
+
+$ bend status
+[exit 0]
+Tracker   beads
+Folder    <root>
+
+Supported here
+  ✓ sub-issues
+  ✓ comments
+  ✓ type
+  ✓ priority
+  ✓ assignee
+  ✓ links: blocked-by, discovered-from, related
+  ✓ description, done, plan, notes
+
+Stored another way
+  ~ category                         kept as the label category:<name>
+  ~ requirements                     kept as a marked section inside the description
+  ~ decisions and hand-overs         kept as comments with a fixed opening
+  ~ ready for the owner to validate  a hand-over comment on an issue left in progress
+
+Worth knowing
+  ! The beads database is not synced anywhere: the issues exist on this machine only (see `bd dolt remote`).
+
+$ bend status --json
+[exit 0]
+{
+  "tracker": "beads",
+  "where": "<root>",
+  "linkKinds": [
+    "blocked-by",
+    "discovered-from",
+    "related",
+    "tracks",
+    "until",
+    "caused-by",
+    "validates",
+    "supersedes"
+  ],
+  "supports": [
+    {
+      "name": "sub-issues",
+      "level": "yes",
+      "note": ""
+    },
+    {
+      "name": "comments",
+      "level": "yes",
+      "note": ""
+    },
+    {
+      "name": "type",
+      "level": "yes",
+      "note": ""
+    },
+    {
+      "name": "priority",
+      "level": "yes",
+      "note": ""
+    },
+    {
+      "name": "assignee",
+      "level": "yes",
+      "note": ""
+    },
+    {
+      "name": "links: blocked-by, discovered-from, related",
+      "level": "yes",
+      "note": ""
+    },
+    {
+      "name": "description, done, plan, notes",
+      "level": "yes",
+      "note": ""
+    },
+    {
+      "name": "category",
+      "level": "another way",
+      "note": "kept as the label category:<name>"
+    },
+    {
+      "name": "requirements",
+      "level": "another way",
+      "note": "kept as a marked section inside the description"
+    },
+    {
+      "name": "decisions and hand-overs",
+      "level": "another way",
+      "note": "kept as comments with a fixed opening"
+    },
+    {
+      "name": "ready for the owner to validate",
+      "level": "another way",
+      "note": "a hand-over comment on an issue left in progress"
+    }
+  ],
+  "warnings": [
+    "The beads database is not synced anywhere: the issues exist on this machine only (see `bd dolt remote`)."
+  ]
+}
+
+$ bend status --quick
+[exit 0]
+Tracker     beads
+Link kinds  blocked-by, discovered-from, related, tracks, until, caused-by, validates, supersedes
+
+$ bend status --quick --json
+[exit 0]
+{
+  "tracker": "beads",
+  "repository": null,
+  "linkKinds": [
+    "blocked-by",
+    "discovered-from",
+    "related",
+    "tracks",
+    "until",
+    "caused-by",
+    "validates",
+    "supersedes"
+  ],
+  "root": "<root>"
+}
+
+$ bend list
+[exit 0]
+No issues.
+
+$ bend create "Checkout flow" --type epic --priority p0 --description "-starts with a dash, and has <angle> & ampersand" --done "Orders go through" --category "  UX  Polish "
+[exit 0]
+<epic>
+
+$ bend create "Guest checkout" --parent <epic> --priority 1 --type task
+[exit 0]
+<child>
+
+$ bend create "Tidy the cart" --from <epic> --priority 2 --category api
+[exit 0]
+<other>
+
+$ bend create "Payment provider contract" --priority 3 --type decision --blocked-by <other>
+[exit 0]
+<blocker>
+
+$ bend create "See also" --priority 4
+[exit 0]
+<extra>
+
+$ bend create "Too urgent" --priority 9
+[exit 2]
+[standard error]
+bend: A priority is a number from 0 to 4, not "9".
+
+$ bend create
+[exit 2]
+[standard error]
+bend: Missing the title.
+
+$ bend write <epic> requirements "1. Guest checkout\n2. Saved cards"
+[exit 0]
+Wrote the requirements of <epic>.
+
+$ bend write <epic> plan --text-file -
+[exit 0]
+Wrote the plan of <epic>.
+
+$ bend write <epic> notes "A note.\n\nWith two paragraphs."
+[exit 0]
+Wrote the notes of <epic>.
+
+$ bend write <epic> description Rewritten.
+[exit 0]
+Wrote the description of <epic>.
+
+$ bend write <epic> summary "No such part"
+[exit 2]
+[standard error]
+bend: Unknown part "summary". Use one of: description, requirements, done, plan, notes, body.
+
+$ bend edit <epic> --title Checkout --type feature
+[exit 0]
+Changed <epic>.
+
+$ bend edit <epic>
+[exit 2]
+[standard error]
+bend: Nothing to change: give at least one option.
+
+$ bend edit <other> --no-category
+[exit 0]
+Changed <other>.
+
+$ bend edit <other> --category x --no-category
+[exit 2]
+[standard error]
+bend: Give --category or --no-category, not both.
+
+$ bend link <child> <blocker> --kind blocked-by
+[exit 0]
+<child> is blocked by <blocker>.
+
+$ bend link <extra> <epic> --kind related
+[exit 0]
+<extra> and <epic> are related.
+
+$ bend link <child> <blocker> --kind related
+[exit 1]
+[standard error]
+bend: <child> and <blocker> are already linked (blocked-by). Remove that link first.
+
+$ bend link <child> <child> --kind related
+[exit 1]
+[standard error]
+bend: An issue cannot be linked to itself.
+
+$ bend link <child> <other> --kind nonsense
+[exit 2]
+[standard error]
+bend: Unknown kind of link "nonsense". Use one of: blocked-by, discovered-from, related, tracks, until, caused-by, validates, supersedes.
+
+$ bend link <child> <other>
+[exit 2]
+[standard error]
+bend: Say what kind of link: --kind blocked-by | discovered-from | related.
+
+$ bend show <epic>
+[exit 0]
+<epic>  Checkout
+open · P0 · feature · category ux polish
+
+Links:
+  related  <extra>  See also
+  <other>  Tidy the cart  — discovered-from this
+
+Sub-issues:
+  open         <child>  Guest checkout
+
+DESCRIPTION
+Rewritten.
+
+REQUIREMENTS
+1. Guest checkout
+2. Saved cards
+
+DONE MEANS
+Orders go through
+
+PLAN
+text from standard input
+
+NOTES
+A note.
+
+With two paragraphs.
+
+$ bend show <epic> --json
+[exit 0]
+{
+  "id": "<epic>",
+  "title": "Checkout",
+  "status": "open",
+  "type": "feature",
+  "priority": 0,
+  "category": "ux polish",
+  "assignee": null,
+  "parentId": null,
+  "description": "Rewritten.",
+  "requirements": "1. Guest checkout\n2. Saved cards",
+  "done": "Orders go through",
+  "plan": "text from standard input",
+  "notes": "A note.\n\nWith two paragraphs.",
+  "closeReason": "",
+  "labels": [],
+  "links": [
+    {
+      "id": "<extra>",
+      "title": "See also",
+      "status": "open",
+      "kind": "related",
+      "direction": "out"
+    },
+    {
+      "id": "<other>",
+      "title": "Tidy the cart",
+      "status": "open",
+      "kind": "discovered-from",
+      "direction": "in"
+    }
+  ],
+  "subIssues": [
+    {
+      "id": "<child>",
+      "title": "Guest checkout",
+      "status": "open"
+    }
+  ],
+  "blockedBy": [],
+  "commentCount": 0,
+  "createdAt": "<time>",
+  "updatedAt": "<time>",
+  "metadata": {},
+  "externalRef": null
+}
+
+$ bend show <child>
+[exit 0]
+<child>  Guest checkout
+blocked · P1 · task · category ux polish
+Sub-issue of <epic>
+
+Waits for:
+  <blocker>  Payment provider contract
+
+Links:
+  blocked-by  <blocker>  Payment provider contract
+
+$ bend show <child> --json
+[exit 0]
+{
+  "id": "<child>",
+  "title": "Guest checkout",
+  "status": "open",
+  "type": "task",
+  "priority": 1,
+  "category": "ux polish",
+  "assignee": null,
+  "parentId": "<epic>",
+  "description": "",
+  "requirements": "",
+  "done": "",
+  "plan": "",
+  "notes": "",
+  "closeReason": "",
+  "labels": [],
+  "links": [
+    {
+      "id": "<blocker>",
+      "title": "Payment provider contract",
+      "status": "open",
+      "kind": "blocked-by",
+      "direction": "out"
+    }
+  ],
+  "subIssues": [],
+  "blockedBy": [
+    {
+      "id": "<blocker>",
+      "title": "Payment provider contract",
+      "status": "open"
+    }
+  ],
+  "commentCount": 0,
+  "createdAt": "<time>",
+  "updatedAt": "<time>",
+  "metadata": {},
+  "externalRef": null
+}
+
+$ bend show <blocker>
+[exit 0]
+<blocker>  Payment provider contract
+blocked · P3 · decision
+
+Waits for:
+  <other>  Tidy the cart
+
+Links:
+  <child>  Guest checkout  — blocked-by this
+  blocked-by  <other>  Tidy the cart
+
+$ bend list
+[exit 0]
+<epic>    open         P0  feature   Checkout  [ux polish]
+<child>  blocked      P1  task      Guest checkout  [ux polish]
+<other>    open         P2  task      Tidy the cart
+<blocker>    blocked      P3  decision  Payment provider contract
+<extra>    open         P4  task      See also
+
+$ bend list --json
+[exit 0]
+[
+  {
+    "id": "<epic>",
+    "title": "Checkout",
+    "status": "open",
+    "type": "feature",
+    "priority": 0,
+    "category": "ux polish",
+    "assignee": null,
+    "parentId": null,
+    "description": "Rewritten.",
+    "requirements": "1. Guest checkout\n2. Saved cards",
+    "done": "Orders go through",
+    "plan": "text from standard input",
+    "notes": "A note.\n\nWith two paragraphs.",
+    "closeReason": "",
+    "labels": [],
+    "links": [
+      {
+        "id": "<extra>",
+        "title": "See also",
+        "status": "open",
+        "kind": "related",
+        "direction": "out"
+      },
+      {
+        "id": "<other>",
+        "title": "Tidy the cart",
+        "status": "open",
+        "kind": "discovered-from",
+        "direction": "in"
+      }
+    ],
+    "subIssues": [
+      {
+        "id": "<child>",
+        "title": "Guest checkout",
+        "status": "open"
+      }
+    ],
+    "blockedBy": [],
+    "commentCount": 0,
+    "createdAt": "<time>",
+    "updatedAt": "<time>",
+    "metadata": {},
+    "externalRef": null
+  },
+  {
+    "id": "<child>",
+    "title": "Guest checkout",
+    "status": "open",
+    "type": "task",
+    "priority": 1,
+    "category": "ux polish",
+    "assignee": null,
+    "parentId": "<epic>",
+    "description": "",
+    "requirements": "",
+    "done": "",
+    "plan": "",
+    "notes": "",
+    "closeReason": "",
+    "labels": [],
+    "links": [
+      {
+        "id": "<blocker>",
+        "title": "Payment provider contract",
+        "status": "open",
+        "kind": "blocked-by",
+        "direction": "out"
+      }
+    ],
+    "subIssues": [],
+    "blockedBy": [
+      {
+        "id": "<blocker>",
+        "title": "Payment provider contract",
+        "status": "open"
+      }
+    ],
+    "commentCount": 0,
+    "createdAt": "<time>",
+    "updatedAt": "<time>",
+    "metadata": {},
+    "externalRef": null
+  },
+  {
+    "id": "<other>",
+    "title": "Tidy the cart",
+    "status": "open",
+    "type": "task",
+    "priority": 2,
+    "category": null,
+    "assignee": null,
+    "parentId": null,
+    "description": "",
+    "requirements": "",
+    "done": "",
+    "plan": "",
+    "notes": "",
+    "closeReason": "",
+    "labels": [],
+    "links": [
+      {
+        "id": "<epic>",
+        "title": "Checkout",
+        "status": "open",
+        "kind": "discovered-from",
+        "direction": "out"
+      },
+      {
+        "id": "<blocker>",
+        "title": "Payment provider contract",
+        "status": "open",
+        "kind": "blocked-by",
+        "direction": "in"
+      }
+    ],
+    "subIssues": [],
+    "blockedBy": [],
+    "commentCount": 0,
+    "createdAt": "<time>",
+    "updatedAt": "<time>",
+    "metadata": {},
+    "externalRef": null
+  },
+  {
+    "id": "<blocker>",
+    "title": "Payment provider contract",
+    "status": "open",
+    "type": "decision",
+    "priority": 3,
+    "category": null,
+    "assignee": null,
+    "parentId": null,
+    "description": "",
+    "requirements": "",
+    "done": "",
+    "plan": "",
+    "notes": "",
+    "closeReason": "",
+    "labels": [],
+    "links": [
+      {
+        "id": "<child>",
+        "title": "Guest checkout",
+        "status": "open",
+        "kind": "blocked-by",
+        "direction": "in"
+      },
+      {
+        "id": "<other>",
+        "title": "Tidy the cart",
+        "status": "open",
+        "kind": "blocked-by",
+        "direction": "out"
+      }
+    ],
+    "subIssues": [],
+    "blockedBy": [
+      {
+        "id": "<other>",
+        "title": "Tidy the cart",
+        "status": "open"
+      }
+    ],
+    "commentCount": 0,
+    "createdAt": "<time>",
+    "updatedAt": "<time>",
+    "metadata": {},
+    "externalRef": null
+  },
+  {
+    "id": "<extra>",
+    "title": "See also",
+    "status": "open",
+    "type": "task",
+    "priority": 4,
+    "category": null,
+    "assignee": null,
+    "parentId": null,
+    "description": "",
+    "requirements": "",
+    "done": "",
+    "plan": "",
+    "notes": "",
+    "closeReason": "",
+    "labels": [],
+    "links": [
+      {
+        "id": "<epic>",
+        "title": "Checkout",
+        "status": "open",
+        "kind": "related",
+        "direction": "out"
+      }
+    ],
+    "subIssues": [],
+    "blockedBy": [],
+    "commentCount": 0,
+    "createdAt": "<time>",
+    "updatedAt": "<time>",
+    "metadata": {},
+    "externalRef": null
+  }
+]
+
+$ bend list --type task
+[exit 0]
+<child>  blocked      P1  task      Guest checkout  [ux polish]
+<other>    open         P2  task      Tidy the cart
+<extra>    open         P4  task      See also
+
+$ bend list --priority p2
+[exit 0]
+<other>  open         P2  task      Tidy the cart
+
+$ bend list --category "UX polish"
+[exit 0]
+<epic>    open         P0  feature   Checkout  [ux polish]
+<child>  blocked      P1  task      Guest checkout  [ux polish]
+
+$ bend list --parent <epic>
+[exit 0]
+<child>  blocked      P1  task      Guest checkout  [ux polish]
+
+$ bend list --parent <epic> --json --with-body
+[exit 0]
+[
+  {
+    "id": "<child>",
+    "title": "Guest checkout",
+    "status": "open",
+    "type": "task",
+    "priority": 1,
+    "category": "ux polish",
+    "assignee": null,
+    "parentId": "<epic>",
+    "description": "",
+    "requirements": "",
+    "done": "",
+    "plan": "",
+    "notes": "",
+    "closeReason": "",
+    "labels": [],
+    "links": [
+      {
+        "id": "<blocker>",
+        "title": "Payment provider contract",
+        "status": "open",
+        "kind": "blocked-by",
+        "direction": "out"
+      }
+    ],
+    "subIssues": [],
+    "blockedBy": [
+      {
+        "id": "<blocker>",
+        "title": "Payment provider contract",
+        "status": "open"
+      }
+    ],
+    "commentCount": 0,
+    "createdAt": "<time>",
+    "updatedAt": "<time>",
+    "metadata": {},
+    "externalRef": null,
+    "body": ""
+  }
+]
+
+$ bend edit <child> --add-label step:plan --set-data branch=feature/x
+[exit 0]
+Changed <child>.
+
+$ bend edit <child> --remove-label step:plan --unset-data branch --json
+[exit 0]
+{
+  "ok": true,
+  "id": "<child>"
+}
+
+$ bend ready
+[exit 0]
+<epic>  open         P0  feature   Checkout  [ux polish]
+<other>  open         P2  task      Tidy the cart
+<extra>  open         P4  task      See also
+
+$ bend search cart
+[exit 0]
+<other>  open         P2  task      Tidy the cart
+
+$ bend search "nothing like this"
+[exit 0]
+No issues.
+
+$ bend comment <child> -- "-a comment that starts with a dash"
+[exit 0]
+Commented on <child>.
+
+$ bend comment <child> --text-file -
+[exit 0]
+Commented on <child>.
+
+$ bend comment <child>
+[exit 2]
+[standard error]
+bend: Missing the text (as an argument, or with --text-file).
+
+$ bend comment <child> -- --help
+[exit 0]
+Commented on <child>.
+
+$ bend edit <extra> --title -h
+[exit 0]
+Changed <extra>.
+
+$ bend edit <extra> --title=--help --add-label -h
+[exit 0]
+Changed <extra>.
+
+$ bend show <extra>
+[exit 0]
+<extra>  --help
+open · P4 · task
+Labels: -h
+
+Links:
+  related  <epic>  Checkout
+
+$ bend list --changed-since yesterday
+[exit 2]
+[standard error]
+bend: "yesterday" is not a date and time. Write it like <time>.
+
+$ bend decide <child> "Keep it simple, because it is enough (the owner's decision)"
+[exit 0]
+Recorded the decision on <child>.
+
+$ bend handover <child> --done x --checked y
+[exit 2]
+[standard error]
+bend: A hand-over must say what was done, how it was checked and what was not checked. Missing: --not-checked.
+
+$ bend handover <child> --done "Built it" --checked Tests --not-checked nothing
+[exit 0]
+Handed <child> over. It stays in progress until the owner closes it.
+
+$ bend comments <child>
+[exit 0]
+<time>  tester
+-a comment that starts with a dash
+
+<time>  tester
+text from standard input
+
+<time>  tester
+--help
+
+<time>  tester
+Decision: Keep it simple, because it is enough (the owner's decision)
+
+<time>  tester
+Hand-over: ready for the owner to validate.
+
+What was done: Built it
+
+How it was checked: Tests
+
+Not checked: nothing
+
+$ bend comments <child> --json
+[exit 0]
+[
+  {
+    "id": "<comment id>",
+    "author": "tester",
+    "createdAt": "<time>",
+    "text": "-a comment that starts with a dash"
+  },
+  {
+    "id": "<comment id>",
+    "author": "tester",
+    "createdAt": "<time>",
+    "text": "text from standard input"
+  },
+  {
+    "id": "<comment id>",
+    "author": "tester",
+    "createdAt": "<time>",
+    "text": "--help"
+  },
+  {
+    "id": "<comment id>",
+    "author": "tester",
+    "createdAt": "<time>",
+    "text": "Decision: Keep it simple, because it is enough (the owner's decision)"
+  },
+  {
+    "id": "<comment id>",
+    "author": "tester",
+    "createdAt": "<time>",
+    "text": "Hand-over: ready for the owner to validate.\n\nWhat was done: Built it\n\nHow it was checked: Tests\n\nNot checked: nothing"
+  }
+]
+
+$ bend comments <epic>
+[exit 0]
+No comments.
+
+$ bend show <child>
+[exit 0]
+<child>  Guest checkout
+blocked · P1 · task · category ux polish
+Sub-issue of <epic>
+
+Waits for:
+  <blocker>  Payment provider contract
+
+Links:
+  blocked-by  <blocker>  Payment provider contract
+
+5 comments: bend comments <child>
+
+$ bend start <other> --as agent-7
+[exit 0]
+<other> is in progress.
+
+$ bend start <other> --as agent-7 --json
+[exit 0]
+{
+  "ok": true,
+  "id": "<other>"
+}
+
+$ bend close <other> --reason validated --as agent-7
+[exit 0]
+Closed <other>.
+
+$ bend start <other>
+[exit 1]
+[standard error]
+bend: <other> is closed. Reopen it before starting work on it.
+
+$ bend list --status closed
+[exit 0]
+<other>  closed       P2  task      Tidy the cart
+
+$ bend list --status all
+[exit 0]
+<epic>    open         P0  feature   Checkout  [ux polish]
+<child>  blocked      P1  task      Guest checkout  [ux polish]
+<other>    closed       P2  task      Tidy the cart
+<blocker>    open         P3  decision  Payment provider contract
+<extra>    open         P4  task      --help
+
+$ bend list --assignee agent-7 --status all
+[exit 0]
+<other>  closed       P2  task      Tidy the cart
+
+$ bend show <blocker>
+[exit 0]
+<blocker>  Payment provider contract
+open · P3 · decision
+
+Links:
+  <child>  Guest checkout  — blocked-by this
+  blocked-by  <other>  Tidy the cart  (closed)
+
+$ bend reopen <other>
+[exit 0]
+Reopened <other>.
+
+$ bend close <epic>
+[exit 1]
+[standard error]
+bend: cannot close <epic>: 1 open child issue(s); close them first
+
+$ bend move <child> --top
+[exit 0]
+Moved <child> to the top level.
+
+$ bend move <child> --top --json
+[exit 0]
+{
+  "ok": true,
+  "id": "<child>",
+  "parentId": null
+}
+
+$ bend move <child> --under <epic> --json
+[exit 0]
+{
+  "ok": true,
+  "id": "<child>",
+  "parentId": "<epic>"
+}
+
+$ bend move <epic> --under <child>
+[exit 1]
+[standard error]
+bend: An issue cannot be moved inside itself or inside one of its own sub-issues.
+
+$ bend move <child>
+[exit 2]
+[standard error]
+bend: Say where to: --under <parent>, or --top.
+
+$ bend unlink <blocker> <child>
+[exit 0]
+Removed the link between <blocker> and <child>.
+
+$ bend unlink <blocker> <child>
+[exit 1]
+[standard error]
+bend: There is no link between <blocker> and <child>.
+
+$ bend unlink <epic> <extra> --json
+[exit 0]
+{
+  "ok": true,
+  "id": "<epic>",
+  "otherId": "<extra>"
+}
+
+$ bend show t-nope
+[exit 1]
+[standard error]
+bend: There is no issue with id t-nope.
+
+$ bend show t-nope --json
+[exit 1]
+{
+  "ok": false,
+  "status": 1,
+  "kind": "refused",
+  "error": "There is no issue with id t-nope."
+}
+
+$ bend show
+[exit 2]
+[standard error]
+bend: Missing the issue id.
+
+$ bend bogus
+[exit 2]
+[standard error]
+bend: Unknown command "bogus". Run `bend --help`.
+
+$ bend bogus --json
+[exit 2]
+{
+  "ok": false,
+  "status": 2,
+  "kind": "usage",
+  "error": "Unknown command \"bogus\". Run `bend --help`."
+}
+
+$ bend list --wat
+[exit 2]
+[standard error]
+bend: Unknown option --wat.
+
+$ bend list --status
+[exit 2]
+[standard error]
+bend: Option --status needs a value.
+
+$ bend help nonsense
+[exit 2]
+[standard error]
+bend: Unknown command "nonsense". Run `bend --help`.
+
+$ bend remember "Deploys go out on Mondays" --key deploys
+[exit 0]
+Saved the fact "deploys" in FACTS.md.
+
+$ bend remember "Deploys go out on Tuesdays" --key deploys --json
+[exit 0]
+{
+  "ok": true,
+  "key": "deploys",
+  "replaced": true
+}
+
+$ bend remember "Run the tests before handing over"
+[exit 0]
+Saved the fact "run-the-tests-before-handing-over" in FACTS.md.
+
+$ bend remember "   "
+[exit 2]
+[standard error]
+bend: The text is empty.
+
+$ bend recall
+[exit 0]
+deploys: Deploys go out on Tuesdays
+run-the-tests-before-handing-over: Run the tests before handing over
+
+$ bend recall tuesday
+[exit 0]
+deploys: Deploys go out on Tuesdays
+
+$ bend recall --json
+[exit 0]
+[
+  {
+    "key": "deploys",
+    "text": "Deploys go out on Tuesdays"
+  },
+  {
+    "key": "run-the-tests-before-handing-over",
+    "text": "Run the tests before handing over"
+  }
+]
+
+$ bend recall "nothing like this"
+[exit 0]
+No saved facts.
+
+$ bend -C <empty> list
+[exit 1]
+[standard error]
+bend: No supported issue tracker was found in <empty> or the folders above it. Supported: beads (a .beads folder) and GitHub issues (a remote called origin on github.com, or a `.bend.json` setting file).
+
+$ bend -C <empty> list --json
+[exit 1]
+{
+  "ok": false,
+  "status": 1,
+  "kind": "not-set-up",
+  "error": "No supported issue tracker was found in <empty> or the folders above it. Supported: beads (a .beads folder) and GitHub issues (a remote called origin on github.com, or a `.bend.json` setting file)."
+}
+
+$ bend -C <empty>/missing list
+[exit 1]
+[standard error]
+bend: The folder <empty>/missing does not exist.
+

@@ -95,6 +95,10 @@ When something the panel needs is missing, the panel offers to set it up.
   1. **Install beads**, when the tracker's program is not on the computer.
      The owner **chooses the way of installing each time**, from the ways
      available on that computer.
+     **Build bend** goes with it: when the `bend` program is missing, the
+     panel says so, because without it there are no issues, and offers to
+     build it from source and put it where commands are found. It runs in
+     a terminal the owner can watch, when the owner presses it. `[c9l.4]`
   2. **Set up beads in this folder**, when the folder has no issue database.
      This is the most important one. **It sets up the issues only, and none
      of the tracker's own instructions for agents.** `[c9l.8]`
@@ -788,6 +792,15 @@ panel. `[bwr]`
   are on GitHub is used through `bend`, not through the panel. `[c9l.1]`
 - **It does not depend on the app the panel runs in**, so it can be used, or
   moved, on its own.
+- **It is one self-contained program**, built from source in this
+  repository, that runs from any folder and needs nothing else installed
+  beside it but the tracker's own program. `[c9l.4]`
+- **The panel reads and changes issues through it**, by running it, as
+  agents do, so there is one implementation. Whatever the panel does with
+  an issue can be asked of `bend` in a form a program can read: labels,
+  free-form data kept with an issue, every kind of link the tracker has,
+  removing one link of several, and which of the expected problems
+  occurred. `[c9l.4]`
 - **What it can do:** list issues, list those ready to work on, show one,
   show its comments, search; create, edit, write one of an issue's parts
   (description, requirements, done, plan, notes), comment, record a
@@ -1297,6 +1310,25 @@ breaking a requirement above.
   reached (with the time it lifts) and no network are each said in plain
   words. Status warns that commands take a moment, that there is an hourly
   limit, and that search runs behind. `[c9l.1]`
+- bend: it is written in Go with no packages beyond the standard ones.
+  The setup step builds it into the owner's own commands folder
+  (`~/.local/bin`); a setting names another place. Where Go is not
+  installed, or the source did not come with the plugin, the step is greyed
+  out and says why. `[c9l.4]`
+- bend: it has a version number that goes up when its commands or its
+  output for programs change; the panel treats a `bend` older than it needs
+  as missing and offers "Build bend again". `[c9l.4]`
+- bend: for programs, a failure says which kind it is: refused, asked
+  wrongly, not supported, the tracker's program is missing, the folder has
+  no tracker, or there is no login. A quick form of status says the
+  tracker's name, the repository and its kinds of link without asking the
+  tracker anything. `[c9l.4]`
+- bend: a link can be of any kind the repository's tracker has (beads has
+  five beyond the common three); a kind it does not have is "asked
+  wrongly". Unlinking can be narrowed to one kind, and to the link recorded
+  on the first issue. `[c9l.4]`
+- bend: the panel tells it which beads program to run and to pass over any
+  tracker but beads. `[c9l.4]`
 - bend: every command accepts: run in another folder, read the text from a
   file or standard input, and who is acting. The ending statuses are 0 done,
   1 refused, 2 asked wrongly, 3 not supported by this tracker.

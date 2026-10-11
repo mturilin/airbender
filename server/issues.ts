@@ -1,12 +1,12 @@
 // server/issues.ts — turning the tracker's issues into the tab's issues.
 //
-// What: the function that turns issues in the tracker core's common shape
-// (tracker/types.ts) into the shape the tab draws (server/contract.ts), and
+// What: the function that turns issues in bend's common shape
+// (server/bend.ts) into the shape the tab draws (server/contract.ts), and
 // the small helpers for what the tab keeps in labels: an issue's workflow
 // step, its size, and an epic's branch.
 //
-// Why: the tab reads issues through the tracker core, as `bend` does, so
-// there is one code path to beads (bead-bb-c9l.2). The core gives what is
+// Why: the tab reads issues by running `bend`, as agents do, so there is
+// one code path to the tracker (bead-bb-c9l.4). bend gives what is
 // common to every tracker; what only the tab knows is added here: the
 // workflow's labels, the tab's own names for links, and the owner's rule
 // that an issue whose open sub-issues are all blocked is blocked itself.
@@ -25,8 +25,7 @@
 //   runs this file directly in the tests.
 
 import { CLOSED_STATUS } from "../shared/constants.ts";
-import { withRequirements } from "../tracker/parts.ts";
-import type { Issue as TrackerIssue } from "../tracker/types.ts";
+import type { TrackerIssue } from "./bend.ts";
 import type { Issue, IssueLink } from "./contract.ts";
 
 /**
@@ -178,7 +177,8 @@ export function toIssues(found: TrackerIssue[]): Issue[] {
   return found.map((issue) => ({
     id: issue.id,
     title: issue.title,
-    description: withRequirements(issue.description, issue.requirements),
+    // The description with the requirements kept inside it, as one text.
+    description: issue.body,
     design: issue.plan,
     acceptance: issue.done,
     notes: issue.notes,

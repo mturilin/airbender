@@ -4,12 +4,13 @@ A BB plugin that shows a repository's beads issues in a tab in the right-hand
 panel, beside a thread or on the New thread screen.
 
 - `server.ts` and `server/` — the backend. Finds the folder a thread or
-  project works in, lists and changes its issues through the tracker core
-  in `tracker/` (the layer `bend` is built on), and stores each thread's
+  project works in, lists and changes its issues by running the `bend`
+  program (see "bend" below), and stores each thread's
   current bead. `server.ts` wires the pieces and maps each request to one
   call. `server/contract.ts` is the typed contract with the frontend;
-  `folder.ts` finds the folder and the `bd` program; `trackers.ts` gives the
-  tracker for a folder and turns its failures into what the tab shows;
+  `folder.ts` finds the folder and the `bd` and `bend` programs; `bend.ts`
+  runs bend, gives the tracker for a folder and turns bend's failures into
+  what the tab shows;
   `store.ts` holds the issue operations, each one a call on that tracker,
   and keeps the last list read per repository
   (`list-cache.ts`: reused while beads' `last-touched` file is unchanged,
@@ -50,13 +51,15 @@ panel, beside a thread or on the New thread screen.
   `server/workflow-choice.ts`. To change how issues
   are worked, change `standard-workflow.ts`; nothing else names a step. These files have no imports,
   so they are safe to bundle on either side.
-- `tracker/`, `bend/`, `bin/bend` — **bend**, a command for agents to read
-  and change issues without knowing which tracker holds them (see "bend"
-  below). It does not depend on the plugin or on BB. The tab's backend
-  reads and changes issues through `tracker/` too, so there is one code
-  path to beads; the only `bd` commands outside `tracker/beads.ts` are the
-  setup steps in `server/setup.ts`.
+- `bend/` — **bend**, a Go program for agents to read and change issues
+  without knowing which tracker holds them (see "bend" below). It does not
+  depend on the plugin or on BB. The tab's backend reads and changes issues
+  by running it too, so there is one code path to the tracker; the only
+  `bd` commands in the plugin are the setup steps in `server/setup.ts` and
+  the syncing in `sync/` and `server/github.ts`.
 - `*.test.ts` — tests for the logic without React or BB; run `npm test`.
+  The server's tests build bend from `bend/` first, so they need Go; where
+  it is missing they are skipped.
 - `PLUGIN_OVERVIEW.md` — the text BB shows on the plugin's detail page.
 
 ## Use
@@ -215,6 +218,12 @@ step with its button and a Skip; the "⋯" menu at the right of the toolbar
 lists every step, greyed out when done or not yet possible:
 
 1. **Install beads** — pick a method (install script, mise, Homebrew, npm).
+   **Build bend** comes with it: the tab reads and changes issues with the
+   `bend` program, built from the `bend` folder of the plugin with Go into
+   `~/.local/bin/bend` (the exact command is shown first). Offered when
+   bend is missing or older than the plugin needs; where Go is not
+   installed the step says so. The "bend command" setting names another
+   place.
 2. **Set up beads in this folder** — runs `bd init --skip-agents`: the
    issue database, and none of beads' own instructions for agents.
 3. **Add Airbender's instructions for agents** — the working rules the
@@ -232,7 +241,7 @@ lists every step, greyed out when done or not yet possible:
    offered: its text tells agents to close issues themselves.
 4. **Carry saved facts over** — shown while beads holds facts (`bd
    remember`) that `FACTS.md` does not: you tick which go into `FACTS.md`,
-   the file agents read standing facts from now (`tracker/memory.ts`;
+   the file agents read standing facts from now (bend looks after it;
    `bend remember` writes there too).
 5. **Sync issues to the repository's remote** — runs `bd dolt push --yes`
    and then `bd sync`, for the first time (a sync pulls first and fails on
@@ -257,8 +266,17 @@ tab reloads when it ends and shows the last output if it failed.
 
 ## bend
 
-`bin/bend` is a command-line program for agents: the same commands whatever
-tracker a repository uses: beads, or GitHub issues. Run `bin/bend --help`.
+`bend` is a command-line program for agents, and for the tab: the same
+commands whatever tracker a repository uses: beads, or GitHub issues. It is
+written in Go, standard library only, and is one program with nothing
+beside it. Build it from the `bend` folder (Go 1.24 or later):
+
+```sh
+cd bend && go build -o ~/.local/bin/bend ./cmd/bend
+bend --help
+```
+
+The tab's setup step "Build bend" runs exactly that.
 
 Which tracker: a `.bend.json` file at the repository's root decides
 (`{"tracker": "github"}` or `{"tracker": "beads"}`, optionally
@@ -266,44 +284,55 @@ Which tracker: a `.bend.json` file at the repository's root decides
 and otherwise a remote called origin on github.com means GitHub issues.
 For GitHub, sign in with `gh auth login` or set `GH_TOKEN`.
 
-- `tracker/types.ts` — the common shape of an issue and the `Tracker`
-  interface every adapter implements. No imports from the plugin or BB.
-- `tracker/beads.ts` — the beads adapter. `tracker/detect.ts` picks the
-  adapter from the folder (`tracker/config.ts` reads the setting file). A
-  new tracker is a new adapter plus a few lines there.
-- `tracker/github.ts` — the GitHub adapter: where each field is kept
+- `bend/cmd/bend` — the program's entry point.
+- `bend/internal/tracker` — the common shape of an issue, the `Tracker`
+  interface every adapter implements, the kinds of failure, and small text
+  helpers (marked sections, links kept as text).
+- `bend/internal/beads` — the beads adapter (runs `bd`).
+  `bend/internal/detect` picks the adapter from the folder and reads the
+  setting file. A new tracker is a new adapter plus a few lines there.
+- `bend/internal/github` — the GitHub adapter: where each field is kept
   (labels, marked sections of the description, GitHub's own sub-issues and
-  "blocked by"). `tracker/github-api.ts` — the connection to GitHub:
-  login, requests, and plain words for each failure.
-  `tracker/github-fake.ts` — an in-memory stand-in for the tests.
-- `tracker/memory.ts` — standing facts, kept in a marked section of
-  `AGENTS.md`. `tracker/parts.ts` — small text helpers.
-- `bend/` — the command: `commands.ts` (the table the help and the accepted
-  options both come from), `args.ts`, `format.ts`, `main.ts`, `cli.ts`.
+  "blocked by"), the connection to GitHub (login, requests, plain words
+  for each failure), and an in-memory stand-in for the tests.
+- `bend/internal/facts` — standing facts, kept in `FACTS.md`.
+- `bend/internal/cli` — the command: the table the help and the accepted
+  options both come from, reading arguments, text and JSON output.
+- `bend/e2e` — tests that start the program: scenarios on a real throwaway
+  beads folder, and a recording of everything a fixed series of commands
+  prints (`testdata/recorded.txt`; record again with `BEND_RECORD=1`).
 - `.agents/skills/bend/SKILL.md` — tells agents when and how to use it.
 
-It needs node 22.6 or later, which runs the TypeScript directly. To have it
-as plain `bend`, link `bin/bend` into a folder on your PATH. The tests in
-`bend/main.test.ts` run against a real throwaway beads folder and are
-skipped where `bd` is not installed. The GitHub adapter is tested offline
-against the stand-in (`tracker/github.test.ts`); `bend/github.e2e.test.ts`
-runs every command against real GitHub and is skipped unless a scratch
-repository is named:
+For a program that runs bend (the tab does, `server/bend.ts`): `--json`
+prints JSON, and a failure as `{"ok": false, "status", "kind", "error"}`
+where the kind is one of `refused`, `usage`, `unsupported`, `no-program`
+(the tracker's own program is missing), `not-set-up` (the folder has no
+tracker) and `not-signed-in`; `bend version` gives a number that goes up
+when the commands or the JSON change; `status --quick` asks the tracker
+nothing; `--with-body` adds each issue's description and requirements as
+one text, which `write <id> body` takes back; `edit` adds and removes
+labels and kept data; `BEND_BD` names the beads program and `BEND_ACCEPT`
+the trackers the caller can work with.
+
+Tests: `cd bend && go test ./...`. They are skipped where `bd` is not
+installed. The GitHub adapter is tested offline against the stand-in and a
+stand-in web server; `bend/e2e/github_test.go` runs every command against
+real GitHub and is skipped unless a scratch repository is named:
 
 ```sh
-BEND_GITHUB_SCRATCH=mturilin/bend-scratch npm test
+cd bend && BEND_GITHUB_SCRATCH=mturilin/bend-scratch go test ./e2e -run GitHub
 ```
 
 It creates and then deletes real issues there, and refuses any repository
 without "scratch" in its name.
 
-The Airbender tab uses `tracker/` for every read and change of an issue
-(`server/trackers.ts`, `server/store.ts`), and accepts beads only: a
-hosted tracker is too slow for it until there is a cache
-(bead-bb-c9l.5, then bead-bb-c9l.6). Still beads-specific in the tab,
-and to be done with a second tracker: the setup steps, watching the
-`.beads` folder for outside changes, the check on what an issue id looks
-like, the "bd command" setting, and the wording on screen.
+The Airbender tab runs bend for every read and change of an issue
+(`server/bend.ts`, `server/store.ts`), and accepts beads only: a hosted
+tracker is too slow for it until issues are kept in a local copy
+(bead-bb-c9l.6). Still beads-specific in the tab, and to be done with a
+second tracker: the setup steps, watching the `.beads` folder for outside
+changes, the check on what an issue id looks like, the "bd command"
+setting, and the wording on screen.
 
 ## Limits of this version
 
@@ -351,7 +380,7 @@ npm test               # run the tests (node's own test runner)
 
 The frontend may import only types from `server.ts` and `server/`; values
 both sides need go in `shared/`. Files that the tests load
-(`server/issues.ts`, `server/trackers.ts`, `server/prompts.ts`, `app/issue-model.ts`,
+(`server/issues.ts`, `server/bend.ts`, `server/prompts.ts`, `app/issue-model.ts`,
 `app/quick-tags.ts`, everything in `shared/`) must not import React, the BB SDK or `@/...` paths.
 A new source folder must be added to `include` in `tsconfig.json`.
 

@@ -12,13 +12,13 @@
 // only what is particular to it.
 //
 // Design notes:
-// - Issues are read and changed only through the tracker core (tracker/),
-//   the layer `bend` is built on, so there is one code path to beads
-//   (bead-bb-c9l.2). No bd command is written in this file; the beads
-//   adapter (tracker/beads.ts) holds them all.
+// - Issues are read and changed only by running the bend program
+//   (server/bend.ts), the one agents use too, so there is one code path to
+//   the tracker (bead-bb-c9l.4). No bd command is written in this file;
+//   bend's beads adapter holds them all.
 // - Expected problems are returned as data (a state, or a message in plain
 //   words), never thrown, so the tab can show them. The tracker throws;
-//   server/trackers.ts turns that into data.
+//   server/bend.ts turns that into data.
 // - There are two ways to read the list. `readIssues` only reads: it is what
 //   the operations use to check that an issue is still there. `listIssues`
 //   is the answer for the tab: it adds the thread's current issue, starts
@@ -43,8 +43,7 @@ import {
   CLOSED_STATUS,
 } from "../shared/constants.ts";
 import type { IssueType, LinkKind } from "../shared/constants.ts";
-import { splitRequirements } from "../tracker/parts.ts";
-import type { Tracker } from "../tracker/types.ts";
+import type { Tracker, Trackers } from "./bend.ts";
 import type { Issue, IssueComment, IssuesResult } from "./contract.ts";
 import type { CurrentBead } from "./current-bead.ts";
 import type { Folders } from "./folder.ts";
@@ -56,7 +55,6 @@ import {
   STEP_PREFIX,
   toIssues,
 } from "./issues.ts";
-import type { Trackers } from "./trackers.ts";
 import { DEFAULT_WORKFLOW_ID } from "../shared/workflows.ts";
 import { createListCache } from "./list-cache.ts";
 import { repositoryKey } from "./workflow-choice.ts";
@@ -84,7 +82,7 @@ export interface Outcome {
 /** What a plain read of a folder's issues gives. */
 type IssuesRead =
   | { state: "ok"; issues: Issue[] }
-  | { state: "no-bd" | "no-beads" | "error"; message: string };
+  | { state: "no-bd" | "no-bend" | "no-beads" | "error"; message: string };
 
 /** The sentence for an id that cannot be a beads issue id. */
 const notAnId = (id: string) => `"${id}" is not a beads issue id.`;
@@ -96,7 +94,7 @@ const notInList = (id: string) => `Issue ${id} is no longer in the list.`;
  * Builds the issue operations for this plugin instance.
  *
  * @param folders Finding folders and reading git in them (server/folder.ts).
- * @param trackers The tracker for each folder (server/trackers.ts).
+ * @param trackers The tracker for each folder (server/bend.ts).
  * @param currentBead The thread's current issue (server/current-bead.ts).
  * @param watchFolder Starts watching a folder for outside changes
  *   (server/watch.ts).
@@ -197,8 +195,8 @@ export function createStore({
     const found = await trackerFor(path);
     if ("state" in found) return found;
     try {
-      // "all" includes the closed ones, which the tab shows too.
-      const issues = await found.tracker.list({ status: "all" });
+      // Every issue: the closed ones are shown too.
+      const issues = await found.tracker.list();
       return { state: "ok", issues: toIssues(issues) };
     } catch (cause) {
       // Named, so that it is logged: a list that cannot be read is worth a
@@ -497,17 +495,14 @@ export function createStore({
           written = true;
         }
         if (description !== null) {
-          const typed = splitRequirements(description);
-          const held = await tracker.show(beadId);
-          // Each part is written only when it differs, so the usual edit
-          // is one write, and a text sent back unchanged is none.
-          if (typed.description !== held.description) {
-            await tracker.write(beadId, "description", typed.description);
-            written = true;
-          }
-          if (typed.requirements !== held.requirements) {
-            await tracker.write(beadId, "requirements", typed.requirements);
-          }
+          // One text holding the description and the requirements. bend
+          // writes only the half that differs, so the usual edit is one
+          // write, and a text sent back unchanged is none.
+          // Counted as written before it is known: bend may write the
+          // description and then fail on the requirements, and a reload
+          // that shows nothing new costs little.
+          written = true;
+          await tracker.writeBody(beadId, description);
         }
       } catch (cause) {
         if (written) changed(input.threadId);
@@ -786,9 +781,35 @@ export function createStore({
     }
   }
 
+  /**
+   * Adds a comment under another person's name, in a folder already found
+   * (the tracker takes a comment's author from who acts). For the comment
+   * copying of the GitHub sync.
+   *
+   * @returns Null when it was added; otherwise why not.
+   * Side effects: writes to the tracker; the kept list is dropped. No tab
+   *   is told to reload: the caller does that once at its end.
+   */
+  async function commentAsIn(
+    path: string,
+    beadId: string,
+    author: string,
+    text: string,
+  ): Promise<string | null> {
+    const outcome = await applyIn(
+      path,
+      null,
+      "comment",
+      (tracker) => tracker.comment(beadId, text, author),
+      false,
+    );
+    return outcome.message;
+  }
+
   return {
     readIssues,
     commentTextsIn,
+    commentAsIn,
     listIssues,
     issuesIn,
     createIssue,

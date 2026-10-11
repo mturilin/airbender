@@ -151,11 +151,13 @@ const issuesResultSchema = z.object({
    * ok — `issues` is the full list for `path`.
    * no-beads — the folder exists but has no beads database.
    * unavailable — there is no folder on this machine to look in.
+   * no-bend — the bend program, which the tab reads and changes issues
+   *   with, is not on this machine or is too old. Setup offers to build it.
    * no-bd — the beads program is not on this machine. Its own state, apart
    *   from "error", so the tab can offer to install it (bead-bb-80e).
    * error — bd failed; `message` says why.
    */
-  state: z.enum(["ok", "no-beads", "no-bd", "unavailable", "error"]),
+  state: z.enum(["ok", "no-beads", "no-bd", "no-bend", "unavailable", "error"]),
   /** Folder bd ran in; null when none could be resolved. */
   path: z.string().nullable(),
   /**
@@ -261,6 +263,20 @@ const setupStatusSchema = z.object({
   installMethods: z.array(
     z.object({ id: z.string(), label: z.string(), command: z.string() }),
   ),
+  /**
+   * The bend program, which the tab reads and changes issues with: ready,
+   * missing, or there but older than this plugin needs.
+   */
+  bend: z.enum(["ready", "missing", "old"]),
+  /**
+   * Building bend from the source that comes with the plugin: the command,
+   * shown before it is run, or why it cannot be built here (Go is not
+   * installed, the source is not with the plugin).
+   */
+  bendBuild: z.object({
+    command: z.string().nullable(),
+    unavailable: z.string().nullable(),
+  }),
   /** Whether the folder has a beads issue database. */
   folderReady: z.boolean(),
   /**

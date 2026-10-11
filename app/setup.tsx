@@ -97,6 +97,9 @@ const replacesBeads = (status: SetupStatus | null) =>
 /** The setup steps for a folder, in the order they make sense. */
 function setupSteps(status: SetupStatus): SetupStep[] {
   const running = status.running === null ? null : "running…";
+  // Without bend the folder cannot be asked whether it has issues, so the
+  // steps that depend on that answer wait for it.
+  const bendReady = status.bend === "ready";
   const steps: SetupStep[] = [
     {
       key: "install",
@@ -111,6 +114,42 @@ function setupSteps(status: SetupStatus): SetupStep[] {
           ? "no installer found"
           : running,
     },
+    {
+      key: "bend",
+      action: "bend",
+      option: null,
+      label: status.bend === "old" ? "Build bend again" : "Build bend",
+      // Where it cannot be built the reason is said here, in the step's
+      // own words: a step that cannot be started opens no confirmation.
+      why:
+        (status.bend === "old"
+          ? "The bend program on this computer is older than this version of Airbender needs. The tab reads and changes issues with it."
+          : "The bend program is not on this computer. The tab reads and changes issues with it.") +
+        (status.bend !== "ready" && status.bendBuild.command === null
+          ? ` ${status.bendBuild.unavailable ?? ""}`
+          : ""),
+      needed: status.bend !== "ready",
+      blocked:
+        status.bend === "ready"
+          ? "built"
+          : status.bendBuild.command === null
+            ? "cannot be built here"
+            : running,
+      explain: {
+        lead:
+          status.bendBuild.command === null
+            ? (status.bendBuild.unavailable ?? "bend cannot be built here.")
+            : "Builds bend from the source that comes with Airbender, and puts it in your own commands folder:",
+        points:
+          status.bendBuild.command === null
+            ? []
+            : [
+                `\`${status.bendBuild.command}\``,
+                "Nothing in the repository changes.",
+                "bend is one program with nothing beside it; you can also run it yourself in a terminal: `bend --help`.",
+              ],
+      },
+    },
     // A folder with no issues gets one of two steps: fetch them, where
     // the folder's issue sync says its remote already holds them (a fresh
     // clone, bead-bb-0bz), or start empty. What the fetch step is called
@@ -123,8 +162,12 @@ function setupSteps(status: SetupStatus): SetupStep[] {
           option: null,
           label: status.syncSteps.fetch.label,
           why: status.syncSteps.fetch.why,
-          needed: status.bdInstalled,
-          blocked: !status.bdInstalled ? "install beads first" : running,
+          needed: status.bdInstalled && bendReady,
+          blocked: !status.bdInstalled
+            ? "install beads first"
+            : !bendReady
+              ? "build bend first"
+              : running,
           explain: status.syncSteps.fetch.explain,
         }
       : {
@@ -133,12 +176,14 @@ function setupSteps(status: SetupStatus): SetupStep[] {
           option: null,
           label: "Set up beads in this folder",
           why: "This folder has no issue database yet. Setting it up lets you track issues here.",
-          needed: status.bdInstalled && !status.folderReady,
+          needed: status.bdInstalled && bendReady && !status.folderReady,
           blocked: status.folderReady
             ? "done"
             : !status.bdInstalled
               ? "install beads first"
-              : running,
+              : !bendReady
+                ? "build bend first"
+                : running,
         },
     {
       key: "rules",

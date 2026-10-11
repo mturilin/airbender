@@ -89,6 +89,9 @@ export const QUICK_REPLIES = {
  */
 export const SETUP_ACTIONS = [
   "install",
+  // Build bend, the program the tab reads and changes issues with, from
+  // the source that comes with the plugin (bead-bb-c9l.4).
+  "bend",
   "init",
   // Get the issues of a repository that already has them on its remote
   // (a fresh clone), in place of "init".

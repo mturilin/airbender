@@ -24,7 +24,7 @@
 //
 // Gotchas:
 // - This file must stay free of imports from the plugin, from BB and from
-//   any tracker, like tracker/types.ts in the tracker layer it is meant to
+//   any tracker, like bend/internal/tracker in the tracker layer it is meant to
 //   sit beside one day.
 
 /**

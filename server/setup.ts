@@ -19,7 +19,8 @@
 //   what an earlier setup left: beads' marked blocks from AGENTS.md and
 //   CLAUDE.md here, and beads' hooks with beads' own `bd setup <agent>
 //   --remove`. Text beads wrote without markers is only named.
-// - Standing facts are kept in FACTS.md (tracker/memory.ts). Facts saved
+// - Standing facts are kept in FACTS.md, which bend looks after (its
+//   `facts` and `recall` commands; server/bend.ts runs them). Facts saved
 //   in beads are shown once for the owner to choose from; a line at the top
 //   of FACTS.md records that they were looked at, so the offer does not
 //   come back on another computer.
@@ -35,19 +36,14 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { CHANGED_CHANNEL, SETUP_AGENTS } from "../shared/constants.ts";
 import type { SetupAction } from "../shared/constants.ts";
-import {
-  FACTS_FILE,
-  addFacts,
-  ensureFactsFile,
-  moveOldFacts,
-  recall,
-} from "../tracker/memory.ts";
 import { programExists, runBd, shellQuote } from "./bd.ts";
 import type { SetupStatus } from "./contract.ts";
+import type { Fact, Trackers } from "./bend.ts";
 import {
+  FACTS_FILE,
   agentsFileWith,
   beadsLeftovers,
   claudeFileFor,
@@ -128,6 +124,10 @@ export function savedFactsFrom(stdout: string): { key: string; text: string }[] 
   );
 }
 
+/** The reason in something thrown, without the word "Error:". */
+const reasonOf = (cause: unknown) =>
+  cause instanceof Error ? cause.message : String(cause);
+
 /** A file's text; "" when there is no such file or it cannot be read. */
 function textOf(path: string): string {
   try {
@@ -148,17 +148,20 @@ export function createSetup({
   bb,
   folders,
   store,
+  bendIn,
   syncSteps,
 }: {
   bb: BbPluginApi;
   folders: Folders;
   store: Store;
+  /** How to run bend in a folder (server/bend.ts). */
+  bendIn: Trackers["bendIn"];
   /** The setup steps the folder's issue sync offers now (server/sync.ts). */
   syncSteps: (
     path: string,
   ) => Promise<{ on: SyncStep | null; fetch: SyncStep | null }>;
 }) {
-  const { resolveFolder, findBd } = folders;
+  const { resolveFolder, findBd, findBend } = folders;
   const { readIssues } = store;
   /** The setup action running in a terminal, per folder. */
   const setupRunning = new Map<
@@ -174,7 +177,13 @@ export function createSetup({
    */
   const setupMet = new Map<
     string,
-    { bd: string | null; folder: boolean; rules: boolean; facts: boolean }
+    {
+      bd: string | null;
+      bend: boolean;
+      folder: boolean;
+      rules: boolean;
+      facts: boolean;
+    }
   >();
 
   /**
@@ -221,6 +230,79 @@ export function createSetup({
     });
   }
 
+  /**
+   * How bend is built on this machine: the command for a terminal, or why
+   * it cannot be built here.
+   *
+   * The source is the `bend` folder that comes with the plugin, found from
+   * where this file is (it may be run from the plugin's folder or from its
+   * build output inside that folder). The program goes into the owner's own
+   * commands folder, which is where the plugin looks for it next to the
+   * PATH.
+   *
+   * Side effects: looks for the Go program and reads the file system.
+   */
+  function bendBuild(): SetupStatus["bendBuild"] {
+    let source: string | null = null;
+    for (let folder = import.meta.dirname; ; folder = dirname(folder)) {
+      if (existsSync(join(folder, "bend", "go.mod"))) {
+        source = join(folder, "bend");
+        break;
+      }
+      if (dirname(folder) === folder) break;
+    }
+    if (source === null) {
+      return {
+        command: null,
+        unavailable:
+          "bend's source did not come with this copy of the plugin. Build bend from the Airbender repository (go build ./cmd/bend in its bend folder) and put it on the PATH.",
+      };
+    }
+    if (!programExists("go")) {
+      return {
+        command: null,
+        unavailable:
+          "bend is built with Go, which is not on this computer. Install Go (go.dev/dl), then come back to this step.",
+      };
+    }
+    const target = join(homedir(), ".local", "bin");
+    return {
+      // GOROOT is cleared for the build: Go finds its own files without
+      // it, and one left pointing at a version that is no longer installed
+      // (a version manager does that) makes every go command fail.
+      command: `mkdir -p ${shellQuote(target)} && env -u GOROOT go build -C ${shellQuote(source)} -o ${shellQuote(join(target, "bend"))} ./cmd/bend && echo ${shellQuote(`bend is built: ${join(target, "bend")}`)}`,
+      unavailable: null,
+    };
+  }
+
+  /**
+   * Runs bend's `facts` command in a folder; it needs no tracker there.
+   *
+   * @throws When bend is missing or the command fails; the message says why.
+   * Side effects: may write FACTS.md and AGENTS.md in the folder.
+   */
+  async function lookAfterFacts(
+    path: string,
+    args: string[],
+    input?: string,
+  ): Promise<void> {
+    const bend = await bendIn(path);
+    if ("state" in bend) throw new Error(bend.message);
+    await bend.run(["facts", ...args], input);
+  }
+
+  /** The facts the folder's facts file holds; none when they cannot be read. */
+  async function factsIn(path: string): Promise<Fact[]> {
+    const bend = await bendIn(path);
+    if ("state" in bend) return [];
+    try {
+      // This folder's own file, which is the one the facts are added to.
+      return (await bend.run(["facts", "--list"])) as Fact[];
+    } catch {
+      return [];
+    }
+  }
+
   /** How the last setup terminal ended, per folder. */
   const setupLastRun = new Map<string, NonNullable<SetupStatus["lastRun"]>>();
 
@@ -238,6 +320,8 @@ export function createSetup({
     const nothing = {
       bdInstalled: false,
       installMethods: [],
+      bend: "missing" as const,
+      bendBuild: { command: null, unavailable: null },
       folderReady: false,
       rulesPresent: false,
       instructions: {
@@ -271,6 +355,7 @@ export function createSetup({
     // set up costs no bd runs here at all.
     const met = setupMet.get(path) ?? {
       bd: null,
+      bend: false,
       folder: false,
       rules: false,
       facts: false,
@@ -278,7 +363,14 @@ export function createSetup({
     setupMet.set(path, met);
     met.bd ??= await findBd(path);
     const bd = met.bd;
-    if (bd !== null && !met.folder) {
+    let bend: SetupStatus["bend"] = "ready";
+    if (!met.bend) {
+      const found = await findBend(path);
+      if (found === "missing" || found === "old") bend = found;
+      else met.bend = true;
+    }
+    // Without bend the folder cannot be asked anything.
+    if (bd !== null && met.bend && !met.folder) {
       // "Set up" means what listing issues means by it, so the panel and
       // the list agree: bd finds a database from this folder upward.
       met.folder = (await readIssues(path)).state === "ok";
@@ -334,7 +426,7 @@ export function createSetup({
         met.facts = true;
       } else {
         const listed = await runBd(bd, ["--readonly", "memories", "--json"], path);
-        const held = new Set(recall(path).map((fact) => fact.key));
+        const held = new Set((await factsIn(path)).map((fact) => fact.key));
         savedFacts =
           listed.kind === "ok"
             ? savedFactsFrom(listed.stdout).filter((fact) => !held.has(fact.key))
@@ -360,6 +452,8 @@ export function createSetup({
       installMethods: INSTALL_METHODS.filter((method) =>
         programExists(method.needs),
       ).map(({ id, label, command }) => ({ id, label, command })),
+      bend,
+      bendBuild: bend === "ready" ? { command: null, unavailable: null } : bendBuild(),
       folderReady,
       rulesPresent,
       instructions,
@@ -506,7 +600,7 @@ export function createSetup({
         // Facts an earlier version kept in a section of AGENTS.md go to
         // the facts file first, so that the file is rewritten once more
         // below with that section already out.
-        moveOldFacts(path);
+        await lookAfterFacts(path, ["--move-old"]);
         const existing = textOf(file);
         // Beads' marked blocks out, then Airbender's rules in: added at
         // the end, or an earlier version of ours replaced where it stands.
@@ -514,9 +608,9 @@ export function createSetup({
         const next = agentsFileWith(withoutBeadsBlocks(existing));
         if (next !== existing) writeFileSync(file, next);
         // The rules, and a CLAUDE.md, point at the facts file.
-        ensureFactsFile(path);
+        await lookAfterFacts(path, ["--ensure"]);
       } catch (cause) {
-        return { message: `AGENTS.md could not be written: ${cause}` };
+        return { message: `AGENTS.md could not be written: ${reasonOf(cause)}` };
       }
       const claudeFile = join(path, "CLAUDE.md");
       try {
@@ -562,15 +656,18 @@ export function createSetup({
       const chosen = status.savedFacts.filter((fact) => keys.includes(fact.key));
       const file = join(path, FACTS_FILE);
       try {
-        addFacts(path, chosen);
-        ensureFactsFile(path);
+        await lookAfterFacts(
+          path,
+          [...(chosen.length > 0 ? ["--add-file", "-"] : []), "--ensure"],
+          JSON.stringify(chosen),
+        );
         // Looked at, whatever was chosen: not offered again.
         const text = readFileSync(file, "utf8");
         if (!text.includes(FACTS_REVIEWED)) {
           writeFileSync(file, `${FACTS_REVIEWED}\n${text}`);
         }
       } catch (cause) {
-        return { message: `${FACTS_FILE} could not be written: ${cause}` };
+        return { message: `${FACTS_FILE} could not be written: ${reasonOf(cause)}` };
       }
       setupMet.delete(path);
       bb.realtime.publish(CHANGED_CHANNEL, { path });
@@ -588,9 +685,20 @@ export function createSetup({
       }
       title = `Install beads (${method.label})`;
       command = method.command;
+    } else if (action === "bend") {
+      if (status.bend === "ready") return { message: "bend is already built." };
+      if (status.bendBuild.command === null) {
+        return { message: status.bendBuild.unavailable ?? "bend cannot be built here." };
+      }
+      title = "Build bend";
+      command = status.bendBuild.command;
     } else {
       const bd = await findBd(path);
       if (bd === null) return { message: "Install beads first." };
+      // Without bend the folder cannot be asked whether it has issues, so
+      // "not set up" is not known: setting it up could run on a repository
+      // that already has them.
+      if (status.bend !== "ready") return { message: "Build bend first." };
       if (action === "init") {
         if (status.folderReady) {
           return { message: "Beads is already set up in this folder." };

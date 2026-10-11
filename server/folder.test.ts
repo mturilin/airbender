@@ -42,6 +42,7 @@ const { hasUncommittedChanges, mainBranch, mainFolder, deleteMergedBranch } =
   createFolders({
   bb: {} as BbPluginApi,
   bdCandidates: [],
+  bendCandidates: [],
 });
 
 test("a folder is clean until a tracked file changes; untracked files do not count", async () => {

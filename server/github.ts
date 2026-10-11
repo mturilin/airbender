@@ -524,34 +524,13 @@ export function createGithub({
   const readLocal = (path: string, beadId: string): Promise<string[] | null> =>
     store.commentTextsIn(path, beadId);
 
-  /**
-   * Adds a comment to a beads issue under another person's name (beads
-   * takes a comment's author from who acts). The text goes in on standard
-   * input: it may start with a dash and be long.
-   *
-   * @returns Null when it was added; otherwise why not.
-   */
-  async function addAs(
+  /** Adds a comment to a beads issue under another person's name. */
+  const addAs = (
     path: string,
     beadId: string,
     author: string,
     text: string,
-  ): Promise<string | null> {
-    const bd = await folders.findBd(path);
-    if (bd === null) return folders.BD_NOT_FOUND_MESSAGE;
-    return new Promise((resolve) => {
-      const child = execFile(
-        bd,
-        ["comment", beadId, "--stdin", "--actor", author],
-        { cwd: path, timeout: 30_000, maxBuffer: 1024 * 1024 },
-        (error, _stdout, stderr) => {
-          store.stale(path);
-          resolve(error === null ? null : stderr.trim() || error.message);
-        },
-      );
-      child.stdin?.end(text);
-    });
-  }
+  ): Promise<string | null> => store.commentAsIn(path, beadId, author, text);
 
   /** The runs under way and just finished, by id. */
   const jobs = new Map<string, Job>();
