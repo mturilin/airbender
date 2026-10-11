@@ -345,6 +345,11 @@ export const rpcContract = defineRpcContract({
     input: z.object({
       threadId: z.string().nullable(),
       projectId: z.string().nullable(),
+      /**
+       * Read the issues anew, whatever the server has kept: set by the
+       * refresh button and when the window comes back into focus.
+       */
+      fresh: z.boolean().optional(),
     }),
     output: issuesResultSchema,
   },
@@ -578,6 +583,11 @@ export const rpcContract = defineRpcContract({
       both: z.array(z.string()).max(500),
       push: z.array(z.string()).max(500),
       prefer: z.enum(["newer", "github", "local"]),
+      /**
+       * Also copy the comments of the GitHub issues brought in (`pull`
+       * and `both`) into their beads issues (bead-bb-apc).
+       */
+      comments: z.boolean(),
       preview: z.boolean(),
     }),
     // Started, not finished: `jobId` is what `github_sync_progress` is
@@ -602,6 +612,8 @@ export const rpcContract = defineRpcContract({
       /** Which part is being done ("To GitHub"); null when none is. */
       doing: z.string().nullable(),
       seconds: z.number(),
+      /** Comments copied from GitHub so far. */
+      copied: z.number(),
       /** The last lines the command printed. */
       lines: z.array(z.string()),
       message: z.string().nullable(),

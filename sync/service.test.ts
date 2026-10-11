@@ -286,12 +286,10 @@ test("after a conflict nothing runs by itself until a sync asked for succeeds", 
   assert.ok(haltsOn("stuck") && !haltsOn("failed") && !haltsOn("busy"));
 });
 
-test("a source that throws is logged as a failed run, and tried again", async () => {
+test("a source that throws is logged as a failed run", async () => {
   const { made } = await service();
-  let runs = 0;
   const { source } = fake({
     run: async () => {
-      runs += 1;
       throw new Error("no network");
     },
   });
@@ -301,9 +299,55 @@ test("a source that throws is logged as a failed run, and tried again", async ()
   const [entry] = made.log("repo");
   assert.equal(entry!.end, "failed");
   assert.equal(entry!.message, "no network");
+});
+
+test("after failures the wait before the next sync by itself grows; asking still syncs at once", async () => {
+  const said: string[] = [];
+  const made = await createSyncService({
+    load: async () => ({}),
+    save: () => {},
+    notify: () => {},
+    info: (message) => said.push(message),
+    times: { quietMs: 5, everyMs: 40, ownChangesMs: 0, longestWaitMs: 100 },
+  });
+  const failed = { end: "failed" as const, message: "x", sent: null, broughtIn: null };
+  const { source, state } = fake({ results: [failed, failed, failed, failed] });
+  state.pending = null;
+  made.use("repo", source);
   made.tick();
   await settle();
-  assert.equal(runs, 2);
+  assert.equal(state.runs, 1);
+  // One failure: twice the usual time has to pass.
+  made.tick();
+  made.opened("repo");
+  made.changed("repo");
+  await wait(30);
+  assert.equal(state.runs, 1);
+  await wait(60);
+  made.tick();
+  await settle();
+  assert.equal(state.runs, 2);
+  // Two failures: it would be four times, but never longer than the cap.
+  await wait(50);
+  made.tick();
+  await settle();
+  assert.equal(state.runs, 2);
+  await wait(60);
+  made.tick();
+  await settle();
+  assert.equal(state.runs, 3);
+  // The owner asks: at once, whatever the wait.
+  await made.refresh("repo");
+  await settle();
+  assert.equal(state.runs, 4);
+  // And once it works again, the usual pace is back.
+  await made.refresh("repo");
+  await settle();
+  assert.equal(state.runs, 5);
+  made.tick();
+  await settle();
+  assert.equal(state.runs, 6);
+  made.dispose();
 });
 
 test("a held lock file puts the run off, and it happens once the lock is free", async () => {

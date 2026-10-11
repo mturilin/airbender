@@ -453,6 +453,9 @@ export function createSetup({
       }
       setupRunning.delete(path);
       setupLastRun.set(path, { action, title, exitCode, tail });
+      // A setup step may have made, fetched or changed the issues, and
+      // may be the very thing a failed check was waiting for.
+      store.stale(path);
       bb.realtime.publish(CHANGED_CHANNEL, { path });
     };
     void watchTerminal();

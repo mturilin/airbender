@@ -81,6 +81,7 @@ function storeIn(path: string, bd: string | null = "bd") {
       onOwnBranch: async () => false,
       currentBranch: async () => null,
       isWorkTree: async () => false,
+      mainFolder: async () => null,
     } as unknown as Folders,
     trackers: createTrackers({
       findBd: async () => bd,

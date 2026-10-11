@@ -669,8 +669,11 @@ Rules:
   are sent to GitHub. It is called "Sync with GitHub". `[rh3]`
 - **The owner selects the issues, and previews the result** before
   anything is changed. `[rh3]`
-- **Closed issues are synced as well as open ones.** Comments are not
-  synced, for now. `[rh3]`
+- **Closed issues are synced as well as open ones.** `[rh3]`
+- **The import from GitHub copies the comments, when a checkbox is
+  ticked**, so that a project that used to live in GitHub issues arrives
+  with its discussion. Only in that direction: comments are not sent to
+  GitHub. `[apc]`
 - **A sync under way shows its progress**, and what the sync is printing,
   so that the owner can tell it is not stuck. `[rh3]`
 - **It is one screen with three columns: sync to GitHub, linked, and sync
@@ -724,6 +727,7 @@ agent's messages. `[3l4]` `[eg0]`
   the owner working in a terminal. `[6v6]`
 - This is triggered by watching for the change, not by checking on a timer.
   `[6v6]`
+- **Switching between repositories must not take seconds.** `[3pr]`
 
 ## How agents work with it
 
@@ -1063,6 +1067,15 @@ breaking a requirement above.
   pressed), how long it took, and the store's own message where it failed.
   The newest two hundred are kept, per repository, on this computer. Syncs
   that found nothing new are listed too.
+- Issues count as synced only when the remote really holds them. A
+  repository whose issue store names a remote to which nothing was ever
+  sent (the store does that by itself when a folder is set up) is treated
+  like one with no remote: nothing is synced by itself, and the setup step
+  is offered; that step sends the issues first and then syncs. When the
+  remote cannot be reached it is neither synced nor offered the step.
+- After a sync that did not work, the wait before the next one by itself
+  doubles each time, up to an hour, and is back to five minutes as soon as
+  one works; pressing refresh always tries at once.
 - A sync set off by a change is not run when nothing was really changed
   (an agent only read an issue); the five-minute sync always runs.
 - The state on the "Issue sync" row: "synced 1 minute ago", "syncing…",
@@ -1102,6 +1115,27 @@ breaking a requirement above.
   On a copy of the repository with no issues, where the remote has them,
   the setup step reads "Get this repository's issues" and downloads them;
   nothing is published by it.
+- Copying comments from GitHub: the checkbox reads "Copy comments" and is
+  ticked when the window opens. It applies to what is ticked under "From
+  GitHub" and under "Linked". The comments an issue here does not have yet
+  are added oldest first, each under the name of who wrote it on GitHub,
+  ending with a line that says who wrote it there, when, and gives the
+  address of the original; by that address a comment is known to be here
+  already, so syncing again adds nothing twice, and a comment made on
+  GitHub since is added. The time shown for a copied comment is the time
+  of the copy; the original time is in that last line. A comment changed
+  or removed on GitHub afterwards is not followed. Preview says, per
+  issue, how many comments would be copied; the progress and the result
+  say how many were. A comment that cannot be copied is reported and does
+  not stop the others.
+- Speed of switching: the product keeps the last list of issues it read
+  for a repository and shows it again while nothing has changed, so a
+  switch does not read the issues anew; a conversation switched back to
+  shows the list it last had at once and brings it up to date behind. A
+  change made in the panel shows at once. The refresh button, and coming
+  back to the app's window, always read the issues anew. One thing can
+  show late, by up to a minute, in a panel left untouched: an issue
+  removed outright, or a sync run by hand, in a terminal.
 - The small step button on a row: lower than the icon buttons beside it,
   small text, no border, a soft grey fill that darkens under the pointer;
   it keeps its icon, label and tooltip. On the current issue it is the

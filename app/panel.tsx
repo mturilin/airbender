@@ -406,7 +406,8 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
               // Refresh to refresh everything on the tab; the setup check is
               // otherwise only repeated when it is likely to have changed.
               onClick={() => {
-                refresh();
+                // Read anew, whatever the server has kept.
+                refresh(true);
                 setup.reload();
                 if (syncStatus?.remote != null && !syncStatus.running) {
                   issueSync.syncNow().then((message) => {

@@ -34,6 +34,8 @@
 //   itself. Its refusals are in plain words and are passed on.
 
 import { homedir } from "node:os";
+import { statSync } from "node:fs";
+import { join } from "node:path";
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import {
   BEAD_ID_PATTERN,
@@ -56,7 +58,16 @@ import {
 } from "./issues.ts";
 import type { Trackers } from "./trackers.ts";
 import { DEFAULT_WORKFLOW_ID } from "../shared/workflows.ts";
+import { createListCache } from "./list-cache.ts";
+import { repositoryKey } from "./workflow-choice.ts";
 import type { WorkflowChoice } from "./workflow-choice.ts";
+
+/**
+ * How long a kept list may be given out without being read again. It
+ * covers what beads' "last touched" file does not show: an issue deleted
+ * with bd, and a sync run by hand that brought changes in.
+ */
+const LIST_KEPT_MS = 60_000;
 
 /** Which folder a request is about: a thread's, or a project's. */
 export interface FolderRef {
@@ -115,15 +126,74 @@ export function createStore({
   const changed = (threadId: string | null) =>
     bb.realtime.publish(CHANGED_CHANNEL, { threadId });
 
+  // The list is kept per repository and given out again while nothing has
+  // changed (server/list-cache.ts, bead-bb-3pr): a read costs a beads
+  // program that opens the whole database, and beads runs one at a time.
+  /** Repository key -> its main folder, where beads keeps its files. */
+  const homes = new Map<string, string>();
+  const lists = createListCache<IssuesRead>({
+    // Beads rewrites this small file on every change to an issue made
+    // through it (not on a delete or a sync: the age covers those).
+    stampOf: (key) => {
+      try {
+        const file = statSync(join(homes.get(key) ?? key, ".beads", "last-touched"));
+        return `${file.mtimeMs}.${file.size}`;
+      } catch {
+        return null;
+      }
+    },
+    maxAgeMs: LIST_KEPT_MS,
+    // A failed read is asked again; "no beads here" too, since setting the
+    // folder up changes exactly that.
+    keep: (read) => read.state === "ok",
+  });
+
+  /**
+   * The folder's issues may have changed by something the plugin did or
+   * saw end (a write, a sync, a setup step): the kept list is dropped.
+   */
+  function stale(path: string): void {
+    lists.stale(repositoryKey(path));
+  }
+
+  /**
+   * Carries out something that may write to the folder's tracker, and
+   * drops the kept list around it: before, so that a reader arriving
+   * meanwhile does not get the old list as current, and after, so that
+   * the next reader sees the result.
+   */
+  async function writing<Result>(
+    path: string,
+    act: () => Promise<Result>,
+  ): Promise<Result> {
+    stale(path);
+    try {
+      return await act();
+    } finally {
+      stale(path);
+    }
+  }
+
   /**
    * Reads every issue of a folder. A plain read: nothing is written,
    * watched or published.
    *
    * Pre-condition: the folder exists (see folders.folderFor).
    * @returns The issues, or which of the expected problems occurred.
-   * Side effects: one read of the folder's tracker.
+   * Side effects: one read of the folder's tracker, unless the list kept
+   *   for the folder's repository still stands.
+   *
+   * @param fresh Read anew whatever is kept: the owner asked (refresh), or
+   *   came back to the window.
    */
-  async function readIssues(path: string): Promise<IssuesRead> {
+  async function readIssues(path: string, fresh = false): Promise<IssuesRead> {
+    const key = repositoryKey(path);
+    if (!homes.has(key)) homes.set(key, (await folders.mainFolder(path)) ?? path);
+    return lists.read(key, () => readFresh(path), fresh);
+  }
+
+  /** The read itself: one read of the folder's tracker. */
+  async function readFresh(path: string): Promise<IssuesRead> {
     const found = await trackerFor(path);
     if ("state" in found) return found;
     try {
@@ -146,7 +216,9 @@ export function createStore({
    * Side effects: beyond the read, starts watching the folder for outside
    *   changes, and clears a current issue that has been closed.
    */
-  async function listIssues(input: FolderRef): Promise<IssuesResult> {
+  async function listIssues(
+    input: FolderRef & { fresh?: boolean },
+  ): Promise<IssuesResult> {
     const currentBeadId = await currentBead.read(input.threadId);
     const folder = await folderFor(input);
     const empty = {
@@ -172,7 +244,7 @@ export function createStore({
       };
     }
     const { path } = folder;
-    const read = await readIssues(path);
+    const read = await readIssues(path, input.fresh === true);
     if (read.state !== "ok") {
       return { state: read.state, path, message: read.message, ...empty };
     }
@@ -256,7 +328,7 @@ export function createStore({
     const found = await trackerFor(path);
     if ("state" in found) return { message: found.message };
     try {
-      await act(found.tracker);
+      await writing(path, () => act(found.tracker));
     } catch (cause) {
       return { message: problem(path, cause, what).message };
     }
@@ -316,14 +388,16 @@ export function createStore({
     const found = await trackerFor(folder.path);
     if ("state" in found) return fail(found.message);
     try {
-      const id = await found.tracker.create({
+      const id = await writing(folder.path, () =>
+        found.tracker.create({
         title: input.title,
         description: input.description,
         type: input.type ?? undefined,
         priority: input.priority ?? undefined,
         parentId: input.parentId ?? undefined,
         category: input.category ?? undefined,
-      });
+      }),
+      );
       changed(input.threadId);
       return { id, message: null };
     } catch (cause) {
@@ -509,7 +583,9 @@ export function createStore({
       if (removeLabels.length === 0 && addLabels.length === 0) {
         return { message: null };
       }
-      await found.tracker.edit(beadId, { addLabels, removeLabels });
+      await writing(path, () =>
+        found.tracker.edit(beadId, { addLabels, removeLabels }),
+      );
     } catch (cause) {
       return { message: problem(path, cause, what).message };
     }
@@ -690,8 +766,29 @@ export function createStore({
     }
   }
 
+  /**
+   * The texts of an issue's comments, in a folder already found; null when
+   * they cannot be read. For the comment copying of the GitHub sync, which
+   * only compares texts.
+   *
+   * Side effects: one read of the folder's tracker.
+   */
+  async function commentTextsIn(
+    path: string,
+    beadId: string,
+  ): Promise<string[] | null> {
+    const found = await trackerFor(path);
+    if ("state" in found) return null;
+    try {
+      return (await found.tracker.comments(beadId)).map((comment) => comment.text);
+    } catch {
+      return null;
+    }
+  }
+
   return {
     readIssues,
+    commentTextsIn,
     listIssues,
     issuesIn,
     createIssue,
@@ -707,6 +804,7 @@ export function createStore({
     setBranch,
     addComment,
     changed,
+    stale,
   };
 }
 

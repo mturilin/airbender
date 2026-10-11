@@ -21,8 +21,10 @@
 // - Closed issues are read and offered too (the user: "let's add closed
 //   issues"): the command carries a close in either direction, and without
 //   them a close made on one side could never be sent to the other.
-// - Comments are not synced: the command has no code for them (beads
-//   1.3.1), and the user said not to worry about them for now.
+// - The command has no code for comments (beads 1.3.1). Those of GitHub
+//   issues that are brought in are copied by a step of the plugin's own
+//   after the command, when the owner ticks it; it lives in
+//   server/github-comments.ts (bead-bb-apc). Nothing goes the other way.
 // - The token and the repository are given to the command in the
 //   environment of that one process. Nothing is written to beads' own
 //   settings: beads keeps a token in `.beads/config.yaml`, which is a file
@@ -59,6 +61,7 @@ import { execFile } from "node:child_process";
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { BEAD_ID_PATTERN, CLOSED_STATUS } from "../shared/constants.ts";
 import { readGit } from "./bd.ts";
+import { comments, copyComments } from "./github-comments.ts";
 import type { Folders } from "./folder.ts";
 import type { FolderRef, Store } from "./store.ts";
 
@@ -232,6 +235,8 @@ interface Job extends SyncReport {
   lines: string[];
   /** GitHub issues closed by this file because they are closed here. */
   closedRemote: number;
+  /** Comments copied from GitHub into beads (server/github-comments.ts). */
+  copied: number;
   message: string | null;
   done: boolean;
   /** Asked to stop: no further batch is started. */
@@ -512,6 +517,42 @@ export function createGithub({
     }
   }
 
+  /**
+   * The texts of a beads issue's comments, for the comment copying; null
+   * when they cannot be read.
+   */
+  const readLocal = (path: string, beadId: string): Promise<string[] | null> =>
+    store.commentTextsIn(path, beadId);
+
+  /**
+   * Adds a comment to a beads issue under another person's name (beads
+   * takes a comment's author from who acts). The text goes in on standard
+   * input: it may start with a dash and be long.
+   *
+   * @returns Null when it was added; otherwise why not.
+   */
+  async function addAs(
+    path: string,
+    beadId: string,
+    author: string,
+    text: string,
+  ): Promise<string | null> {
+    const bd = await folders.findBd(path);
+    if (bd === null) return folders.BD_NOT_FOUND_MESSAGE;
+    return new Promise((resolve) => {
+      const child = execFile(
+        bd,
+        ["comment", beadId, "--stdin", "--actor", author],
+        { cwd: path, timeout: 30_000, maxBuffer: 1024 * 1024 },
+        (error, _stdout, stderr) => {
+          store.stale(path);
+          resolve(error === null ? null : stderr.trim() || error.message);
+        },
+      );
+      child.stdin?.end(text);
+    });
+  }
+
   /** The runs under way and just finished, by id. */
   const jobs = new Map<string, Job>();
   let jobCount = 0;
@@ -539,6 +580,7 @@ export function createGithub({
     common: string[],
     start: { path: string; repository: Repository; token: string },
     preview: boolean,
+    withComments: boolean,
   ): Promise<void> {
     const { path, repository, token } = start;
     const problems: string[] = [];
@@ -580,6 +622,9 @@ export function createGithub({
               }
             },
           );
+          // The command changed issues here without going through the
+          // store: the kept list no longer stands.
+          store.stale(path);
           if ("message" in run) {
             problems.push(`${label}: ${run.message}`);
           } else {
@@ -604,6 +649,42 @@ export function createGithub({
               job.closedRemote += closed;
             }
           }
+          // Comments, for a batch that brought issues in from GitHub (a
+          // pull, or the two-way run of linked issues): the command
+          // carries none, so they are copied after it. All of it is in
+          // server/github-comments.ts; this only says which issues.
+          if (withComments && !("message" in run) && !pushing && !flags.includes("--push-only")) {
+            const now = await store.readIssues(path);
+            const here = now.state === "ok" ? now.issues : [];
+            const pairs = flags.includes("--pull-only")
+              ? batch.map((number) => ({
+                  number: Number(number),
+                  beadId:
+                    here.find(
+                      (issue) =>
+                        linkedNumber(issue.externalRef, repository) === Number(number),
+                    )?.id ?? null,
+                }))
+              : batch.flatMap((id) => {
+                  const number = linkedNumber(
+                    here.find((issue) => issue.id === id)?.externalRef ?? null,
+                    repository,
+                  );
+                  return number === null ? [] : [{ number, beadId: id }];
+                });
+            const done = await copyComments({
+              repository,
+              token,
+              issues: pairs,
+              preview,
+              readLocal: (beadId) => readLocal(path, beadId),
+              add: (beadId, author, text) => addAs(path, beadId, author, text),
+            });
+            job.copied += done.copied;
+            job.notes.push(...done.would);
+            job.warnings.push(...done.warnings);
+            if (done.copied > 0) job.lines.push(`Copied ${comments(done.copied)}.`);
+          }
           job.finished += batch.length;
         }
       }
@@ -614,6 +695,9 @@ export function createGithub({
       job.notes.push(
         `Closed ${job.closedRemote} ${job.closedRemote === 1 ? "issue" : "issues"} on GitHub that ${job.closedRemote === 1 ? "is" : "are"} closed here.`,
       );
+    }
+    if (job.copied > 0) {
+      job.notes.push(`Copied ${comments(job.copied)} from GitHub.`);
     }
     if (job.stopping && job.finished < job.total) {
       job.notes.push(
@@ -648,6 +732,7 @@ export function createGithub({
       both: string[];
       push: string[];
       prefer: Prefer;
+      comments: boolean;
       preview: boolean;
     },
   ): Promise<{ jobId: string | null; message: string | null }> {
@@ -679,6 +764,7 @@ export function createGithub({
       notes: [],
       warnings: [],
       closedRemote: 0,
+      copied: 0,
       message: null,
       done: false,
       stopping: false,
@@ -695,6 +781,7 @@ export function createGithub({
       [`--prefer-${input.prefer}`, ...(input.preview ? ["--dry-run"] : [])],
       start,
       input.preview,
+      input.comments,
     );
     return { jobId: job.id, message: null };
   }
@@ -715,6 +802,7 @@ export function createGithub({
     finished: number;
     doing: string | null;
     seconds: number;
+    copied: number;
     lines: string[];
     message: string | null;
   } & SyncReport {
@@ -728,6 +816,7 @@ export function createGithub({
         finished: 0,
         doing: null,
         seconds: 0,
+        copied: 0,
         lines: [],
         message: "This sync is no longer known. Read the lists again to see where things stand.",
         actions: [],
@@ -744,6 +833,7 @@ export function createGithub({
       finished: job.finished,
       doing: job.doing,
       seconds: Math.round((Date.now() - job.startedAt) / 1000),
+      copied: job.copied,
       lines: job.lines.slice(-SHOWN_LINES),
       message: job.message,
       actions: job.actions,

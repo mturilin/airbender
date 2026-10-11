@@ -10,11 +10,15 @@ panel, beside a thread or on the New thread screen.
   call. `server/contract.ts` is the typed contract with the frontend;
   `folder.ts` finds the folder and the `bd` program; `trackers.ts` gives the
   tracker for a folder and turns its failures into what the tab shows;
-  `store.ts` holds the issue operations, each one a call on that tracker;
+  `store.ts` holds the issue operations, each one a call on that tracker,
+  and keeps the last list read per repository
+  (`list-cache.ts`: reused while beads' `last-touched` file is unchanged,
+  dropped on every write of the plugin's, never older than a minute);
   `work.ts` moves an issue through its workflow; `autopilot.ts` starts an
   epic's issues one after another; `sync.ts` joins the issue sync (the `sync/` folder) to the
   plugin;
-  `github.ts` lists GitHub issues, open and closed, and
+  `github-comments.ts` copies the comments of imported
+  GitHub issues, which beads' own sync leaves behind; `github.ts` lists GitHub issues, open and closed, and
   runs `bd github sync` for the ones chosen in the "Sync with GitHub"
   window (`app/github-sync.tsx`);
   `current-bead.ts` is the thread's current issue; `issues.ts` turns the
@@ -230,8 +234,11 @@ lists every step, greyed out when done or not yet possible:
    remember`) that `FACTS.md` does not: you tick which go into `FACTS.md`,
    the file agents read standing facts from now (`tracker/memory.ts`;
    `bend remember` writes there too).
-5. **Sync issues to the repository's remote** — runs `bd sync --yes` for
-   the first time. `bd init` leaves the issue database on this computer
+5. **Sync issues to the repository's remote** — runs `bd dolt push --yes`
+   and then `bd sync`, for the first time (a sync pulls first and fails on
+   a remote that has nothing on it yet). Offered where beads has no remote
+   for the issues, or has one that holds none: `bd init` names the git
+   origin as the remote and sends nothing. `bd init` leaves the issue database on this computer
    only (it is not in git); this publishes it to the git remote under
    `refs/dolt/data`, and beads commits the remote into
    `.beads/config.yaml` by itself. Afterwards Airbender runs `bd sync`
