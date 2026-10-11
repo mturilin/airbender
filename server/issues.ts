@@ -25,6 +25,7 @@
 //   runs this file directly in the tests.
 
 import { CLOSED_STATUS } from "../shared/constants.ts";
+import { WORKFLOW_IDS, workflowFor } from "../shared/workflows.ts";
 import type { TrackerIssue } from "./bend.ts";
 import type { Issue, IssueLink } from "./contract.ts";
 
@@ -59,6 +60,37 @@ export function stepOf(labels: string[]): string | null {
   const label = labels.find((candidate) => candidate.startsWith(STEP_PREFIX));
   const step = label?.slice(STEP_PREFIX.length).trim() ?? "";
   return step === "" ? null : step;
+}
+
+/**
+ * The steps at which an issue holds a branch for its sub-issues ("On its
+ * branch"), in any of the workflows.
+ */
+const BRANCH_STEPS = new Set(
+  WORKFLOW_IDS.flatMap((id) =>
+    (workflowFor(id)?.states ?? [])
+      .filter((state) => state.holdsBranch === true)
+      .map((state) => state.id),
+  ),
+);
+
+/**
+ * The step an issue is really at, from the step and the branch recorded on
+ * it.
+ *
+ * A step that holds a branch is believed only where a branch is recorded:
+ * the move into it always records one. An issue that carries the label
+ * without a branch did not get there by a move. It was created with `bd
+ * create --parent`, which copies every label of the parent, under an epic
+ * that waits on its branch (bead-bb-c9l.17). Shown at that step it could
+ * not be started, so it counts as not started; its first move replaces the
+ * stray label.
+ */
+export function believedStep(
+  step: string | null,
+  branch: string | null,
+): string | null {
+  return step !== null && BRANCH_STEPS.has(step) && branch === null ? null : step;
 }
 
 /** The label prefix an issue's size is stored under, e.g. "size:m". */
@@ -185,7 +217,10 @@ export function toIssues(found: TrackerIssue[]): Issue[] {
     closeReason: issue.closeReason,
     commentCount: issue.commentCount,
     parentId: issue.parentId,
-    step: stepOf(issue.labels),
+    step: believedStep(
+      stepOf(issue.labels),
+      branchOf(issue.metadata, issue.labels),
+    ),
     size: sizeOf(issue.labels),
     branch: branchOf(issue.metadata, issue.labels),
     // Not known to the tracker; filled in by the server for the tab's list.

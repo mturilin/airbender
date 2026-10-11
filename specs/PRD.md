@@ -1408,6 +1408,11 @@ breaking a requirement above.
   with the beads program gone while the copy is fresh; a change cannot. The
   panel keeps no list of its own and reloads when the copy changes.
   `[c9l.14]`
+- The step "On its branch" is believed only on an issue that has a branch
+  recorded. A sub-issue made with the tracker's own program takes its
+  parent's labels, the step among them; under an epic on its branch it
+  would read "On its branch" and could not be started, so it counts as not
+  started. `[c9l.17]`
 - bend: every command accepts: run in another folder, read the text from a
   file or standard input, and who is acting. The ending statuses are 0 done,
   1 refused, 2 asked wrongly, 3 not supported by this tracker.

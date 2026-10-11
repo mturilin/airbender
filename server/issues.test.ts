@@ -22,7 +22,7 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:f
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test as nodeTest } from "node:test";
-import { branchOf, toIssues as toTabIssues } from "./issues.ts";
+import { believedStep, branchOf, toIssues as toTabIssues } from "./issues.ts";
 import { descendantsOf } from "../shared/tree.ts";
 import { builtBend } from "./bend-for-tests.ts";
 import type { TrackerIssue } from "./bend.ts";
@@ -255,6 +255,25 @@ test("the step and the size are read from their labels and kept out of the plain
     row("A", null, "open", [], { labels: ["step:plan", "size:m", "ui"] }),
   ]);
   assert.deepEqual([a!.step, a!.size, a!.labels], ["plan", "m", ["ui"]]);
+});
+
+test("'On its branch' is believed only where a branch is recorded", () => {
+  const [epic, inherited, old, plain] = toIssues([
+    // An epic that was started in a branch: the move recorded the branch.
+    row("x-1", null, "open", [], { labels: ["step:on-branch"], metadata: { branch: "x-1-epic" } }),
+    // Made with \`bd create --parent\`, which copied the epic's labels.
+    row("x-1.1", "x-1", "open", [], { labels: ["step:on-branch", "size:l"] }),
+    // The branch in the label it used to be kept in counts too.
+    row("x-2", null, "open", [], { labels: ["step:on-branch", "branch:x-2-old"] }),
+    // Any other step is taken as it is, branch or none.
+    row("x-3", null, "open", [], { labels: ["step:plan"] }),
+  ]);
+  assert.equal(epic!.step, "on-branch");
+  assert.deepEqual([inherited!.step, inherited!.size], [null, "l"]);
+  assert.equal(old!.step, "on-branch");
+  assert.equal(plain!.step, "plan");
+  assert.equal(believedStep("on-branch", null), null);
+  assert.equal(believedStep(null, "a-branch"), null);
 });
 
 test("the written parts keep the tab's names, and the description holds the requirements", () => {
