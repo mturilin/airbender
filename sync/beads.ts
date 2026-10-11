@@ -137,6 +137,9 @@ export function broughtIn(
     .map((issue) => issue.id);
 }
 
+/** How long "the issues are synced with nothing" is believed. */
+const REMOTE_ASKED_MS = 30_000;
+
 /** One run of a program: how it exited and what it printed. */
 export interface Ran {
   code: number | null;
@@ -154,7 +157,9 @@ export interface Ran {
  *   null).
  * @param bdCommand How to write `bd` in a command the owner sees run.
  * @param git Runs a read-only git command there; null when it failed.
- * @param readIssues The folder's issues, or null when they cannot be read.
+ * @param readIssues The folder's issues, or null when they cannot be read;
+ *   with `fresh`, read anew even if the host has them kept (a sync changes
+ *   them in ways the host's own signs do not show).
  * @param position Where the journal's position is kept across restarts.
  */
 export function createBeadsSource({
@@ -169,13 +174,15 @@ export function createBeadsSource({
   bd: (args: string[], long?: boolean) => Promise<Ran>;
   bdCommand: string;
   git: (args: string[]) => Promise<string | null>;
-  readIssues: () => Promise<Seen[] | null>;
+  readIssues: (fresh?: boolean) => Promise<Seen[] | null>;
   position: { get: () => Promise<number | null>; set: (seq: number) => void };
 }): SyncSource {
   /** The remote is known to hold the issues: it stays so, asked once. */
   let holds = false;
   /** The journal is known to be on. */
   let journalOn = false;
+  /** The last answer about the remote that was not "holds", and when. */
+  let asked: { at: number; state: "none" | "empty" | "unknown" } | null = null;
 
   /**
    * Where the issues stand with a remote.
@@ -191,6 +198,17 @@ export function createBeadsSource({
    */
   async function remoteState(): Promise<"none" | "empty" | "holds" | "unknown"> {
     if (holds) return "holds";
+    // Asked on every look at the tab: an answer other than "holds" is
+    // believed for a short while, so a switch between repositories does
+    // not start a beads program for it each time (bead-bb-3pr).
+    if (asked !== null && Date.now() - asked.at < REMOTE_ASKED_MS) return asked.state;
+    const state = await askRemote();
+    if (state !== "holds") asked = { at: Date.now(), state };
+    return state;
+  }
+
+  /** Asks beads, and the git remote, where the issues stand; see remoteState. */
+  async function askRemote(): Promise<"none" | "empty" | "holds" | "unknown"> {
     const run = await bd(["dolt", "remote", "list", "--json"]);
     let url: string | null = null;
     try {
@@ -293,7 +311,7 @@ export function createBeadsSource({
         // Nothing was sent; what is pending stays pending.
         return { end, message, sent: null, broughtIn: null };
       }
-      const after = await readIssues();
+      const after = await readIssues(true);
       // Changed here while the sync ran: not brought in, and for next time.
       const during = mine === null ? null : await since(mine.head);
       if (mine !== null) position.set(mine.head);

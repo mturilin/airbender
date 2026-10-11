@@ -553,8 +553,10 @@ export function createGithub({
         bd,
         ["comment", beadId, "--stdin", "--actor", author],
         { cwd: path, timeout: 30_000, maxBuffer: 1024 * 1024 },
-        (error, _stdout, stderr) =>
-          resolve(error === null ? null : stderr.trim() || error.message),
+        (error, _stdout, stderr) => {
+          store.stale(path);
+          resolve(error === null ? null : stderr.trim() || error.message);
+        },
       );
       child.stdin?.end(text);
     });
@@ -629,6 +631,9 @@ export function createGithub({
               }
             },
           );
+          // The command changed issues here without going through the
+          // store: the kept list no longer stands.
+          store.stale(path);
           if ("message" in run) {
             problems.push(`${label}: ${run.message}`);
           } else {

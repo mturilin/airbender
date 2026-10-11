@@ -31,6 +31,8 @@
 //   where an empty list would be expected; both are handled where they occur.
 
 import { homedir } from "node:os";
+import { statSync } from "node:fs";
+import { join } from "node:path";
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 import {
@@ -56,7 +58,16 @@ import {
 } from "./issues.ts";
 import type { BdIssue } from "./issues.ts";
 import { DEFAULT_WORKFLOW_ID } from "../shared/workflows.ts";
+import { createListCache } from "./list-cache.ts";
+import { repositoryKey } from "./workflow-choice.ts";
 import type { WorkflowChoice } from "./workflow-choice.ts";
+
+/**
+ * How long a kept list may be given out without being read again. It
+ * covers what beads' "last touched" file does not show: an issue deleted
+ * with bd, and a sync run by hand that brought changes in.
+ */
+const LIST_KEPT_MS = 60_000;
 
 /** Which folder a request is about: a thread's, or a project's. */
 export interface FolderRef {
@@ -108,7 +119,6 @@ export function createStore({
   const {
     folderFor,
     runBdIn,
-    runIn,
     onOwnBranch,
     currentBranch,
     isWorkTree,
@@ -119,6 +129,56 @@ export function createStore({
   const changed = (threadId: string | null) =>
     bb.realtime.publish(CHANGED_CHANNEL, { threadId });
 
+  // The list is kept per repository and given out again while nothing has
+  // changed (server/list-cache.ts, bead-bb-3pr): a read costs a beads
+  // program that opens the whole database, and beads runs one at a time.
+  /** Repository key -> its main folder, where beads keeps its files. */
+  const homes = new Map<string, string>();
+  const lists = createListCache<IssuesRead>({
+    // Beads rewrites this small file on every change to an issue made
+    // through it (not on a delete or a sync: the age covers those).
+    stampOf: (key) => {
+      try {
+        const file = statSync(join(homes.get(key) ?? key, ".beads", "last-touched"));
+        return `${file.mtimeMs}.${file.size}`;
+      } catch {
+        return null;
+      }
+    },
+    maxAgeMs: LIST_KEPT_MS,
+    // A failed read is asked again; "no beads here" too, since setting the
+    // folder up changes exactly that.
+    keep: (read) => read.state === "ok",
+  });
+
+  /**
+   * The folder's issues may have changed by something the plugin did or
+   * saw end (a write, a sync, a setup step): the kept list is dropped.
+   */
+  function stale(path: string): void {
+    lists.stale(repositoryKey(path));
+  }
+
+  /**
+   * Runs bd in a folder, like folders.runIn, and drops the kept list
+   * around anything that may write: before, so that a reader arriving
+   * meanwhile does not get the old list as current, and after, so that
+   * the next reader sees the result.
+   */
+  async function runIn(
+    path: string,
+    args: string[],
+    what?: string,
+  ): Promise<{ stdout: string } | { message: string }> {
+    const writes = args[0] !== "--readonly";
+    if (writes) stale(path);
+    try {
+      return await folders.runIn(path, args, what);
+    } finally {
+      if (writes) stale(path);
+    }
+  }
+
   /**
    * Reads every issue of a folder. A plain read: nothing is written,
    * watched or published.
@@ -126,9 +186,20 @@ export function createStore({
    * Pre-condition: the folder exists (see folders.folderFor).
    * @returns The issues, or which of the expected problems occurred.
    * Side effects: runs `bd --readonly list` once (more only while searching
-   *   for where bd is installed).
+   *   for where bd is installed), unless the list kept for the folder's
+   *   repository still stands.
+   *
+   * @param fresh Read anew whatever is kept: the owner asked (refresh), or
+   *   came back to the window.
    */
-  async function readIssues(path: string): Promise<IssuesRead> {
+  async function readIssues(path: string, fresh = false): Promise<IssuesRead> {
+    const key = repositoryKey(path);
+    if (!homes.has(key)) homes.set(key, (await folders.mainFolder(path)) ?? path);
+    return lists.read(key, () => readFresh(path), fresh);
+  }
+
+  /** The read itself: one run of `bd list`. */
+  async function readFresh(path: string): Promise<IssuesRead> {
     // --limit 0 lifts bd's default cap of 50 rows; --all includes closed.
     const run = await runBdIn(path, [
       "--readonly",
@@ -175,7 +246,9 @@ export function createStore({
    * Side effects: beyond the read, starts watching the folder for outside
    *   changes, and clears a current issue that has been closed.
    */
-  async function listIssues(input: FolderRef): Promise<IssuesResult> {
+  async function listIssues(
+    input: FolderRef & { fresh?: boolean },
+  ): Promise<IssuesResult> {
     const currentBeadId = await currentBead.read(input.threadId);
     const folder = await folderFor(input);
     const empty = {
@@ -201,7 +274,7 @@ export function createStore({
       };
     }
     const { path } = folder;
-    const read = await readIssues(path);
+    const read = await readIssues(path, input.fresh === true);
     if (read.state !== "ok") {
       return { state: read.state, path, message: read.message, ...empty };
     }
@@ -819,6 +892,7 @@ export function createStore({
     setBranch,
     addComment,
     changed,
+    stale,
   };
 }
 

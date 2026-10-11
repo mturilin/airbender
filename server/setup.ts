@@ -71,6 +71,9 @@ const SETUP_POLL_MS = 1500;
 
 const SETUP_TIMEOUT_MS = 15 * 60_000;
 
+/** How long "beads is not set up for this agent" is believed. */
+const AGENT_FAILED_MS = 60_000;
+
 /**
  * The file beads calls out of date, from what its check for an agent said.
  *
@@ -130,6 +133,9 @@ export function createSetup({
     { bd: string | null; folder: boolean; agents: string[]; rules: boolean }
   >();
 
+  /** Agent checks that failed, by folder and agent, and when. */
+  const agentFailed = new Map<string, { at: number; stale: string | null }>();
+
   /** How the last setup terminal ended, per folder. */
   const setupLastRun = new Map<string, NonNullable<SetupStatus["lastRun"]>>();
 
@@ -185,7 +191,12 @@ export function createSetup({
     if (bd !== null && folderReady) {
       for (const agent of SETUP_AGENTS) {
         let stale: string | null = null;
-        if (!met.agents.includes(agent.id)) {
+        const failedAt = agentFailed.get(`${path}\n${agent.id}`);
+        if (failedAt !== undefined && Date.now() - failedAt.at < AGENT_FAILED_MS) {
+          // Asked a moment ago and not set up: the same answer, without
+          // running beads again on every look (bead-bb-3pr).
+          stale = failedAt.stale;
+        } else if (!met.agents.includes(agent.id)) {
           // bd's own check: it exits 0 when its files for that agent are
           // in place, and non-zero otherwise. Asked of the repository's
           // main folder, not of a work tree (the user's choice,
@@ -201,6 +212,8 @@ export function createSetup({
           );
           if (check.kind === "ok") met.agents.push(agent.id);
           else if (check.kind === "failed") stale = staleFile(check.message);
+          if (check.kind === "ok") agentFailed.delete(`${path}\n${agent.id}`);
+          else agentFailed.set(`${path}\n${agent.id}`, { at: Date.now(), stale });
         }
         agents.push({
           ...agent,
@@ -335,6 +348,12 @@ export function createSetup({
       }
       setupRunning.delete(path);
       setupLastRun.set(path, { action, title, exitCode, tail });
+      // A setup step may have made, fetched or changed the issues, and
+      // may be the very thing a failed check was waiting for.
+      store.stale(path);
+      for (const key of agentFailed.keys()) {
+        if (key.startsWith(`${path}\n`)) agentFailed.delete(key);
+      }
       bb.realtime.publish(CHANGED_CHANNEL, { path });
     };
     void watchTerminal();

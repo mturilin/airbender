@@ -8,7 +8,9 @@ panel, beside a thread or on the New thread screen.
   each thread's current bead. `server.ts` wires the pieces and maps each
   request to one call. `server/contract.ts` is the typed contract with the
   frontend; `folder.ts` finds the folder and runs `bd`; `store.ts` holds the
-  issue operations; `work.ts` moves an issue through its workflow; `autopilot.ts` starts an
+  issue operations, and keeps the last list read per repository
+  (`list-cache.ts`: reused while beads' `last-touched` file is unchanged,
+  dropped on every write of the plugin's, never older than a minute); `work.ts` moves an issue through its workflow; `autopilot.ts` starts an
   epic's issues one after another; `sync.ts` joins the issue sync (the `sync/` folder) to the
   plugin;
   `github-comments.ts` copies the comments of imported

@@ -78,7 +78,11 @@ export async function createSync({
     },
     notify: (key) => {
       const home = homes.get(key);
-      if (home !== undefined) bb.realtime.publish(CHANGED_CHANNEL, { path: home });
+      if (home === undefined) return;
+      // A sync starting or ending: what it brings in changes the list
+      // without beads marking it, so the kept list is dropped here.
+      store.stale(home);
+      bb.realtime.publish(CHANGED_CHANNEL, { path: home });
     },
     info: (message) => bb.log.info("issue " + message),
   });
@@ -148,8 +152,10 @@ export async function createSync({
         remoteAsked.set(args.join(" "), { at: Date.now(), said });
         return said;
       },
-      readIssues: async () => {
-        const read = await store.readIssues(home);
+      readIssues: async (fresh = false) => {
+        // Anew when the source asks: after a sync, what it brought in does
+        // not show in what the kept list goes by.
+        const read = await store.readIssues(home, fresh);
         return read.state === "ok"
           ? read.issues.map(({ id, updatedAt, status }) => ({ id, updatedAt, status }))
           : null;

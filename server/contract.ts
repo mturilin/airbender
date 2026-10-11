@@ -327,6 +327,11 @@ export const rpcContract = defineRpcContract({
     input: z.object({
       threadId: z.string().nullable(),
       projectId: z.string().nullable(),
+      /**
+       * Read the issues anew, whatever the server has kept: set by the
+       * refresh button and when the window comes back into focus.
+       */
+      fresh: z.boolean().optional(),
     }),
     output: issuesResultSchema,
   },

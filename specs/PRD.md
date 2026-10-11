@@ -712,6 +712,7 @@ agent's messages. `[3l4]` `[eg0]`
   the owner working in a terminal. `[6v6]`
 - This is triggered by watching for the change, not by checking on a timer.
   `[6v6]`
+- **Switching between repositories must not take seconds.** `[3pr]`
 
 ## How agents work with it
 
@@ -1097,6 +1098,14 @@ breaking a requirement above.
   issue, how many comments would be copied; the progress and the result
   say how many were. A comment that cannot be copied is reported and does
   not stop the others.
+- Speed of switching: the product keeps the last list of issues it read
+  for a repository and shows it again while nothing has changed, so a
+  switch does not read the issues anew; a conversation switched back to
+  shows the list it last had at once and brings it up to date behind. A
+  change made in the panel shows at once. The refresh button, and coming
+  back to the app's window, always read the issues anew. One thing can
+  show late, by up to a minute, in a panel left untouched: an issue
+  removed outright, or a sync run by hand, in a terminal.
 - The small step button on a row: lower than the icon buttons beside it,
   small text, no border, a soft grey fill that darkens under the pointer;
   it keeps its icon, label and tooltip. On the current issue it is the
