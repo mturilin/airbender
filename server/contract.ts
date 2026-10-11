@@ -264,30 +264,48 @@ const setupStatusSchema = z.object({
   /** Whether the folder has a beads issue database. */
   folderReady: z.boolean(),
   /**
-   * The coding agents beads can be configured for here, and whether it is.
-   * Empty until beads is installed and the folder is set up, because the
-   * check is beads' own (`bd setup <agent> --check`).
-   */
-  agents: z.array(
-    z.object({
-      id: z.string(),
-      label: z.string(),
-      configured: z.boolean(),
-      /**
-       * Beads is set up for the agent, but the instructions it wrote into
-       * this file no longer match what it would write now (its check says
-       * "installed but stale"): the file's name, e.g. "AGENTS.md". Null
-       * otherwise. Such an agent counts as configured; the instructions
-       * can be updated.
-       */
-      stale: z.string().nullable(),
-    }),
-  ),
-  /**
-   * Whether Airbender's rules are in place: in the folder's AGENTS.md, with
-   * CLAUDE.md pointing at it.
+   * Whether Airbender's instructions are in place and beads' own are out
+   * (bead-bb-c9l.8): Airbender's rules in the folder's AGENTS.md, a
+   * CLAUDE.md, where there is one, pointing at it, and none of beads'
+   * generated blocks or hooks left. The name is from when this was only
+   * about the rules.
    */
   rulesPresent: z.boolean(),
+  /**
+   * What the instructions step would find and do, for its confirmation.
+   * All empty once the step is done.
+   */
+  instructions: z.object({
+    /**
+     * Airbender's rules in AGENTS.md: "current"; "old", an earlier version
+     * of ours, which is replaced; "edited", changed by the owner, which is
+     * left as it is; "none".
+     */
+    rules: z.enum(["current", "old", "edited", "none"]),
+    /** The files that hold a block beads generated, e.g. "AGENTS.md". */
+    beadsBlocks: z.array(z.string()),
+    /** The coding agents beads' own hooks are installed for, by label. */
+    beadsHooks: z.array(z.string()),
+    /**
+     * The coding agents beads' hooks are installed for on the whole
+     * computer, in the owner's home folder, by label. The step does not
+     * touch those: they are not this repository's. Named so the owner
+     * knows why beads' text may still appear at the start of a session.
+     */
+    machineWide: z.array(z.string()),
+    /**
+     * Sections beads wrote into AGENTS.md without markers, by name. They
+     * are not removed: nothing marks where they end. Named so the owner
+     * can remove them.
+     */
+    leftovers: z.array(z.string()),
+  }),
+  /**
+   * Facts saved in beads (`bd remember`) that the facts file does not
+   * hold, for the owner to choose from. Empty once they have been looked
+   * at, and where beads is not set up.
+   */
+  savedFacts: z.array(z.object({ key: z.string(), text: z.string() })),
   /** The setup action running in a terminal for this folder right now. */
   running: z
     .object({ action: z.enum(SETUP_ACTIONS), title: z.string() })

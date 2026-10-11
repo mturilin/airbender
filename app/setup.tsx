@@ -5,8 +5,11 @@
 // tab, the "more" menu in the toolbar, and the confirmation dialog.
 //
 // Why: when something the tab needs is missing (the beads program, beads in
-// the folder, beads' agent setup, Airbender's rules) the tab offers to set it
-// up instead of leaving the user at a dead end (bead-bb-80e).
+// the folder, Airbender's instructions for agents) the tab offers to set it
+// up instead of leaving the user at a dead end (bead-bb-80e). Beads' own
+// setup for a coding agent is no longer among them: its instructions
+// contradict the workflow, and the instructions step takes them out
+// (bead-bb-c9l.8).
 //
 // Design notes:
 // - One list of steps (setupSteps) drives both the card and the menu, so they
@@ -32,7 +35,8 @@ import type {
   SetupStatus,
   rpcContract,
 } from "../server/contract.ts";
-import { CHANGED_CHANNEL, SETUP_AGENTS } from "../shared/constants.ts";
+import { CHANGED_CHANNEL } from "../shared/constants.ts";
+import type { SetupAction } from "../shared/constants.ts";
 import { MenuPanel, useMenu } from "./menus.tsx";
 import type { Scope } from "./use-issues.ts";
 import { WORKFLOW_CHOICES } from "../shared/workflows.ts";
@@ -43,10 +47,10 @@ import type { WorkflowId } from "../shared/workflows.ts";
  * the server's SetupStatus for both the setup card and the "more" menu.
  */
 export interface SetupStep {
-  /** Unique per step; also what "Skip" remembers. E.g. "agent:claude". */
+  /** Unique per step; also what "Skip" remembers. E.g. "rules". */
   key: string;
-  action: "install" | "init" | "fetch" | "agent" | "rules" | "sync";
-  /** The agent id for an "agent" step; null otherwise. */
+  action: SetupAction;
+  /** Nothing today; kept for a step that carries a fixed choice. */
   option: string | null;
   /** The button and menu label. */
   label: string;
@@ -59,11 +63,6 @@ export interface SetupStep {
    * first"); null when it can. The menu greys the item and shows this.
    */
   blocked: string | null;
-  /**
-   * For an agent step: beads is set up, and the step only brings beads'
-   * instructions in this file up to date. Left out or null otherwise.
-   */
-  update?: string | null;
   /**
    * For a step whose words come from elsewhere (the issue sync's): what
    * the confirmation says it does, an opening line and points. Text in
@@ -88,6 +87,12 @@ function Marked({ text }: { text: string }) {
     </>
   );
 }
+
+/** Whether the instructions step has something of beads' to take out. */
+const replacesBeads = (status: SetupStatus | null) =>
+  status !== null &&
+  (status.instructions.beadsBlocks.length > 0 ||
+    status.instructions.beadsHooks.length > 0);
 
 /** The setup steps for a folder, in the order they make sense. */
 function setupSteps(status: SetupStatus): SetupStep[] {
@@ -135,44 +140,18 @@ function setupSteps(status: SetupStatus): SetupStep[] {
               ? "install beads first"
               : running,
         },
-    // Before the folder is set up the server reports no agents; the two BB
-    // runs are listed anyway so the menu always shows the whole set.
-    ...(status.agents.length > 0
-      ? status.agents
-      : SETUP_AGENTS.map((agent) => ({ ...agent, configured: false }))
-    ).map((agent) => {
-      // Set up, but beads' own text in a file is out of date (it follows
-      // the repository's configuration): not something to be asked for on
-      // the card, only an update offered in the menu, named after the file
-      // (the user: "don't say claude code - say in AGENTS.md").
-      const stale = "stale" in agent ? agent.stale : null;
-      return {
-        key: `agent:${agent.id}`,
-        action: "agent" as const,
-        option: agent.id,
-        label:
-          stale === null
-            ? `Configure beads for ${agent.label}`
-            : `Update beads' instructions in ${stale}`,
-        why: `Beads' own setup for ${agent.label} is not in this folder. It gives the agent beads' instructions when it starts.`,
-        needed: status.folderReady && !agent.configured,
-        blocked:
-          stale !== null
-            ? running
-            : agent.configured
-              ? "done"
-              : !status.folderReady
-                ? "set up the folder first"
-                : running,
-        update: stale,
-      };
-    }),
     {
       key: "rules",
       action: "rules",
       option: null,
-      label: "Add Airbender's rules for agents",
-      why: "The rules this tab's buttons rely on: agents take an issue one step at a time, leave closing to you, and commit when you accept it.",
+      // Named for what it will do here: a repository set up the old way
+      // has beads' instructions to take out, a new one only gets ours.
+      label: replacesBeads(status)
+        ? "Replace beads' instructions with Airbender's"
+        : "Add Airbender's instructions for agents",
+      why: replacesBeads(status)
+        ? "Beads wrote instructions of its own into this folder. They tell agents to close issues themselves, which is the opposite of how this tab works. This takes them out and leaves Airbender's."
+        : "The rules this tab's buttons rely on: agents take an issue one step at a time, leave closing to you, and commit when you accept it.",
       needed: status.folderReady && !status.rulesPresent,
       blocked: status.rulesPresent
         ? "done"
@@ -180,6 +159,22 @@ function setupSteps(status: SetupStatus): SetupStep[] {
           ? "set up the folder first"
           : running,
     },
+    // Facts saved in beads, which agents no longer see at the start of a
+    // session: offered once, for the owner to choose which go to the facts
+    // file. Listed only while there are any to choose from.
+    ...(status.savedFacts.length === 0
+      ? []
+      : [
+          {
+            key: "facts",
+            action: "facts" as const,
+            option: null,
+            label: "Carry saved facts over",
+            why: `Beads holds ${status.savedFacts.length === 1 ? "a saved fact" : `${status.savedFacts.length} saved facts`} that agents used to be shown when a session started. Choose which go into FACTS.md, where agents read them now.`,
+            needed: status.folderReady && status.rulesPresent,
+            blocked: !status.rulesPresent ? "add the instructions first" : running,
+          },
+        ]),
     // Switching the issue sync on, while the source offers it: listed
     // only then, since what it is called is the source's to say. Once on,
     // the "Issue sync" row above the steps says how it stands.
@@ -582,7 +577,7 @@ export function SetupMenu({
  *
  * @param step The step to confirm; null keeps the dialog closed.
  * @param onRun Called with the chosen option: the install method's id, the
- *   agent's id, or null.
+ *   keys of the facts to carry over (a JSON list), or null.
  */
 export function SetupDialog({
   step,
@@ -597,6 +592,11 @@ export function SetupDialog({
 }) {
   const methods = status?.installMethods ?? [];
   const [methodId, setMethodId] = useState<string | null>(null);
+  // The facts step: every saved fact is carried over unless unticked, so
+  // nothing is dropped by pressing the button without reading.
+  const facts = status?.savedFacts ?? [];
+  const [left, setLeft] = useState<string[]>([]);
+  const found = status?.instructions;
   const method =
     methods.find((candidate) => candidate.id === methodId) ?? methods[0];
   return (
@@ -611,8 +611,10 @@ export function SetupDialog({
           <DialogTitle>{step?.label}</DialogTitle>
           <DialogDescription>
             {step?.action === "rules"
-              ? "Adds a section to this folder's AGENTS.md, at the end, and, if this folder has a CLAUDE.md, makes it point at AGENTS.md so Claude Code reads the same rules. A CLAUDE.md that holds only beads' generated text is replaced by that pointer; one with your own text is kept, with one line added at the top. No CLAUDE.md is created."
-              : "Runs in a BB terminal, so you can watch it and answer anything it asks."}
+              ? "Makes Airbender's instructions the only ones about issues in this folder. It changes files in the repository; nothing is run in a terminal."
+              : step?.action === "facts"
+                ? "Choose which saved facts agents should keep seeing."
+                : "Runs in a BB terminal, so you can watch it and answer anything it asks."}
           </DialogDescription>
         </DialogHeader>
         {step?.action === "install" ? (
@@ -642,7 +644,7 @@ export function SetupDialog({
         ) : step?.action === "init" ? (
           <div className="space-y-2 text-sm">
             <p>
-              Runs <span className="font-mono">bd init</span> in{" "}
+              Runs <span className="font-mono">bd init --skip-agents</span> in{" "}
               <span className="break-all font-mono">{status?.path}</span>. It
               changes the repository:
             </p>
@@ -651,12 +653,11 @@ export function SetupDialog({
                 adds a <span className="font-mono">.beads</span> folder with
                 the issue database;
               </li>
-              <li>
-                adds or extends <span className="font-mono">AGENTS.md</span>{" "}
-                with beads' instructions for agents;
-              </li>
-              <li>may add small files for other coding tools;</li>
               <li>starts a git repository if the folder is not one yet.</li>
+              <li>
+                writes no instructions for agents: Airbender's are a step
+                of their own.
+              </li>
             </ul>
             <p>It may ask a few questions in the terminal.</p>
           </div>
@@ -677,30 +678,122 @@ export function SetupDialog({
               ))}
             </ul>
           </div>
-        ) : step?.action === "agent" && step.update != null ? (
-          <p className="text-sm">
-            Runs <span className="font-mono">bd setup {step.option}</span> in{" "}
-            <span className="break-all font-mono">{status?.path}</span>. Beads
-            is set up here; the instructions it wrote into{" "}
-            <span className="font-mono">{step.update}</span> no longer match
-            what it would write now, because the repository's beads
-            configuration has changed since. This rewrites beads' own block
-            in that file, between its markers, and nothing outside it.
-            Nothing is wrong if you leave it.
-          </p>
-        ) : step?.action === "agent" ? (
-          <p className="text-sm">
-            Runs <span className="font-mono">bd setup {step.option}</span> in{" "}
-            <span className="break-all font-mono">{status?.path}</span>. It
-            adds beads' own instructions and hooks for that agent to this
-            folder.
-          </p>
+        ) : step?.action === "facts" ? (
+          <div className="space-y-2 text-sm">
+            <p>
+              These were saved in beads and shown to agents when a session
+              started. That no longer happens. The ticked ones are written
+              to <span className="font-mono">FACTS.md</span>; the others stay
+              in beads, and this is not asked again.
+            </p>
+            <div className="max-h-72 space-y-1 overflow-auto">
+              {facts.map((fact) => (
+                <label
+                  key={fact.key}
+                  className="flex cursor-pointer items-start gap-2 rounded px-2 py-1 hover:bg-state-hover"
+                >
+                  <input
+                    type="checkbox"
+                    className="mt-1"
+                    checked={!left.includes(fact.key)}
+                    onChange={() =>
+                      setLeft((now) =>
+                        now.includes(fact.key)
+                          ? now.filter((key) => key !== fact.key)
+                          : [...now, fact.key],
+                      )
+                    }
+                  />
+                  <span className="min-w-0">
+                    <span className="block break-all font-mono text-xs text-muted-foreground">
+                      {fact.key}
+                    </span>
+                    {fact.text}
+                  </span>
+                </label>
+              ))}
+            </div>
+          </div>
         ) : (
-          <p className="text-sm text-muted-foreground">
-            The rules tell agents to give every piece of work an issue, take
-            it through its workflow one step at a time, record decisions on
-            the issue, leave closing to you, and commit when you accept it.
-          </p>
+          // The instructions step: said from what the server found, so the
+          // confirmation lists exactly what will change in this folder.
+          <div className="space-y-2 text-sm">
+            <ul className="list-disc space-y-0.5 pl-5 text-muted-foreground">
+              <li>
+                {found?.rules === "edited" ? (
+                  <>
+                    Airbender's rules in{" "}
+                    <span className="font-mono">AGENTS.md</span> were changed
+                    by hand in this folder. They are yours and are left as
+                    they are.
+                  </>
+                ) : found?.rules === "old" ? (
+                  <>
+                    Replaces Airbender's rules in{" "}
+                    <span className="font-mono">AGENTS.md</span> with the
+                    current version, where they stand.
+                  </>
+                ) : found?.rules === "current" ? (
+                  <>
+                    Airbender's rules are in{" "}
+                    <span className="font-mono">AGENTS.md</span> already.
+                  </>
+                ) : (
+                  <>
+                    Adds Airbender's rules to{" "}
+                    <span className="font-mono">AGENTS.md</span>, at the end.
+                  </>
+                )}
+              </li>
+              {(found?.beadsBlocks ?? []).map((file) => (
+                <li key={file}>
+                  Removes the block beads generated in{" "}
+                  <span className="font-mono">{file}</span>, between its own
+                  markers. Nothing outside the markers changes.
+                </li>
+              ))}
+              {(found?.beadsHooks ?? []).map((agent) => (
+                <li key={agent}>
+                  Removes beads' own setup for {agent}, with beads' command
+                  for that. It is what prints beads' instructions at the
+                  start of every session.
+                </li>
+              ))}
+              <li>
+                A <span className="font-mono">CLAUDE.md</span>, if this folder
+                has one, is made to point at{" "}
+                <span className="font-mono">AGENTS.md</span> and{" "}
+                <span className="font-mono">FACTS.md</span>. None is created.
+              </li>
+              <li>
+                Creates <span className="font-mono">FACTS.md</span> for
+                standing facts, if there is none.
+              </li>
+            </ul>
+            {(found?.machineWide ?? []).length === 0 ? null : (
+              <p className="text-muted-foreground">
+                Not touched: beads is also set up for{" "}
+                {found!.machineWide.join(" and ")} on this whole computer,
+                outside this folder. Its text will still appear when a
+                session starts, until that is removed with{" "}
+                <span className="font-mono">bd setup … --remove --global</span>.
+              </p>
+            )}
+            {(found?.leftovers ?? []).length === 0 ? null : (
+              <p className="text-muted-foreground">
+                Left in place, for you to remove if you wish: beads also
+                wrote {found!.leftovers.join(", ")} into{" "}
+                <span className="font-mono">AGENTS.md</span> without markers,
+                so it cannot be told safely from your own text.
+              </p>
+            )}
+            <p className="text-muted-foreground">
+              The rules tell agents to give every piece of work an issue,
+              take it through its workflow one step at a time, record
+              decisions on the issue, leave closing to you, and commit when
+              you accept it.
+            </p>
+          </div>
         )}
         <DialogFooter>
           <Button variant="ghost" onClick={onClose}>
@@ -712,11 +805,25 @@ export function SetupDialog({
               if (step === null) return;
               onRun(
                 step,
-                step.action === "install" ? (method?.id ?? null) : step.option,
+                step.action === "install"
+                  ? (method?.id ?? null)
+                  : step.action === "facts"
+                    ? JSON.stringify(
+                        facts
+                          .map((fact) => fact.key)
+                          .filter((key) => !left.includes(key)),
+                      )
+                    : step.option,
               );
             }}
           >
-            {step?.action === "rules" ? "Enable" : "Run in a terminal"}
+            {step?.action === "rules"
+              ? replacesBeads(status)
+                ? "Replace"
+                : "Add"
+              : step?.action === "facts"
+                ? "Carry over"
+                : "Run in a terminal"}
           </Button>
         </DialogFooter>
       </DialogContent>

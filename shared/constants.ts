@@ -80,10 +80,12 @@ export const QUICK_REPLIES = {
 } as const;
 
 /**
- * The four things that get a folder ready for Airbender (bead-bb-80e), in
- * the order they make sense: the beads program on the machine, beads set up
- * in the folder, beads configured for a coding agent, and Airbender's own
- * working rules in the folder's AGENTS.md.
+ * The things that get a folder ready for Airbender (bead-bb-80e), in the
+ * order they make sense: the beads program on the machine, beads set up in
+ * the folder (or its issues fetched), Airbender's instructions for agents,
+ * the saved facts carried over, and the issues given somewhere to sync to.
+ * Beads' own setup for a coding agent was one of them until bead-bb-c9l.8:
+ * its instructions contradict the workflow, and Airbender's replace them.
  */
 export const SETUP_ACTIONS = [
   "install",
@@ -91,14 +93,23 @@ export const SETUP_ACTIONS = [
   // Get the issues of a repository that already has them on its remote
   // (a fresh clone), in place of "init".
   "fetch",
-  "agent",
+  // Airbender's instructions for agents in place of beads' own
+  // (bead-bb-c9l.8): writes the rules, and takes beads' generated blocks
+  // and hooks out.
   "rules",
+  // Carry facts saved in beads over to the facts file; the option is the
+  // chosen keys, as a JSON list.
+  "facts",
   // Give the folder's issues a remote and sync them for the first time.
   "sync",
 ] as const;
 export type SetupAction = (typeof SETUP_ACTIONS)[number];
 
-/** The coding agents beads' own setup is offered for: the ones BB runs. */
+/**
+ * The coding agents BB runs, which beads has a setup of its own for. That
+ * setup is no longer offered (see SETUP_ACTIONS); the list is what beads'
+ * hooks are looked for, and removed, by.
+ */
 export const SETUP_AGENTS = [
   { id: "claude", label: "Claude Code" },
   { id: "codex", label: "Codex" },

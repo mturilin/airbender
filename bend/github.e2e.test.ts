@@ -275,7 +275,7 @@ test("problems end with the right status and a plain reason", async (t) => {
   assert.match(notANumber.err, /not a GitHub issue number/u);
   assert.equal((await bend("create", "x", "--parent", "999999")).status, 1);
   assert.equal((await bend("list", "--nope")).status, 2);
-  // Standing facts live in the folder's AGENTS.md, whatever the tracker.
+  // Standing facts live in the folder's FACTS.md, whatever the tracker.
   await ok("remember", "Deploys go out on Mondays", "--key", "deploys");
   assert.equal(await ok("recall", "monday"), "deploys: Deploys go out on Mondays");
 });

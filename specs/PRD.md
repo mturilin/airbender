@@ -91,28 +91,43 @@ Rules for the layout:
 When something the panel needs is missing, the panel offers to set it up.
 `[80e]`
 
-- **Four things can be set up**, in this order:
+- **Three things can be set up**, in this order:
   1. **Install beads**, when the tracker's program is not on the computer.
      The owner **chooses the way of installing each time**, from the ways
      available on that computer.
   2. **Set up beads in this folder**, when the folder has no issue database.
-     This is the most important one.
-  3. **Configure beads for the coding agent**, when the folder has beads but
-     the tracker's own setup for the agent is missing.
-  4. **Add Airbender's rules to the agents' instructions file**, as a
+     This is the most important one. **It sets up the issues only, and none
+     of the tracker's own instructions for agents.** `[c9l.8]`
+  3. **Add Airbender's instructions to the agents' instructions file**, as a
      separate command: the working rules the panel's buttons rely on. The
      owner either enables it or skips it. Where the folder has a
      separate instructions file for Claude Code, the step **also makes that
      file point at the same rules**, and counts as done only when both are
      in place. **It does not create that file.** `[0bk]`
+- **Airbender's instructions are the only ones about issues that a
+  repository gives its agents.** The tracker's own, which tell an agent to
+  close an issue when it is done, are not set up, and nothing is shown to
+  an agent at the start of a session beyond the instructions file.
+  `[c9l.8]`
+- **A repository that was set up with the tracker's own instructions can
+  be switched over in one step**, confirmed first, which says what it will
+  remove. It removes the blocks the tracker generated and the tracker's
+  hooks for the coding agents, and changes nothing else in the owner's
+  files. `[c9l.8]`
+- **The tracker's own setup for a coding agent is no longer offered.**
+  `[c9l.8]`
+- **Standing facts are kept in a file of their own**, beside the
+  instructions file, which agents read at the start and add to. `[c9l.8]`
+- **Facts that were saved in the tracker are shown to the owner once, to
+  choose which are carried over** to that file. `[c9l.8]`
 - **What is missing is offered in the middle of the panel**, not hidden in a
   menu, each with its button and a **Skip**.
 - **After Skip, a step is only in the menu.**
 - **A "⋯" menu in the top right corner lists all of them**, so any can be
   started by hand. **A step that is already done, or is not possible yet, is
   greyed out.**
-- **Installing, setting up the folder and configuring the agent run in a
-  visible terminal**, so the owner can watch and answer what it asks.
+- **Installing and setting up the folder run in a visible terminal**, so
+  the owner can watch and answer what it asks.
 - **What is still missing is re-checked on every refresh. What was found in
   place is not checked again**: the panel does not try to notice that
   something was removed afterwards.
@@ -1065,11 +1080,6 @@ breaking a requirement above.
   stopped on a conflict; its tooltip then says so in one line. It is not
   red in a folder whose issues are synced nowhere, nor merely because the
   app was closed for a while.
-- Beads' own instructions for an agent that have gone out of date (its
-  check says so, for example after the issues are given a remote) do not
-  bring the setup step back on the card: the agent counts as set up, and
-  the menu offers "Update beads' instructions in AGENTS.md", naming the
-  file beads names.
 - Keeping the issues on the remote: the step is one of the setup steps,
   "Sync issues to the repository's remote", shown on the setup card like
   the others and in the menu. It asks first, saying that the whole issue
@@ -1204,9 +1214,11 @@ breaking a requirement above.
 - bend: with beads, requirements are kept as a marked section at the end of
   the description, since beads has no place of its own for them; the
   category is the same label the panel uses. Status reports both.
-- bend: facts are kept in a marked section of AGENTS.md, one line per key;
-  saving under a key that exists replaces that fact, and a fact saved
-  without a key gets one from its first words.
+- bend: facts are kept in FACTS.md at the repository's root, one line per
+  key; saving under a key that exists replaces that line, and a fact saved
+  without a key gets one from its first words. Facts an earlier version
+  kept in a section of AGENTS.md are still read, and move to the file the
+  next time a fact is saved. `[c9l.8]`
 - bend: lists show open issues unless asked otherwise; an issue that waits
   for an unfinished one is shown as blocked.
 - bend: status warns when the beads database is not synced anywhere.
@@ -1273,12 +1285,32 @@ breaking a requirement above.
   one; ask the issue's open questions first; requirements, then plan, then
   build; record decisions on the issue; do not close the issue; commit when
   the owner has closed it, one commit per issue with its id and title.
-- Setup: for the file Claude Code reads (CLAUDE.md), the rules step writes
-  a short pointer to the agents' instructions file when it holds only the
-  tracker's generated, unfilled text; a file with
-  the owner's own text is kept, with one pointer line added at the top. The
-  confirmation says so. Airbender's rules state that they take precedence
-  over the tracker's own instructions where the two disagree.
+- Setup: for the file Claude Code reads (CLAUDE.md), the instructions step
+  writes a short pointer to the agents' instructions file and the facts
+  file when it holds only the tracker's generated, unfilled text; a file
+  with the owner's own text is kept, less the tracker's generated block,
+  with the two pointer lines added at the top where they are missing.
+  `[c9l.8]`
+- Setup: Airbender's rules name the few tracker commands an agent needs,
+  say where standing facts are kept, and carry a version. A block of an
+  earlier version, unchanged, is replaced where it stands; a block the
+  owner edited is left as it is, and the confirmation says so. `[c9l.8]`
+- Setup: only what stands between the tracker's own markers is removed.
+  Text the tracker wrote without markers (its "Quick Reference", its
+  opening lines) is left, and the confirmation names it for the owner to
+  remove. `[c9l.8]`
+- Setup: the tracker's hooks are found in the files they are in, in the
+  repository's main folder, and removed with the tracker's own command for
+  that. Hooks installed for the whole computer are not touched. `[c9l.8]`
+- Setup: the facts file is FACTS.md at the repository's root, one line per
+  fact under a short key. In the facts step every saved fact is ticked to
+  begin with; the unticked ones stay in the tracker. A line at the top of
+  the file records that they were looked at, so the step is not offered
+  again on another computer. `[c9l.8]`
+- Setup: on a repository where the instructions step has something of the
+  tracker's to remove it is called "Replace beads' instructions with
+  Airbender's"; otherwise "Add Airbender's instructions for agents".
+  `[c9l.8]`
 - Setup: nothing is offered for a folder on another machine or when no
   project is chosen.
 - For "all sub-issues are blocked", only open sub-issues count, and it

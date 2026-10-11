@@ -257,7 +257,7 @@ export const COMMANDS: readonly Command[] = [
     usage: "<text> [--key <key>]",
     summary: "Save a standing fact for future sessions",
     details:
-      "Facts are kept in the repository's AGENTS.md, one line per key.\nSaving under a key that exists replaces that fact.",
+      "Facts are kept in the repository's FACTS.md, one line per key.\nSaving under a key that exists replaces that fact.",
     options: [["--key <key>", "The fact's name; made from its first words if left out"]],
     spec: { values: ["key"] },
     group: ABOUT,

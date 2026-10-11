@@ -1,20 +1,69 @@
 // server/prompts.ts — the words sent to agents and written for them.
 //
-// What: Airbender's rules for a folder's AGENTS.md, and the decision about
-// what a folder's CLAUDE.md should contain. What an agent is told at each
-// step of an issue is not here: that is the workflow's
-// (shared/standard-workflow.ts).
+// What: Airbender's rules for a folder's AGENTS.md, the decision about
+// what a folder's CLAUDE.md should contain, and taking beads' own generated
+// instructions out of both. What an agent is told at each step of an issue
+// is not here: that is the workflow's (shared/standard-workflow.ts).
 //
 // Why: all wording an agent reads on the user's behalf is in one file, so it
 // can be reviewed and changed together.
 //
+// Design notes:
+// - Airbender's rules are the only instructions about issues a repository
+//   gives its agents (bead-bb-c9l.8, the decision in bead-bb-c9l.7). Beads
+//   writes instructions of its own, for its own way of working: "close the
+//   issue when you are done", and a "session close protocol" printed at the
+//   start of every session. That is the opposite of the workflow here, and
+//   for a while these rules said "where they disagree, these take
+//   precedence" and an agent got both. Now beads' text is taken out.
+// - Only text between beads' own markers is removed. Beads also writes
+//   text without markers; that cannot be told safely from the owner's own,
+//   so it is named for the owner and left.
+// - Everything here is text in, text out, so it is tested without a
+//   repository (server/prompts.test.ts). server/setup.ts does the reading
+//   and writing.
+//
 // Gotchas:
 // - The texts are template strings; a backtick inside them must be escaped.
+// - Changing AIRBENDER_RULES in a way agents should get means raising
+//   RULES_VERSION and adding the old text's fingerprint to SHIPPED_BEFORE,
+//   or repositories with the old block are taken for edited ones and never
+//   updated. The test "an earlier version's block is recognised" fails
+//   until that is done.
+
+import { createHash } from "node:crypto";
 
 /** Marks the start and end of Airbender's block inside an AGENTS.md. */
 export const RULES_START = "<!-- airbender:rules:start -->";
 
 const RULES_END = "<!-- airbender:rules:end -->";
+
+/**
+ * Which version of the rules a block holds, on a line of its own inside the
+ * markers. Raised whenever the text below changes in a way an agent should
+ * get, so that setup can tell an older block and offer to replace it. A
+ * block without the line is from before there were versions.
+ */
+const RULES_VERSION = `<!-- airbender:rules:version 2 -->`;
+
+/**
+ * The rules as earlier versions of this plugin wrote them, by fingerprint
+ * (SHA-256 of the block with every run of white space made one space).
+ *
+ * A block that matches one is ours, unchanged, and may be replaced by the
+ * current text. A block that matches none was edited by the owner (this
+ * project's own repository has a much longer one of its own inside the
+ * markers), and replacing it would throw their text away; such a block is
+ * left alone and the owner is told.
+ */
+const SHIPPED_BEFORE: readonly string[] = [
+  // Version 1: before bead-bb-c9l.8, with the sentence about taking
+  // precedence over beads' own instructions.
+  "bcf270710cd722894f17bde63d8aa46944be782add371ede632d38a44bb47783",
+];
+
+/** The file standing facts are kept in, at a repository's root. */
+export const FACTS_FILE = "FACTS.md";
 
 /**
  * Airbender's working rules, added to a folder's AGENTS.md on request
@@ -30,12 +79,29 @@ const RULES_END = "<!-- airbender:rules:end -->";
  * the rest of the file.
  */
 export const AIRBENDER_RULES = `${RULES_START}
+${RULES_VERSION}
 ## Working with beads through Airbender
 
 This repository's issues are tracked in beads (\`bd\`) and worked from the
-Airbender tab in BB. Follow these rules whenever you work on an issue.
-Where they disagree with beads' own instructions elsewhere in this file (for
-example "\`bd close <id>\` to complete work"), these rules take precedence.
+Airbender tab in BB. These are the instructions for working on issues here;
+follow them whenever you work on one.
+
+The commands you need (\`bd <command> --help\` says more):
+
+- \`bd show <id>\` and \`bd comments <id>\`: read an issue and its history.
+- \`bd update <id>\` with \`--description "..."\`, \`--acceptance "..."\` or
+  \`--design "..."\`: write what is wanted, what "done" means, and the plan.
+  With \`--status in_progress\`: mark it started.
+- \`bd comment <id> "..."\`: record a decision, a surprise, or a hand-over.
+- \`bd create "..." --deps discovered-from:<id>\`: follow-up work, linked to
+  the issue it came from.
+- \`bd dep add <id> <other-id>\`: this issue waits for the other one.
+- \`bd list\` and \`bd ready\`: what there is, and what can be worked on.
+
+- **Standing facts are in \`${FACTS_FILE}\`.** Read it when you start. When
+  you learn something every later session should know (how to build, a
+  convention, a lasting preference of the user's), add it there as one
+  line, \`- **short-key** — the fact\`. Do not use \`bd remember\` for that.
 
 - **Every piece of work has an issue.** If the user asks for something that
   has no issue yet, create one first (\`bd create\`), with what is wanted and
@@ -102,58 +168,210 @@ example "\`bd close <id>\` to complete work"), these rules take precedence.
 ${RULES_END}
 `;
 
+/** The rules block of an AGENTS.md, markers included; null when none. */
+function rulesBlock(agentsFile: string): string | null {
+  const start = agentsFile.indexOf(RULES_START);
+  if (start === -1) return null;
+  const end = agentsFile.indexOf(RULES_END, start);
+  return end === -1
+    ? agentsFile.slice(start)
+    : agentsFile.slice(start, end + RULES_END.length);
+}
+
+/** A text's fingerprint, as kept in SHIPPED_BEFORE. */
+const fingerprint = (text: string) =>
+  createHash("sha256").update(text.replace(/\s+/gu, " ").trim()).digest("hex");
+
 /**
- * The line that makes Claude Code read AGENTS.md from a CLAUDE.md. Used
- * only where a CLAUDE.md already exists: such a file would otherwise carry
- * its own, possibly contradicting, instructions.
+ * Which rules an AGENTS.md holds.
+ *
+ * @returns "current": this version's, to the letter. "old": an earlier
+ *   version's, unchanged, which may be replaced. "edited": a block the
+ *   owner changed, of whatever version, which is theirs and is left alone.
+ *   "none": no block.
+ */
+export function rulesIn(
+  agentsFile: string,
+): "current" | "old" | "edited" | "none" {
+  const block = rulesBlock(agentsFile);
+  if (block === null) return "none";
+  const print = fingerprint(block);
+  if (print === fingerprint(AIRBENDER_RULES)) return "current";
+  return SHIPPED_BEFORE.includes(print) ? "old" : "edited";
+}
+
+/**
+ * An AGENTS.md with Airbender's current rules in it.
+ *
+ * An older block of ours is replaced where it stands; with no block the
+ * rules are added at the end, after whatever is there. A block the owner
+ * edited is left as it is. Nothing else in the file is touched.
+ *
+ * @param existing The file's text; "" when there is no file.
+ * @returns The new text; `existing` itself when the current rules are
+ *   there, or the owner's own are.
+ */
+export function agentsFileWith(existing: string): string {
+  const has = rulesIn(existing);
+  if (has === "current" || has === "edited") return existing;
+  if (has === "none") {
+    return existing === ""
+      ? AIRBENDER_RULES
+      : `${existing.replace(/\n*$/u, "")}\n\n${AIRBENDER_RULES}`;
+  }
+  const start = existing.indexOf(RULES_START);
+  const end = existing.indexOf(RULES_END, start);
+  // A block without its end marker (cut by hand): replaced to the end of
+  // the file, which is where the block was written.
+  const after =
+    end === -1
+      ? ""
+      : existing.slice(end + RULES_END.length).replace(/^\n/u, "");
+  return existing.slice(0, start) + AIRBENDER_RULES + after;
+}
+
+/**
+ * A block beads generated, between its own markers: the one `bd init`
+ * writes ("BEGIN BEADS INTEGRATION ...") and the one `bd setup codex`
+ * writes ("BEGIN BEADS CODEX SETUP ..."). The markers carry a version and a
+ * hash that change between beads versions, so only their fixed start is
+ * matched. Lazy, and each block ends at the first end marker after it, so
+ * text between two blocks is never taken.
+ */
+const BEADS_BLOCK = /<!-- BEGIN BEADS [^>]*-->[\s\S]*?<!-- END BEADS [^>]*-->\n?/gu;
+
+/** Whether a text holds a block beads generated. */
+export function hasBeadsBlocks(text: string): boolean {
+  return new RegExp(BEADS_BLOCK.source, "u").test(text);
+}
+
+/**
+ * A text without the blocks beads generated.
+ *
+ * Only what is between beads' markers goes, markers included. Where a block
+ * stood, the blank lines around it are closed up to one, so no gap is left;
+ * nothing else changes, to the letter.
+ *
+ * @returns The new text; `text` itself when it holds no such block.
+ */
+export function withoutBeadsBlocks(text: string): string {
+  if (!hasBeadsBlocks(text)) return text;
+  return text
+    .split(BEADS_BLOCK)
+    .map((part, index, parts) => {
+      // The blank lines that set a removed block apart, on either side.
+      let kept = part;
+      if (index > 0) kept = kept.replace(/^\n+/u, "");
+      if (index < parts.length - 1) kept = kept.replace(/\n+$/u, "\n");
+      return kept;
+    })
+    .filter((part) => part !== "")
+    .join("\n")
+    .replace(/\n*$/u, "\n");
+}
+
+/**
+ * The sections beads writes into an AGENTS.md without markers, by what
+ * gives each away. They tell agents the same things the marked blocks do
+ * ("bd close <id> # Complete work"), but nothing marks where they start
+ * and end, so they are named for the owner and not removed.
+ */
+const BEADS_UNMARKED: { name: string; sign: RegExp }[] = [
+  {
+    name: "the opening lines about bd prime",
+    sign: /This project uses \*\*bd\*\* \(beads\) for issue tracking\. Run `bd prime`/u,
+  },
+  {
+    name: "Quick Reference",
+    sign: /^## Quick Reference\n[\s\S]{0,400}?bd close <id>/mu,
+  },
+  { name: "Session Completion", sign: /^## Session Completion$/mu },
+  { name: "Beads Issue Tracker", sign: /^## Beads Issue Tracker$/mu },
+];
+
+/**
+ * The names of beads' unmarked sections found in a text, for the owner to
+ * remove by hand if they wish.
+ *
+ * Pre-condition: beads' marked blocks are already out of `text` (the last
+ * two signs are headings that also stand inside those blocks).
+ */
+export function beadsLeftovers(text: string): string[] {
+  return BEADS_UNMARKED.filter(({ sign }) => sign.test(text)).map(
+    ({ name }) => name,
+  );
+}
+
+/**
+ * The lines that make Claude Code read AGENTS.md, and the standing facts,
+ * from a CLAUDE.md. Used only where a CLAUDE.md already exists: such a file
+ * would otherwise carry its own, possibly contradicting, instructions.
+ *
+ * The facts file is pulled in here because nothing else loads it by itself;
+ * the rules also tell an agent to read it, for the agents this file does
+ * not reach.
  */
 const CLAUDE_IMPORT = "@AGENTS.md";
+const FACTS_IMPORT = `@${FACTS_FILE}`;
 
 /** CLAUDE.md as the rules step writes it when it owns the whole file. */
 const CLAUDE_POINTER = `# Project Instructions for AI Agents
 
 The instructions for this project are in [AGENTS.md](AGENTS.md). Read that
-file in full before doing anything, and follow it.
+file in full before doing anything, and follow it. Standing facts about the
+project are in [${FACTS_FILE}](${FACTS_FILE}).
 
 ${CLAUDE_IMPORT}
+${FACTS_IMPORT}
 
 This file is only a pointer, so that tools which look for \`CLAUDE.md\` find
 the same rules as tools which look for \`AGENTS.md\`. Do not add instructions
 here; put them in \`AGENTS.md\`.
 `;
 
-/** Whether a CLAUDE.md already points at AGENTS.md (a line of its own). */
-function claudePointsAtAgents(text: string): boolean {
-  return text.split("\n").some((line) => line.trim() === CLAUDE_IMPORT);
-}
+/** Whether a text has a line that is exactly `line`. */
+const hasLine = (text: string, line: string) =>
+  text.split("\n").some((candidate) => candidate.trim() === line);
 
 /**
  * What the rules step should write to CLAUDE.md (bead-bb-0bk), given what is
  * there now.
  *
- * Why it touches this file at all: \`bd init\` creates a CLAUDE.md holding
- * beads' generic instructions, which tell agents to close issues themselves,
- * against Airbender's rules, and Claude Code reads that file.
+ * Why it touches this file at all: \`bd init\` and \`bd setup claude\` create
+ * a CLAUDE.md holding beads' generic instructions, which tell agents to
+ * close issues themselves, against Airbender's rules, and Claude Code reads
+ * that file.
  *
  * - No file (or an empty one): left alone. The user's decision: Claude Code
  *   reads AGENTS.md itself now, so there is no reason to create the file.
  * - The file beads generated and nobody filled in (its title, beads' block
  *   and its three untouched placeholders): replaced by the pointer. Nothing
- *   of the user's is lost, and beads' block stays available in AGENTS.md.
- * - Anything else is the user's own: kept whole, with the import line added
- *   at the top so AGENTS.md is read as well.
+ *   of the user's is lost.
+ * - Anything else is the user's own: kept whole, less beads' marked block,
+ *   with the two import lines added at the top where they are missing, so
+ *   AGENTS.md and the facts are read as well.
  *
  * @param existing The file's text, or null when there is no file.
  * @returns The new text, or null when nothing needs writing: there is no
- *   file, or it already points at AGENTS.md.
+ *   file, or it already points at both and holds no beads block.
  */
 export function claudeFileFor(existing: string | null): string | null {
   if (existing === null || existing.trim() === "") return null;
-  if (claudePointsAtAgents(existing)) return null;
   const generated =
     existing.includes("<!-- BEGIN BEADS INTEGRATION") &&
     existing.includes("_Add your build and test commands here_") &&
     existing.includes("_Add a brief overview of your project architecture_") &&
     existing.includes("_Add your project-specific conventions here_");
-  return generated ? CLAUDE_POINTER : `${CLAUDE_IMPORT}\n\n${existing}`;
+  if (generated) return CLAUDE_POINTER;
+  let next = withoutBeadsBlocks(existing);
+  if (!hasLine(next, CLAUDE_IMPORT)) {
+    next = `${CLAUDE_IMPORT}\n${FACTS_IMPORT}\n\n${next}`;
+  } else if (!hasLine(next, FACTS_IMPORT)) {
+    // After the line it belongs with, wherever the owner put that.
+    next = next.replace(
+      new RegExp(`^([ \\t]*${CLAUDE_IMPORT}[ \\t]*)$`, "mu"),
+      `$1\n${FACTS_IMPORT}`,
+    );
+  }
+  return next === existing ? null : next;
 }

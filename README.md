@@ -211,14 +211,25 @@ step with its button and a Skip; the "⋯" menu at the right of the toolbar
 lists every step, greyed out when done or not yet possible:
 
 1. **Install beads** — pick a method (install script, mise, Homebrew, npm).
-2. **Set up beads in this folder** — runs `bd init`.
-3. **Configure beads for Claude Code / Codex** — runs `bd setup <agent>`.
-4. **Add Airbender's rules for agents** — the working rules the buttons
-   rely on, added to `AGENTS.md` between `<!-- airbender:rules:start -->`
-   and `<!-- airbender:rules:end -->`. It also makes `CLAUDE.md` point at
-   `AGENTS.md` (an `@AGENTS.md` line): a beads-generated
-   `CLAUDE.md` becomes a short pointer, one with your own text keeps it,
-   and none is created where there is none.
+2. **Set up beads in this folder** — runs `bd init --skip-agents`: the
+   issue database, and none of beads' own instructions for agents.
+3. **Add Airbender's instructions for agents** — the working rules the
+   buttons rely on, added to `AGENTS.md` between
+   `<!-- airbender:rules:start -->` and `<!-- airbender:rules:end -->`
+   (`server/prompts.ts`). They are the only instructions about issues: in
+   a repository set up the old way the step is called "Replace beads'
+   instructions with Airbender's" and also removes beads' generated blocks
+   from `AGENTS.md` and `CLAUDE.md` (between beads' own markers, nothing
+   else) and beads' hooks for Claude Code and Codex (`bd setup <agent>
+   --remove`). It makes `CLAUDE.md` point at `AGENTS.md` and `FACTS.md`
+   (`@AGENTS.md`, `@FACTS.md`): a beads-generated `CLAUDE.md` becomes a
+   short pointer, one with your own text keeps it, and none is created
+   where there is none. Beads' own setup for a coding agent is no longer
+   offered: its text tells agents to close issues themselves.
+4. **Carry saved facts over** — shown while beads holds facts (`bd
+   remember`) that `FACTS.md` does not: you tick which go into `FACTS.md`,
+   the file agents read standing facts from now (`tracker/memory.ts`;
+   `bend remember` writes there too).
 5. **Sync issues to the repository's remote** — runs `bd sync --yes` for
    the first time. `bd init` leaves the issue database on this computer
    only (it is not in git); this publishes it to the git remote under

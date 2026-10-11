@@ -177,7 +177,7 @@ test("problems are reported with the right exit status, in text and in JSON", as
   assert.match(nowhere.err, /No supported issue tracker/u);
 });
 
-test("status says what the tracker supports; facts are kept in AGENTS.md", async (t) => {
+test("status says what the tracker supports; facts are kept in FACTS.md", async (t) => {
   if (skip) return t.skip(skip);
   const status = await ok("status");
   assert.match(status, /Tracker\s+beads/u);
@@ -186,7 +186,7 @@ test("status says what the tracker supports; facts are kept in AGENTS.md", async
   await ok("remember", "Deploys go out on Mondays", "--key", "deploys");
   assert.match(await ok("remember", "Deploys go out on Tuesdays", "--key", "deploys"), /Replaced/u);
   assert.equal(await ok("recall", "tuesday"), "deploys: Deploys go out on Tuesdays");
-  assert.match(readFileSync(join(root, "AGENTS.md"), "utf8"), /bend:facts:start/u);
+  assert.match(readFileSync(join(root, "FACTS.md"), "utf8"), /^# Facts\n[\s\S]*- \*\*deploys\*\* — Deploys go out on Tuesdays\n$/u);
 });
 
 test("a list can be narrowed to what changed since a moment", async (t) => {

@@ -63,7 +63,7 @@ bend recall                       # facts every session should know
 bend remember "…" --key <name>    # save or replace one
 ```
 
-Facts are kept in the repository's `AGENTS.md`. Save only what every future
+Facts are kept in the repository's `FACTS.md`. Save only what every future
 session needs (how to build, a lasting preference), not notes about one
 issue.
 
