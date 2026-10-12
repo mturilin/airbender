@@ -92,13 +92,9 @@ func TestSameAnswersAsThePluginGave(t *testing.T) {
 		check("HasBeadsBlocks", HasBeadsBlocks(want.Text), want.HasBeadsBlocks)
 		check("WithoutBeadsBlocks", WithoutBeadsBlocks(want.Text), want.WithoutBeadsBlocks)
 		check("BeadsLeftovers", BeadsLeftovers(WithoutBeadsBlocks(want.Text)), want.BeadsLeftovers)
-		next, change := ClaudeFileFor(want.Text, true)
-		if want.ClaudeFileFor == nil {
-			check("ClaudeFileFor changes", change, false)
-		} else {
-			check("ClaudeFileFor", next, *want.ClaudeFileFor)
-			check("ClaudeFileFor changes", change, true)
-		}
+		// What the recording says a CLAUDE.md "should become" is not
+		// compared any more: setup no longer adds import lines to one
+		// (bead-bb-c9l.12); see the tests of WithoutImports and OwnText.
 	}
 }
 
@@ -123,9 +119,6 @@ func TestRulesStandOnTheirOwn(t *testing.T) {
 	if RulesIn(Rules) != "current" || AgentsFileWith(AgentsFileWith("# Mine\n")) != AgentsFileWith("# Mine\n") {
 		t.Fatal("adding twice changes something")
 	}
-	if _, change := ClaudeFileFor("", false); change {
-		t.Fatal("a CLAUDE.md is created where there is none")
-	}
 }
 
 func TestOneWordingNamesOnlyBendAndReplacesBothEarlierOnes(t *testing.T) {
@@ -149,7 +142,7 @@ func TestOneWordingNamesOnlyBendAndReplacesBothEarlierOnes(t *testing.T) {
 	}
 	// Both wordings of version 2 are ours, unchanged, and are replaced
 	// where they stand; so is version 1.
-	for _, name := range []string{"rules-v2-beads.md", "rules-v2-bend.md", "rules-v1.md"} {
+	for _, name := range []string{"rules-v3.md", "rules-v2-beads.md", "rules-v2-bend.md", "rules-v1.md"} {
 		earlier, err := os.ReadFile("testdata/" + name)
 		if err != nil {
 			t.Fatal(err)
@@ -184,7 +177,7 @@ func TestOneWordingNamesOnlyBendAndReplacesBothEarlierOnes(t *testing.T) {
 func TestRulesOfANewerVersionAndKeepingTouchOnlyWhatTheyMust(t *testing.T) {
 	// Written by a newer bend than this one: not this bend's to call
 	// behind, whether its owner changed it or not.
-	newer := strings.Replace(Rules, "rules:version 3 -->", "rules:version 4 -->", 1)
+	newer := strings.Replace(Rules, "rules:version 4 -->", "rules:version 5 -->", 1)
 	if got := RulesIn(newer); got != "edited" {
 		t.Fatalf("rules of a newer version are taken as %q", got)
 	}
@@ -194,12 +187,87 @@ func TestRulesOfANewerVersionAndKeepingTouchOnlyWhatTheyMust(t *testing.T) {
 	// Keeping changes the block's own version line and no other: one the
 	// owner quotes further down stays as written.
 	mine := "<!-- airbender:rules:start -->\n<!-- airbender:rules:version 1 -->\n## Mine\n\nThe line reads `<!-- airbender:rules:version 1 -->`.\n<!-- airbender:rules:end -->\n\n# After\n"
-	want := "<!-- airbender:rules:start -->\n<!-- airbender:rules:version 3 -->\n## Mine\n\nThe line reads `<!-- airbender:rules:version 1 -->`.\n<!-- airbender:rules:end -->\n\n# After\n"
+	want := "<!-- airbender:rules:start -->\n<!-- airbender:rules:version 4 -->\n## Mine\n\nThe line reads `<!-- airbender:rules:version 1 -->`.\n<!-- airbender:rules:end -->\n\n# After\n"
 	if got := KeepRules(mine); got != want {
 		t.Fatalf("keeping gave:\n%s", got)
 	}
 	// Whether a block says where it ends.
 	if !RulesEnd(mine) || RulesEnd(strings.Replace(mine, "<!-- airbender:rules:end -->\n", "", 1)) || RulesEnd("# Nothing\n") {
 		t.Fatal("the end marker was not told rightly")
+	}
+}
+
+func TestImportLinesAreOnlyEverTakenOut(t *testing.T) {
+	// As an earlier setup left an AGENTS.md through a linked CLAUDE.md.
+	damaged := "@AGENTS.md\n@FACTS.md\n\n# Mine\n\nRules of my own.\n"
+	if !HasImports(damaged) || WithoutImports(damaged) != "# Mine\n\nRules of my own.\n" {
+		t.Fatalf("got %q", WithoutImports(damaged))
+	}
+	// Wherever such a line stands by itself; what only looks like one is
+	// the owner's and stays: indented, inside a sentence, inside a fenced
+	// block of code, or naming another file.
+	mixed := "# Mine\n\n  @AGENTS.md\nSee @AGENTS.md for more.\n@FACTS.md  \r\n@OTHER.md\n\n```\n@AGENTS.md\n```\n"
+	if got := WithoutImports(mixed); got != "# Mine\n\n  @AGENTS.md\nSee @AGENTS.md for more.\n@OTHER.md\n\n```\n@AGENTS.md\n```\n" {
+		t.Fatalf("got %q", got)
+	}
+	// Only fenced or indented look-alikes: nothing to take out at all.
+	if HasImports("```\n@AGENTS.md\n@FACTS.md\n```\n  @FACTS.md\n") {
+		t.Fatal("an example in a block of code is taken for an import line")
+	}
+	// Blank lines of the owner's are not touched: only the one under the
+	// lines taken off the top goes.
+	if got := WithoutImports("\n\n# T\n@AGENTS.md\nx\n"); got != "\n\n# T\nx\n" {
+		t.Fatalf("got %q", got)
+	}
+	if got := WithoutImports("# T\n\n@AGENTS.md\n@FACTS.md\n\nx\n"); got != "# T\n\nx\n" {
+		t.Fatalf("got %q", got)
+	}
+	// A text without them comes back as it is, byte for byte.
+	clean := "\n\n# Mine\n"
+	if HasImports(clean) || WithoutImports(clean) != clean {
+		t.Fatal("a text without import lines was changed")
+	}
+	// The rules themselves hold none, and name the facts file as a link.
+	if HasImports(Rules) || !strings.Contains(Rules, "[`FACTS.md`](FACTS.md)") || !strings.Contains(Rules, "It is not loaded for") {
+		t.Fatal("the rules import a file, or do not link the facts file")
+	}
+}
+
+func TestWhatIsTheOwnersInAClaudeFile(t *testing.T) {
+	// The pointer setup once wrote, also reflowed, holds nothing of theirs.
+	if OwnText(claudePointer) != "" || OwnText(strings.ReplaceAll(claudePointer, "\n", " \n")) != "" {
+		t.Fatalf("the pointer file is taken for the owner's text: %q", OwnText(claudePointer))
+	}
+	// The same for the pointer in its earlier form, from before the facts
+	// file was named in it (this project's own CLAUDE.md was one).
+	earlier := "# Project Instructions for AI Agents\n\nThe instructions for this project are in [AGENTS.md](AGENTS.md). Read that\nfile in full before doing anything, and follow it.\n\n@AGENTS.md\n@FACTS.md\n\nThis file is only a pointer, so that tools which look for `CLAUDE.md` find\nthe same rules as tools which look for `AGENTS.md`. Do not add instructions\nhere; put them in `AGENTS.md`.\n"
+	if OwnText(earlier) != "" {
+		t.Fatalf("the earlier pointer file is taken for the owner's text: %q", OwnText(earlier))
+	}
+	// Nor does the file beads generated and nobody filled in.
+	generated := "# Project Instructions for AI Agents\n\nThis file provides instructions and context for AI coding agents working on this project.\n\n<!-- BEGIN BEADS INTEGRATION v:1 -->\nbeads\n<!-- END BEADS INTEGRATION -->\n\n## Build & Test\n\n_Add your build and test commands here_\n\n```bash\n# Example:\n# npm install\n# npm test\n```\n\n## Architecture Overview\n\n_Add a brief overview of your project architecture_\n\n## Conventions & Patterns\n\n_Add your project-specific conventions here_\n"
+	if OwnText(generated) != "" {
+		t.Fatalf("a generated file is taken for the owner's text: %q", OwnText(generated))
+	}
+	// But a section the owner added to it is theirs, although beads'
+	// placeholders still stand beside it.
+	if got := OwnText(generated + "\n## Deploy\n\nNever deploy on Friday.\n"); got != "## Deploy\n\nNever deploy on Friday." {
+		t.Fatalf("the owner's section in a generated file: %q", got)
+	}
+	// Their own text is what is left when the imports, beads' block and the
+	// rules block are taken away.
+	mine := "@AGENTS.md\n@FACTS.md\n\n# Claude only\n\nUse the long context.\n\n<!-- BEGIN BEADS INTEGRATION v:1 -->\nbeads\n<!-- END BEADS INTEGRATION -->\n\n" + Rules
+	if got := OwnText(mine); got != "# Claude only\n\nUse the long context." {
+		t.Fatalf("got %q", got)
+	}
+	// Carried to the end of AGENTS.md once, and not again; nothing for
+	// nothing.
+	agents := "# Rules\n\nFor everyone.\n"
+	carried := CarriedInto(agents, OwnText(mine))
+	if carried != "# Rules\n\nFor everyone.\n\n# Claude only\n\nUse the long context.\n" {
+		t.Fatalf("got %q", carried)
+	}
+	if CarriedInto(carried, OwnText(mine)) != carried || CarriedInto(agents, "") != agents || CarriedInto("", "Mine.") != "Mine.\n" {
+		t.Fatal("carrying text over is not steady")
 	}
 }

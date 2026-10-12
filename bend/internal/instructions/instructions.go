@@ -38,6 +38,7 @@ import (
 	_ "embed"
 	"encoding/hex"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -79,6 +80,10 @@ var shippedBefore = []string{
 	// bend for every tracker (bead-bb-c9l.10).
 	"f3d93fe8206c7d41aa1897ae447556394acc3cb55dae0db3477f62f6994285bc",
 	"6b9afa03138a5c40b192fa122019b7f09f224501aa838d86bc9230f9f844c828",
+	// Version 3: the one wording that names bend, which said to read
+	// FACTS.md at the start. Version 4 names it as a link, the place to
+	// store facts and memories, not loaded for the agent (bead-bb-c9l.12).
+	"412b7449d6f699b31fdb1a9ec348ac72f5f51cbf6393de21969ca2cf4999faee",
 }
 
 // versionLine is the line of a rules block that says which version of the
@@ -305,31 +310,29 @@ func BeadsLeftovers(text string) []string {
 }
 
 const (
-	// claudeImport is the line that makes Claude Code load AGENTS.md with a
-	// CLAUDE.md; factsImport the same for the facts file.
-	claudeImport = "@" + AgentsFile
+	// agentsImport and factsImport are the lines that make Claude Code load
+	// AGENTS.md and the facts file from a CLAUDE.md. Setup wrote them until
+	// bead-bb-c9l.12; it now only takes them out (see WithoutImports).
+	agentsImport = "@" + AgentsFile
 	factsImport  = "@" + FactsFile
 )
 
-// claudePointer is a CLAUDE.md that only points at AGENTS.md and the facts
-// file.
+// claudePointer is the CLAUDE.md that setup wrote in place of one beads had
+// generated: a file that only points at AGENTS.md and the facts file. Kept
+// to be recognised, so that none of it is taken for the owner's own text.
 const claudePointer = `# Project Instructions for AI Agents
 
 The instructions for this project are in [AGENTS.md](AGENTS.md). Read that
 file in full before doing anything, and follow it. Standing facts about the
 project are in [` + FactsFile + `](` + FactsFile + `).
 
-` + claudeImport + `
+` + agentsImport + `
 ` + factsImport + `
 
 This file is only a pointer, so that tools which look for ` + "`CLAUDE.md`" + ` find
 the same rules as tools which look for ` + "`AGENTS.md`" + `. Do not add instructions
 here; put them in ` + "`AGENTS.md`" + `.
 `
-
-// claudeImportLine finds the line that imports AGENTS.md, with whatever
-// spaces the owner put around it.
-var claudeImportLine = regexp.MustCompile(`(?m)^([ \t]*` + regexp.QuoteMeta(claudeImport) + `[ \t]*)$`)
 
 // hasLine says whether a text has a line that is exactly line, spaces
 // around it aside.
@@ -342,34 +345,144 @@ func hasLine(text, line string) bool {
 	return false
 }
 
-// ClaudeFileFor decides what a repository's CLAUDE.md should become.
-//
-// A file beads generated and nobody filled in becomes a short pointer to
-// AGENTS.md; one with the owner's own text keeps it, less beads' block,
-// with the two import lines added where they are missing. None is created
-// where there is none.
-//
-// existing is the file's text; exists is false when there is no file.
-// Returns the new text and true, or false when nothing is to be written.
-func ClaudeFileFor(existing string, exists bool) (next string, change bool) {
-	if !exists || strings.TrimSpace(existing) == "" {
-		return "", false
+// importLines gives, for each line of a text, whether it is one of the two
+// import lines as setup wrote them: the whole line, starting at its first
+// column, outside any fenced block of code. A line that only looks like
+// one, in an example the owner wrote (indented, or inside a fence), is
+// theirs and is not counted.
+func importLines(lines []string) []bool {
+	found := make([]bool, len(lines))
+	fenced := false
+	for index, line := range lines {
+		bare := strings.TrimRight(line, " \t\r")
+		if strings.HasPrefix(strings.TrimSpace(bare), "```") || strings.HasPrefix(strings.TrimSpace(bare), "~~~") {
+			fenced = !fenced
+			continue
+		}
+		found[index] = !fenced && (bare == agentsImport || bare == factsImport)
 	}
-	generated := strings.Contains(existing, "<!-- BEGIN BEADS INTEGRATION") &&
-		strings.Contains(existing, "_Add your build and test commands here_") &&
-		strings.Contains(existing, "_Add a brief overview of your project architecture_") &&
-		strings.Contains(existing, "_Add your project-specific conventions here_")
-	if generated {
-		return claudePointer, true
+	return found
+}
+
+// HasImports says whether a text has a line that imports AGENTS.md or the
+// facts file (see importLines for what counts).
+func HasImports(text string) bool {
+	return slices.Contains(importLines(strings.Split(text, "\n")), true)
+}
+
+// WithoutImports gives a text without the lines that import AGENTS.md and
+// the facts file.
+//
+// Why: setup used to add them to a CLAUDE.md so that Claude Code loaded
+// the rules and the facts. The owner (bead-bb-c9l.12): "@FACTS.md should
+// not exist in any of the repositories", and the rules are in AGENTS.md
+// itself or reached by a link. Through a CLAUDE.md that is a link to
+// AGENTS.md the lines were written into AGENTS.md, a file importing
+// itself; this takes them out there too.
+//
+// Only the lines themselves go, and the one blank line setup put under
+// them where that would otherwise leave two blank lines together or one at
+// the very top. Nothing else in the text is touched; a text that has none
+// is given back as it came.
+func WithoutImports(text string) string {
+	lines := strings.Split(text, "\n")
+	found := importLines(lines)
+	if !slices.Contains(found, true) {
+		return text
 	}
-	next = WithoutBeadsBlocks(existing)
-	if !hasLine(next, claudeImport) {
-		next = claudeImport + "\n" + factsImport + "\n\n" + next
-	} else if !hasLine(next, factsImport) {
-		// After the line it belongs with, wherever the owner put that.
-		if at := claudeImportLine.FindStringIndex(next); at != nil {
-			next = next[:at[1]] + "\n" + factsImport + next[at[1]:]
+	blank := func(line string) bool { return strings.TrimSpace(line) == "" }
+	kept := []string{}
+	for index := 0; index < len(lines); index++ {
+		if !found[index] {
+			kept = append(kept, lines[index])
+			continue
+		}
+		// The blank line under the last of a run of import lines, when
+		// what stands above the run is the top of the file or a blank
+		// line too.
+		last := index+1 >= len(lines) || !found[index+1]
+		above := len(kept) == 0 || blank(kept[len(kept)-1])
+		if last && above && index+1 < len(lines)-1 && blank(lines[index+1]) {
+			index++
 		}
 	}
-	return next, next != existing
+	return strings.Join(kept, "\n")
+}
+
+// generatedLines are the lines of the CLAUDE.md beads generates, outside
+// its marked block: its heading, its opening sentence and three sections
+// with a placeholder each. They are beads' words, not the owner's.
+var generatedLines = []string{
+	"# Project Instructions for AI Agents",
+	"This file provides instructions and context for AI coding agents working on this project.",
+	"## Build & Test",
+	"_Add your build and test commands here_",
+	"```bash",
+	"# Example:",
+	"# npm install",
+	"# npm test",
+	"```",
+	"## Architecture Overview",
+	"_Add a brief overview of your project architecture_",
+	"## Conventions & Patterns",
+	"_Add your project-specific conventions here_",
+}
+
+// spaces finds every run of white space, for comparing texts by their words.
+var spaces = regexp.MustCompile(`\s+`)
+
+// OwnText gives what is the owner's own in a CLAUDE.md: the text less
+// beads' generated block, Airbender's rules block, the import lines, the
+// pointer text setup itself once wrote, and the lines of the file beads
+// generates. "" when nothing is left.
+//
+// It is what must not be lost when the file is made a link to AGENTS.md.
+// Whatever cannot be told for certain to be somebody else's counts as the
+// owner's: a section they added to a generated file is theirs, although
+// beads' placeholders still stand beside it.
+func OwnText(claudeFile string) string {
+	text := WithoutImports(WithoutBeadsBlocks(claudeFile))
+	if block, ok := rulesBlock(text); ok {
+		text = strings.Replace(text, block, "", 1)
+	}
+	// The pointer file, compared by its words: an editor may have reflowed
+	// it. In both forms setup wrote: with the sentence about the facts
+	// file, and, before there was one, without it.
+	words := func(of string) string { return strings.TrimSpace(spaces.ReplaceAllString(of, " ")) }
+	pointer := words(WithoutImports(claudePointer))
+	earlier := strings.Replace(pointer, " Standing facts about the project are in ["+FactsFile+"]("+FactsFile+").", "", 1)
+	if got := words(text); got == pointer || got == earlier {
+		return ""
+	}
+	// The lines beads generates, each taken out once; what is left is the
+	// owner's, with runs of blank lines made one.
+	left := slices.Clone(generatedLines)
+	kept := []string{}
+	for _, line := range strings.Split(text, "\n") {
+		bare := strings.TrimSpace(line)
+		if at := slices.Index(left, bare); at != -1 && bare != "" {
+			left = slices.Delete(left, at, at+1)
+			continue
+		}
+		if bare == "" && (len(kept) == 0 || strings.TrimSpace(kept[len(kept)-1]) == "") {
+			continue
+		}
+		kept = append(kept, line)
+	}
+	return strings.TrimSpace(strings.Join(kept, "\n"))
+}
+
+// CarriedInto gives an AGENTS.md with a CLAUDE.md's own text added at its
+// end, for when that file becomes a link: a link shows only AGENTS.md, and
+// what the owner wrote in CLAUDE.md must not vanish from every agent's
+// view. Text already in AGENTS.md word for word is not added again.
+func CarriedInto(agentsFile, own string) string {
+	own = strings.TrimSpace(own)
+	if own == "" || strings.Contains(agentsFile, own) {
+		return agentsFile
+	}
+	if strings.TrimSpace(agentsFile) == "" {
+		return own + "\n"
+	}
+	return strings.TrimRight(agentsFile, "\n") + "\n\n" + own + "\n"
 }

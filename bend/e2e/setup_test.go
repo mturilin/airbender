@@ -42,6 +42,8 @@ type setupState struct {
 	} `json:"steps"`
 	Instructions struct {
 		Rules       string   `json:"rules"`
+		ClaudeFile  string   `json:"claudeFile"`
+		ClaudeRules string   `json:"claudeRules"`
 		BeadsBlocks []string `json:"beadsBlocks"`
 		BeadsHooks  []string `json:"beadsHooks"`
 		Leftovers   []string `json:"leftovers"`
@@ -191,14 +193,21 @@ func TestSetupSwitchesARepositorySetUpTheOldWay(t *testing.T) {
 	same(t, len(found.SavedFacts), 2, "saved facts on offer")
 
 	same(t, repo.fails("setup", "instructions").Kind, "usage", "the instructions without a yes")
-	repo.ok("setup", "instructions", "-y")
+	// The CLAUDE.md beads generated is a file of its own: what it is to be
+	// has to be said too. It holds nothing of the owner's, so as a link it
+	// carries nothing into AGENTS.md.
+	same(t, repo.fails("setup", "instructions", "-y").Kind, "usage", "the instructions without saying what CLAUDE.md is to be")
+	repo.ok("setup", "instructions", "-y", "--claude", "link")
 	agents := repo.file("AGENTS.md")
 	if strings.Contains(agents, "BEGIN BEADS") || !strings.Contains(agents, "<!-- airbender:rules:start -->") ||
-		!strings.Contains(agents, "## Mine\n\nMy own rules.\n") {
+		!strings.Contains(agents, "## Mine\n\nMy own rules.\n") || strings.Contains(agents, "_Add your build") {
 		t.Fatalf("AGENTS.md is not as it should be:\n%s", agents)
 	}
-	if !strings.Contains(repo.file("CLAUDE.md"), "@AGENTS.md\n@FACTS.md") {
-		t.Fatalf("CLAUDE.md does not point at both:\n%s", repo.file("CLAUDE.md"))
+	if target, err := os.Readlink(filepath.Join(repo.root, "CLAUDE.md")); err != nil || target != "AGENTS.md" {
+		t.Fatalf("CLAUDE.md is not a link to AGENTS.md: %q (%v)", target, err)
+	}
+	if strings.Contains(agents, "@AGENTS.md") || strings.Contains(agents, "@FACTS.md") {
+		t.Fatalf("an import line was written:\n%s", agents)
 	}
 	if strings.Contains(repo.file(".claude/settings.json"), "bd prime") || strings.Contains(repo.file(".codex/hooks.json"), "bd codex-hook") {
 		t.Fatal("beads' hooks are still there")
@@ -320,13 +329,13 @@ func TestSetupNoticesRulesChangedByHandThatFellBehind(t *testing.T) {
 
 	// The same, from an earlier version: behind. The step is offered and
 	// asks; with nobody to ask it names the option and changes nothing.
-	behind := "# Mine\n\n" + strings.Replace(own, "rules:version 3 -->", "rules:version 2 -->", 1) + "\n## After\n"
+	behind := "# Mine\n\n" + strings.Replace(own, "rules:version 4 -->", "rules:version 2 -->", 1) + "\n## After\n"
 	os.WriteFile(filepath.Join(repo.root, "AGENTS.md"), []byte(behind), 0o644)
 	found := repo.setup()
 	same(t, found.Instructions.Rules, "behind", "an edited block of an earlier version")
 	same(t, found.Steps[3].State, "missing", "the step, with rules that fell behind")
 	same(t, found.Steps[3].Title, "Update Airbender's instructions for agents", "the step's name")
-	if !strings.Contains(found.Steps[3].Why, "yours are from version 2, the current ones are version 3") {
+	if !strings.Contains(found.Steps[3].Why, "yours are from version 2, the current ones are version 4") {
 		t.Fatalf("the step says: %s", found.Steps[3].Why)
 	}
 	asked := repo.fails("setup", "instructions", "-y")
@@ -374,7 +383,7 @@ func TestSetupNoticesRulesChangedByHandThatFellBehind(t *testing.T) {
 	update := repo.setup()
 	same(t, update.Instructions.Rules, "old", "an unchanged earlier version")
 	same(t, update.Steps[3].Title, "Update Airbender's instructions for agents", "the step's name for an update")
-	if why := update.Steps[3].Why; !strings.Contains(why, "it has version 2, the current ones are version 3") || !strings.Contains(why, "Nothing is wrong here") {
+	if why := update.Steps[3].Why; !strings.Contains(why, "it has version 2, the current ones are version 4") || !strings.Contains(why, "Nothing is wrong here") {
 		t.Fatalf("the step says: %s", why)
 	}
 	repo.ok("setup", "instructions", "-y")
@@ -402,6 +411,167 @@ func TestSetupNoticesRulesChangedByHandThatFellBehind(t *testing.T) {
 	os.WriteFile(filepath.Join(repo.root, "AGENTS.md"), []byte(bare), 0o644)
 	same(t, repo.setup().Instructions.Rules, "behind", "a block that names no version")
 	repo.ok("setup", "instructions", "-y", "--rules", "keep")
-	same(t, repo.file("AGENTS.md"), "<!-- airbender:rules:start -->\n<!-- airbender:rules:version 3 -->\n## My own rules\n\nDo as I say.\n<!-- airbender:rules:end -->\n", "a kept block that named no version")
+	same(t, repo.file("AGENTS.md"), "<!-- airbender:rules:start -->\n<!-- airbender:rules:version 4 -->\n## My own rules\n\nDo as I say.\n<!-- airbender:rules:end -->\n", "a kept block that named no version")
 	same(t, repo.setup().Steps[3].State, "done", "the step after keeping a block of the owner's own")
+}
+
+func TestSetupAndClaudeFile(t *testing.T) {
+	newOnly(t)
+	link := func(repo *repository) string {
+		target, err := os.Readlink(filepath.Join(repo.root, "CLAUDE.md"))
+		if err != nil {
+			return ""
+		}
+		return target
+	}
+	ready := func() (*repository, string) {
+		repo := bare(t)
+		repo.ok("setup", "tracker", "--use", "beads")
+		repo.ok("setup", "all", "-y")
+		return repo, repo.file("AGENTS.md")
+	}
+
+	// No CLAUDE.md: none is made, and no line imports anything.
+	repo, rules := ready()
+	if _, err := os.Lstat(filepath.Join(repo.root, "CLAUDE.md")); err == nil {
+		t.Fatal("a CLAUDE.md was created where there was none")
+	}
+	if strings.Contains(rules, "\n@") || strings.HasPrefix(rules, "@") {
+		t.Fatalf("the rules import a file:\n%s", rules)
+	}
+	same(t, repo.setup().Instructions.ClaudeFile, "none", "no CLAUDE.md")
+
+	// A link to AGENTS.md, with the two lines an earlier setup wrote
+	// through it at the top of AGENTS.md: the step is offered, takes them
+	// off, and leaves the link a link and the rest as it was.
+	os.Symlink("AGENTS.md", filepath.Join(repo.root, "CLAUDE.md"))
+	same(t, repo.setup().Instructions.ClaudeFile, "linked", "a link to AGENTS.md")
+	same(t, repo.setup().Steps[3].State, "done", "the step, with a clean linked CLAUDE.md")
+	os.WriteFile(filepath.Join(repo.root, "AGENTS.md"), []byte("@AGENTS.md\n@FACTS.md\n\n"+rules), 0o644)
+	damaged := repo.setup()
+	same(t, damaged.Steps[3].State, "missing", "the step, with import lines at the top of AGENTS.md")
+	same(t, damaged.Steps[3].Title, "Update Airbender's instructions for agents", "its name")
+	repo.ok("setup", "instructions", "-y")
+	same(t, repo.file("AGENTS.md"), rules, "AGENTS.md after the lines are taken off")
+	same(t, link(repo), "AGENTS.md", "the link after the step")
+	same(t, repo.setup().Steps[3].State, "done", "the step afterwards")
+	// A second run finds nothing to do.
+	repo.ok("setup", "instructions", "-y")
+	same(t, repo.file("AGENTS.md"), rules, "AGENTS.md after a second run")
+	same(t, link(repo), "AGENTS.md", "the link after a second run")
+
+	// The other way round, AGENTS.md a link to CLAUDE.md: one file all the
+	// same. Nothing is asked, the rules go into that one file, and neither
+	// name becomes a link to the other.
+	turned, turnedRules := ready()
+	os.Rename(filepath.Join(turned.root, "AGENTS.md"), filepath.Join(turned.root, "CLAUDE.md"))
+	os.Symlink("CLAUDE.md", filepath.Join(turned.root, "AGENTS.md"))
+	same(t, turned.setup().Instructions.ClaudeFile, "linked", "AGENTS.md a link to CLAUDE.md")
+	same(t, turned.setup().Steps[3].State, "done", "the step, with AGENTS.md a link to CLAUDE.md")
+	os.WriteFile(filepath.Join(turned.root, "CLAUDE.md"), []byte("@AGENTS.md\n@FACTS.md\n\n"+turnedRules), 0o644)
+	turned.ok("setup", "instructions", "-y", "--claude", "link")
+	same(t, turned.file("CLAUDE.md"), turnedRules, "the one file, with the lines taken off")
+	same(t, turned.file("AGENTS.md"), turnedRules, "the same file by its other name")
+	if info, err := os.Lstat(filepath.Join(turned.root, "CLAUDE.md")); err != nil || info.Mode()&os.ModeSymlink != 0 {
+		t.Fatal("CLAUDE.md, the real file, was made a link")
+	}
+
+	// A link to another file is not this setup's, and is left alone.
+	repo, rules = ready()
+	os.WriteFile(filepath.Join(repo.root, "OTHER.md"), []byte("Other.\n"), 0o644)
+	os.Symlink("OTHER.md", filepath.Join(repo.root, "CLAUDE.md"))
+	elsewhere := repo.setup()
+	same(t, elsewhere.Instructions.ClaudeFile, "linked-elsewhere", "a link to another file")
+	same(t, elsewhere.Steps[3].State, "done", "the step, with a CLAUDE.md linked elsewhere")
+	// Also when the step does run, for something else: the link and the
+	// file it points at are as they were.
+	os.WriteFile(filepath.Join(repo.root, "AGENTS.md"), []byte("@FACTS.md\n\n"+rules), 0o644)
+	repo.ok("setup", "instructions", "-y", "--claude", "link")
+	same(t, link(repo), "OTHER.md", "a link to another file, after a step that ran")
+	same(t, repo.file("OTHER.md"), "Other.\n", "the file it points at")
+	same(t, repo.file("AGENTS.md"), rules, "AGENTS.md after that step")
+
+	// A CLAUDE.md that cannot be read is not taken for an empty one: the
+	// step refuses and it stays. (Not as root, who can read anything.)
+	if os.Geteuid() != 0 {
+		os.Remove(filepath.Join(repo.root, "CLAUDE.md"))
+		os.WriteFile(filepath.Join(repo.root, "CLAUDE.md"), []byte("Secret.\n"), 0o000)
+		refused := repo.fails("setup", "instructions", "-y", "--claude", "link")
+		same(t, refused.Kind, "refused", "a CLAUDE.md that cannot be read")
+		if info, err := os.Lstat(filepath.Join(repo.root, "CLAUDE.md")); err != nil || info.Mode()&os.ModeSymlink != 0 {
+			t.Fatal("an unreadable CLAUDE.md was replaced by a link")
+		}
+		os.Chmod(filepath.Join(repo.root, "CLAUDE.md"), 0o644)
+		same(t, repo.file("CLAUDE.md"), "Secret.\n", "the unreadable CLAUDE.md, afterwards")
+	}
+	// A folder by that name is left alone too.
+	os.Remove(filepath.Join(repo.root, "CLAUDE.md"))
+	os.Mkdir(filepath.Join(repo.root, "CLAUDE.md"), 0o755)
+	same(t, repo.setup().Instructions.ClaudeFile, "linked-elsewhere", "a folder called CLAUDE.md")
+	same(t, repo.setup().Steps[3].State, "done", "the step, with a folder called CLAUDE.md")
+	os.Remove(filepath.Join(repo.root, "CLAUDE.md"))
+
+	// An ordinary file: the owner chooses. Without an answer nothing
+	// changes and the option is named.
+	mine := "@AGENTS.md\n@FACTS.md\n\n# Claude only\n\nUse the long context.\n"
+	os.Remove(filepath.Join(repo.root, "CLAUDE.md"))
+	os.WriteFile(filepath.Join(repo.root, "CLAUDE.md"), []byte(mine), 0o644)
+	open := repo.setup()
+	same(t, open.Instructions.ClaudeFile, "file", "an ordinary CLAUDE.md")
+	same(t, open.Steps[3].State, "missing", "the step, with a CLAUDE.md of its own")
+	same(t, open.Steps[3].Title, "Decide what `CLAUDE.md` is here", "its name")
+	asked := repo.fails("setup", "instructions", "-y")
+	same(t, asked.Kind, "usage", "the step without the choice")
+	if !strings.Contains(asked.Error, "--claude link or --claude rules") {
+		t.Fatalf("got %q", asked.Error)
+	}
+	same(t, repo.fails("setup", "instructions", "-y", "--claude", "both").Kind, "usage", "a choice that is neither")
+	same(t, repo.file("CLAUDE.md"), mine, "CLAUDE.md after refused steps")
+	same(t, repo.file("AGENTS.md"), rules, "AGENTS.md after refused steps")
+
+	// Link: a relative link to AGENTS.md; the owner's text is carried to
+	// the end of AGENTS.md without the import lines; the file is saved.
+	said := repo.ok("setup", "instructions", "-y", "--claude", "link")
+	same(t, link(repo), "AGENTS.md", "CLAUDE.md after choosing the link")
+	same(t, repo.file("AGENTS.md"), rules+"\n# Claude only\n\nUse the long context.\n", "AGENTS.md with the owner's text carried over")
+	at := strings.Index(said, "saved in ")
+	if at == -1 {
+		t.Fatalf("the step does not say where the file was saved: %s", said)
+	}
+	saved := strings.TrimSuffix(strings.Fields(said[at+len("saved in "):])[0], ".")
+	if kept, err := os.ReadFile(saved); err != nil || string(kept) != mine || !strings.HasPrefix(saved, filepath.Join(repo.root, ".git", "bend")+string(filepath.Separator)) {
+		t.Fatalf("what CLAUDE.md held was not saved in the git folder as it was: %s (%v)", saved, err)
+	}
+	same(t, repo.setup().Steps[3].State, "done", "the step after choosing the link")
+	// A second run, also with the answer given again, changes nothing.
+	carried := repo.file("AGENTS.md")
+	repo.ok("setup", "instructions", "-y", "--claude", "rules")
+	same(t, repo.file("AGENTS.md"), carried, "AGENTS.md after a second run")
+	same(t, link(repo), "AGENTS.md", "the link after a second run")
+
+	// Rules: the file stays, gets the same rules block, keeps its own
+	// text, and loses the import lines.
+	repo, rules = ready()
+	os.WriteFile(filepath.Join(repo.root, "CLAUDE.md"), []byte(mine), 0o644)
+	repo.ok("setup", "instructions", "-y", "--claude", "rules")
+	same(t, link(repo), "", "CLAUDE.md is still a file")
+	same(t, repo.file("CLAUDE.md"), "# Claude only\n\nUse the long context.\n\n"+rules, "CLAUDE.md with the same rules")
+	same(t, repo.file("AGENTS.md"), rules, "AGENTS.md, untouched")
+	settled := repo.setup()
+	same(t, settled.Instructions.ClaudeRules, "current", "the rules in CLAUDE.md")
+	same(t, settled.Steps[3].State, "done", "the step after choosing the rules")
+	// The answer given again, the other way, does not turn a settled file
+	// into a link.
+	repo.ok("setup", "instructions", "-y", "--claude", "link")
+	same(t, link(repo), "", "a settled CLAUDE.md after the other answer")
+	// An earlier version of the rules in it is brought up to date with
+	// AGENTS.md's, without asking again.
+	earlier, err := os.ReadFile(filepath.Join("..", "internal", "instructions", "testdata", "rules-v3.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(repo.root, "CLAUDE.md"), []byte("# Claude only\n\nUse the long context.\n\n"+string(earlier)), 0o644)
+	same(t, repo.setup().Steps[3].State, "missing", "the step, with earlier rules in CLAUDE.md")
+	repo.ok("setup", "instructions", "-y")
+	same(t, repo.file("CLAUDE.md"), "# Claude only\n\nUse the long context.\n\n"+rules, "CLAUDE.md brought up to date")
 }

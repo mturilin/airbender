@@ -359,6 +359,23 @@ const setupStatusSchema = z.object({
      */
     rulesVersion: z.number(),
     currentVersion: z.number(),
+    /**
+     * How the folder's CLAUDE.md stands (bead-bb-c9l.12): "none"; "linked",
+     * a link to its AGENTS.md; "linked-elsewhere", a link to another file;
+     * "file", an ordinary file.
+     */
+    claudeFile: z.enum(["none", "linked", "linked-elsewhere", "file"]),
+    /**
+     * For an ordinary CLAUDE.md, which of Airbender's rules it holds, as
+     * `rules` says for AGENTS.md. "none" there means the owner has not yet
+     * chosen between making it a link and having the rules written in it.
+     */
+    claudeRules: z.enum(["current", "old", "edited", "behind", "none"]),
+    /**
+     * Whether AGENTS.md or an ordinary CLAUDE.md still holds a line that
+     * imports AGENTS.md or the facts file; the step takes those out.
+     */
+    imports: z.boolean(),
     /** The files that hold a block beads generated, e.g. "AGENTS.md". */
     beadsBlocks: z.array(z.string()),
     /** The coding agents beads' own hooks are installed for, by label. */

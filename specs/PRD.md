@@ -112,9 +112,10 @@ When something the panel needs is missing, the panel offers to set it up.
   3. **Add Airbender's instructions to the agents' instructions file**, as a
      separate command: the working rules the panel's buttons rely on. The
      owner either enables it or skips it. Where the folder has a
-     separate instructions file for Claude Code, the step **also makes that
-     file point at the same rules**, and counts as done only when both are
-     in place. **It does not create that file.** `[0bk]`
+     separate instructions file for Claude Code, the step **also brings
+     that file to the same rules** (see below for how), and counts as done
+     only when both are in place. **It does not create that file.**
+     `[0bk]` `[c9l.12]`
 - **Airbender's instructions are the only ones about issues that a
   repository gives its agents.** The tracker's own, which tell an agent to
   close an issue when it is done, are not set up, and nothing is shown to
@@ -128,7 +129,17 @@ When something the panel needs is missing, the panel offers to set it up.
 - **The tracker's own setup for a coding agent is no longer offered.**
   `[c9l.8]`
 - **Standing facts are kept in a file of their own**, beside the
-  instructions file, which agents read at the start and add to. `[c9l.8]`
+  instructions file, which agents add to. `[c9l.8]` **The instructions
+  name it as a link, the place to store facts and memories; it is not
+  loaded into an agent's prompt.** `[c9l.12]`
+- **The rules live in the agents' instructions file only.** Setup writes
+  no line that loads one file from another, and takes out the ones it
+  wrote before. `[c9l.12]`
+- **The file Claude Code looks for (CLAUDE.md):** where there is none,
+  none is created. A link to the agents' instructions file is the normal
+  arrangement and is left as it is. A file of its own is the owner's
+  choice: make it such a link, or have the same rules written into it as
+  well. `[c9l.12]`
 - **Facts that were saved in the tracker are shown to the owner once, to
   choose which are carried over** to that file. `[c9l.8]`
 - **What is missing is offered in the middle of the panel**, not hidden in a
@@ -1579,12 +1590,44 @@ breaking a requirement above.
   one; ask the issue's open questions first; requirements, then plan, then
   build; record decisions on the issue; do not close the issue; commit when
   the owner has closed it, one commit per issue with its id and title.
-- Setup: for the file Claude Code reads (CLAUDE.md), the instructions step
-  writes a short pointer to the agents' instructions file and the facts
-  file when it holds only the tracker's generated, unfilled text; a file
-  with the owner's own text is kept, less the tracker's generated block,
-  with the two pointer lines added at the top where they are missing.
-  `[c9l.8]`
+- Setup and CLAUDE.md: how the file stands is found without following a
+  link. The choice for a file of its own is asked in a terminal, or given
+  as `--claude link` or `--claude rules`, and offered in the panel's
+  window with neither picked; with nobody to ask and no answer nothing is
+  changed and the option is named. "Link" makes a relative link to
+  AGENTS.md. Text of the owner's own in the file is added to the end of
+  AGENTS.md first, unless it is there already word for word, so that no
+  agent loses it; the tracker's generated block, the pointer text an
+  earlier setup wrote and the import lines are not carried. What the file
+  held is saved in the repository's git folder and the step says where;
+  if a link cannot be made on the computer the file is put back. "Rules"
+  writes the rules block into the file and leaves its other text; once a
+  CLAUDE.md holds the block the choice is not asked again, and later
+  versions of the rules update both files. A link to some other file is
+  left alone and said to be; so is a CLAUDE.md that is a folder. Where
+  AGENTS.md is the link and CLAUDE.md the file, the two are one file all
+  the same, and nothing is asked. A CLAUDE.md that cannot be read is not
+  touched: the step refuses. `[c9l.12]`
+- The instructions step's window: each thing the owner has to decide is a
+  block of its own, with a heading that names it ("The rules in
+  AGENTS.md", "CLAUDE.md"), what was found, and its two answers under it;
+  the blocks are numbered when there are two. What the step does without
+  asking is a separate list under them ("Also done, without asking"), and
+  what it leaves alone another ("Left as it is"). The button reads "Choose
+  both to continue" or "Choose to continue" until every decision is
+  answered, then "Apply"; with nothing to decide it reads "Update", "Add"
+  or "Replace". `[c9l.12]`
+- The setup card while a step is applied: from the owner's confirmation
+  until the folder's setup has been read again, the step shows a spinner
+  and "Applying: …" in place of its buttons, and the other steps on the
+  card cannot be started. `[c9l.12]`
+- Setup and import lines: the lines `@AGENTS.md` and `@FACTS.md` are
+  taken out wherever they stand as a line of their own, starting at the
+  first column and outside a fenced block of code, in AGENTS.md and in a
+  CLAUDE.md that is a file. A line that only looks like one, in an example
+  the owner wrote, is left. Where that is all there is to do, the
+  step is called "Update Airbender's instructions for agents". The rules
+  are version 4. `[c9l.12]`
 - Setup: Airbender's rules name the few tracker commands an agent needs,
   say where standing facts are kept, and carry a version. A block of an
   earlier version, unchanged, is replaced where it stands; a block the

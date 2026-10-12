@@ -664,6 +664,7 @@ Options:
       --keep-all                 facts: carry all of them over
       --keep-none                facts: carry none over
       --rules <replace|keep>     instructions: what to do with rules changed by hand that are behind the current version
+      --claude <link|rules>      instructions: what a CLAUDE.md of its own is to be: a link to AGENTS.md, or a file with the same rules
 
 Options for every command:
   -C, --dir <path>     Run as if started in <path>
@@ -691,12 +692,12 @@ Options for every command:
 
 $ bend version
 [exit 0]
-bend 6
+bend 7
 
 $ bend version --json
 [exit 0]
 {
-  "version": 6
+  "version": 7
 }
 
 $ bend status

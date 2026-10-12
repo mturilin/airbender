@@ -333,9 +333,10 @@ var Commands = []Command{
 			{"    --keep-all", "facts: carry all of them over"},
 			{"    --keep-none", "facts: carry none over"},
 			{"    --rules <replace|keep>", "instructions: what to do with rules changed by hand that are behind the current version"},
+			{"    --claude <link|rules>", "instructions: what a CLAUDE.md of its own is to be: a link to AGENTS.md, or a file with the same rules"},
 		},
 		Spec: OptionSpec{
-			Values: []string{"use", "repository", "method", "rules"},
+			Values: []string{"use", "repository", "method", "rules", "claude"},
 			Lists:  []string{"keep"},
 			Flags:  []string{"yes", "no-input", "keep-all", "keep-none"},
 			Short:  map[string]string{"y": "yes"},

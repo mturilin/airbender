@@ -242,10 +242,13 @@ either; with GitHub issues the beads steps below are not needed, and
    instructions with Airbender's" and also removes beads' generated blocks
    from `AGENTS.md` and `CLAUDE.md` (between beads' own markers, nothing
    else) and beads' hooks for Claude Code and Codex (`bd setup <agent>
-   --remove`). It makes `CLAUDE.md` point at `AGENTS.md` and `FACTS.md`
-   (`@AGENTS.md`, `@FACTS.md`): a beads-generated `CLAUDE.md` becomes a
-   short pointer, one with your own text keeps it, and none is created
-   where there is none. Beads' own setup for a coding agent is no longer
+   --remove`). It writes no line that loads one file from another
+   (`@AGENTS.md`, `@FACTS.md`) and takes out the ones an earlier setup
+   wrote; `FACTS.md` is linked from the rules, not loaded. A `CLAUDE.md`
+   that is a link to `AGENTS.md` is left as it is, none is created where
+   there is none, and for one that is a file of its own you choose: make
+   it a link (`--claude link`), or have the same rules written into it
+   (`--claude rules`). Beads' own setup for a coding agent is no longer
    offered: its text tells agents to close issues themselves.
 4. **Carry saved facts over** — shown while beads holds facts (`bd
    remember`) that `FACTS.md` does not: you tick which go into `FACTS.md`,
@@ -299,7 +302,7 @@ bend setup tracker --use beads  # one step, its question answered by an option
 The steps are `tracker` (beads or GitHub issues, recorded in `.bend.json`),
 `program` (install beads), `issues` (get the repository's issues on a fresh
 clone, or start a database; with GitHub issues, sign in), `instructions`
-(the rules for agents in `AGENTS.md`, the `CLAUDE.md` pointer, `FACTS.md`;
+(the rules for agents in `AGENTS.md`, what a `CLAUDE.md` is to be, `FACTS.md`;
 beads' own blocks and hooks taken out), `facts` (carry facts saved in beads
 over) and `publish` (the issue database to the repository's remote).
 

@@ -70,6 +70,10 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
   // step whose confirmation is open (see SetupCard, SetupMenu, SetupDialog).
   const setup = useSetup(scope, result?.state ?? null);
   const [confirmingStep, setConfirmingStep] = useState<SetupStep | null>(null);
+  // The setup step that was confirmed and is being applied; null when none.
+  // Kept until the folder's setup has been read again, so that the card
+  // says "applying" for as long as it would otherwise show the old offer.
+  const [applyingStep, setApplyingStep] = useState<string | null>(null);
   // The issue waiting for the user's "yes, close it"; null when none is.
   const [closing, setClosing] = useState<PendingClose | null>(null);
   // The issue waiting for the user's "yes, switch to it", when making it
@@ -563,6 +567,7 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
               skipped={setup.skipped}
               onSkip={setup.skip}
               onStart={setConfirmingStep}
+              applying={applyingStep}
             />
           )}
           {result === null ? (
@@ -658,6 +663,7 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
           onClose={() => setConfirmingStep(null)}
           onRun={(step, option) => {
             setConfirmingStep(null);
+            setApplyingStep(step.key);
             rpc
               .call("setup_run", {
                 threadId,
@@ -667,9 +673,12 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
               })
               .then((outcome) => {
                 setActionProblem(outcome.message);
-                setup.reload();
                 refresh();
-              }, reportProblem);
+                // The card is drawn from the folder's setup: wait for the
+                // fresh answer before taking "applying" off it.
+                return setup.reload();
+              }, reportProblem)
+              .finally(() => setApplyingStep(null));
           }}
         />
         {/* A move that was not made because of something the user can put

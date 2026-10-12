@@ -75,6 +75,10 @@ type Answers struct {
 	// by hand and that are behind the current version: "replace" them with
 	// the current rules, or "keep" them (--rules).
 	Rules string
+	// Claude says what a CLAUDE.md that is a file of its own is to be:
+	// "link", a link to AGENTS.md, or "rules", a file holding the same
+	// rules (--claude).
+	Claude string
 }
 
 // Outcome is what a step did.
@@ -332,10 +336,11 @@ func writeFile(path, text string) error {
 	return nil
 }
 
-// Instructions writes Airbender's rules into AGENTS.md, makes an existing
-// CLAUDE.md point at it and at the facts file, makes sure the facts file is
-// there, and takes out what beads wrote: its marked blocks, and its hooks
-// with beads' own command.
+// Instructions writes Airbender's rules into AGENTS.md, takes out the lines
+// that import one file from another, settles what a CLAUDE.md of its own is
+// to be (a link to AGENTS.md, or a file with the same rules), makes sure
+// the facts file is there, and takes out what beads wrote: its marked
+// blocks, and its hooks with beads' own command.
 //
 // Side effects: writes AGENTS.md, CLAUDE.md and FACTS.md at the
 // repository's top folder; runs `bd setup <agent> --remove` in its main
@@ -348,14 +353,34 @@ func Instructions(dir string, terminal Terminal, answers Answers, options Option
 	// Rules the owner changed by hand that are behind the current ones are
 	// theirs to decide about: never replaced without being asked, and never
 	// left behind without being asked either.
+	found := &state.Instructions
+	claudePath := filepath.Join(state.Root, instructions.ClaudeFile)
+	claudeText := ""
+	var claudeMode os.FileMode = 0o644
+	if found.ClaudeFile == claudeIsFile {
+		// Read here for certain: a file that cannot be read must not be
+		// taken for an empty one, saved as nothing and replaced.
+		content, err := os.ReadFile(claudePath)
+		if err != nil {
+			return nil, tracker.Refused("CLAUDE.md could not be read (%s), so nothing can be decided about it. Nothing was changed.", err)
+		}
+		claudeText = string(content)
+		if info, err := os.Stat(claudePath); err == nil {
+			claudeMode = info.Mode().Perm()
+		}
+	}
 	rules := ""
-	if state.Instructions.Rules == "behind" {
+	if found.Rules == "behind" || found.ClaudeRules == "behind" {
 		rules = strings.ToLower(strings.TrimSpace(answers.Rules))
 		if rules == "" {
 			if !terminal.Interactive {
-				return nil, missingAnswer("The rules for agents in AGENTS.md were changed by hand and are behind the current version: replace them with the current rules, or keep yours?", "--rules replace or --rules keep")
+				return nil, missingAnswer("The rules for agents in "+behindIn(found)+" were changed by hand and are behind the current version: replace them with the current rules, or keep yours?", "--rules replace or --rules keep")
 			}
-			terminal.Say(behindWords(&state.Instructions))
+			if found.Rules == "behind" {
+				terminal.Say(behindWords(found))
+			} else {
+				terminal.Say("The rules for agents in `CLAUDE.md` were changed by hand, and Airbender's own rules have changed since.")
+			}
 			terminal.Say("  1. replace: take the current rules; what is there now is saved first")
 			terminal.Say("  2. keep: leave yours as they are, and do not ask again until the rules change")
 			switch strings.ToLower(strings.TrimSpace(terminal.Ask("Which? [1/2] "))) {
@@ -369,12 +394,66 @@ func Instructions(dir string, terminal Terminal, answers Answers, options Option
 			return nil, tracker.Usage("Say what to do with the rules that were changed by hand: --rules replace or --rules keep.")
 		}
 	}
+	// A CLAUDE.md that is a file of its own, with no rules in it yet: the
+	// owner says what it is to be (bead-bb-c9l.12: "we can give user a
+	// choice. Modify CLAUDE.md as well or make it a link").
+	claude := ""
+	if found.ClaudeFile == claudeIsFile && found.ClaudeRules == "none" {
+		claude = strings.ToLower(strings.TrimSpace(answers.Claude))
+		if claude == "" {
+			if !terminal.Interactive {
+				return nil, missingAnswer("This repository has a CLAUDE.md of its own beside AGENTS.md: make it a link to AGENTS.md, or write the same rules into it?", "--claude link or --claude rules")
+			}
+			terminal.Say("This repository has a CLAUDE.md of its own beside AGENTS.md, where Airbender's rules are.")
+			terminal.Say("  1. link: CLAUDE.md becomes a link to AGENTS.md; its own text is carried into AGENTS.md, and the file is saved first")
+			terminal.Say("  2. rules: CLAUDE.md stays a file and gets the same rules as AGENTS.md")
+			switch strings.ToLower(strings.TrimSpace(terminal.Ask("Which? [1/2] "))) {
+			case "1", "link":
+				claude = "link"
+			case "2", "rules":
+				claude = "rules"
+			}
+		}
+		if claude != "link" && claude != "rules" {
+			return nil, tracker.Usage("Say what CLAUDE.md is to be: --claude link or --claude rules.")
+		}
+	}
 	if err := confirm(terminal, answers, step); err != nil {
 		return nil, err
 	}
 	agentsPath := filepath.Join(state.Root, instructions.AgentsFile)
-	saved := ""
-	if rules == "replace" {
+	// What is about to be replaced is kept first, before anything is
+	// changed, outside the working files: in the repository's git folder,
+	// or with the user's data where there is no repository.
+	keep := func(name, text string) (string, error) {
+		folder := localcopy.FolderFor(state.Root, "instructions")
+		path := filepath.Join(folder, name+"-"+time.Now().UTC().Format("20060102-150405.000")+".md")
+		if err := os.MkdirAll(folder, 0o755); err != nil {
+			return "", tracker.Refused("What is there now could not be saved before it is replaced (%s). Nothing was changed.", folder)
+		}
+		if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+			return "", tracker.Refused("What is there now could not be saved before it is replaced (%s). Nothing was changed.", path)
+		}
+		return path, nil
+	}
+	saved, savedClaude := "", ""
+	if claude == "link" {
+		var err error
+		if savedClaude, err = keep("claude-md", claudeText); err != nil {
+			return nil, err
+		}
+	}
+	if rules == "replace" && found.ClaudeRules == "behind" {
+		if !instructions.RulesEnd(claudeText) {
+			return nil, tracker.Refused("The rules block in CLAUDE.md has no end marker, so nothing says where it stops and your own text begins. Put the line %s where the rules end and run this again, or keep your rules (--rules keep). Nothing was changed.", "<!-- airbender:rules:end -->")
+		}
+		_, was := instructions.ReplaceRules(claudeText)
+		var err error
+		if savedClaude, err = keep("claude-rules-replaced", was+"\n"); err != nil {
+			return nil, err
+		}
+	}
+	if rules == "replace" && found.Rules == "behind" {
 		before := textOf(agentsPath)
 		// A block whose end marker is gone runs, as far as anyone can
 		// tell, to the end of the file: replacing it would take the
@@ -382,17 +461,10 @@ func Instructions(dir string, terminal Terminal, answers Answers, options Option
 		if !instructions.RulesEnd(before) {
 			return nil, tracker.Refused("The rules block in AGENTS.md has no end marker, so nothing says where it stops and your own text begins. Put the line %s where the rules end and run this again, or keep your rules (--rules keep). Nothing was changed.", "<!-- airbender:rules:end -->")
 		}
-		// What the owner wrote is kept before anything is changed, outside
-		// the working files: in the repository's git folder, or with the
-		// user's data where there is no repository.
 		_, was := instructions.ReplaceRules(before)
-		folder := localcopy.FolderFor(state.Root, "instructions")
-		saved = filepath.Join(folder, "rules-replaced-"+time.Now().UTC().Format("20060102-150405.000")+".md")
-		if err := os.MkdirAll(folder, 0o755); err != nil {
-			return nil, tracker.Refused("The rules that were there could not be saved before replacing them (%s). Nothing was changed.", folder)
-		}
-		if err := os.WriteFile(saved, []byte(was+"\n"), 0o644); err != nil {
-			return nil, tracker.Refused("The rules that were there could not be saved before replacing them (%s). Nothing was changed.", saved)
+		var err error
+		if saved, err = keep("rules-replaced", was+"\n"); err != nil {
+			return nil, err
 		}
 	}
 	// Facts an earlier version kept in a section of AGENTS.md go to the
@@ -405,26 +477,65 @@ func Instructions(dir string, terminal Terminal, answers Answers, options Option
 	// Beads' marked blocks out, then Airbender's rules in: added at the
 	// end, or an earlier version of ours replaced where it stands. A rules
 	// block the owner edited is left as it is.
-	next := instructions.AgentsFileWith(instructions.WithoutBeadsBlocks(existing))
-	switch rules {
-	case "replace":
-		next, _ = instructions.ReplaceRules(next)
-	case "keep":
-		next = instructions.KeepRules(next)
+	// Lines that import AGENTS.md or the facts file go: setup wrote them
+	// once, and through a linked CLAUDE.md they stand in AGENTS.md itself.
+	next := instructions.AgentsFileWith(instructions.WithoutImports(instructions.WithoutBeadsBlocks(existing)))
+	if found.Rules == "behind" {
+		switch rules {
+		case "replace":
+			next, _ = instructions.ReplaceRules(next)
+		case "keep":
+			next = instructions.KeepRules(next)
+		}
+	}
+	// A CLAUDE.md about to become a link: what the owner wrote in it goes
+	// to the end of AGENTS.md, the only file a link shows.
+	if claude == "link" {
+		next = instructions.CarriedInto(next, instructions.OwnText(claudeText))
 	}
 	if next != existing {
 		if err := writeFile(agentsPath, next); err != nil {
 			return nil, err
 		}
 	}
-	// The rules, and a CLAUDE.md, point at the facts file.
+	// The rules name the facts file as a link.
 	if _, err := facts.EnsureFile(state.Root); err != nil {
 		return nil, err
 	}
-	claudePath := filepath.Join(state.Root, instructions.ClaudeFile)
-	if next, change := instructions.ClaudeFileFor(textOf(claudePath), exists(claudePath)); change {
-		if err := writeFile(claudePath, next); err != nil {
-			return nil, err
+	// CLAUDE.md. Not there, or a link: nothing is done, and nothing is
+	// written through a link. A file of its own becomes a link, or holds
+	// the same rules.
+	switch {
+	case claude == "link":
+		// The file goes and a link takes its place; it was saved above. A
+		// relative link, so that the repository can be moved or cloned.
+		if err := os.Remove(claudePath); err != nil {
+			return nil, tracker.Refused("CLAUDE.md could not be replaced by a link: %s", err)
+		}
+		if err := os.Symlink(instructions.AgentsFile, claudePath); err != nil {
+			// Put back as it was: a repository without its CLAUDE.md
+			// would be worse than one that was not changed.
+			if back := os.WriteFile(claudePath, []byte(claudeText), claudeMode); back != nil {
+				return nil, tracker.Refused("CLAUDE.md could not be made a link to AGENTS.md on this computer (%s), and could not be put back either (%s). What it held is saved in %s.", err, back, savedClaude)
+			}
+			return nil, tracker.Refused("CLAUDE.md could not be made a link to AGENTS.md on this computer (%s). It was put back as it was. AGENTS.md has the rules, and what CLAUDE.md held of your own was added to it.", err)
+		}
+	case found.ClaudeFile == claudeIsFile:
+		// "rules" was chosen, now or before: no imports, nothing of
+		// beads', and the rules block added or brought up to date.
+		text := instructions.AgentsFileWith(instructions.WithoutImports(instructions.WithoutBeadsBlocks(claudeText)))
+		if found.ClaudeRules == "behind" {
+			switch rules {
+			case "replace":
+				text, _ = instructions.ReplaceRules(text)
+			case "keep":
+				text = instructions.KeepRules(text)
+			}
+		}
+		if text != claudeText {
+			if err := writeFile(claudePath, text); err != nil {
+				return nil, err
+			}
 		}
 	}
 	// Beads' hooks, with beads' own way of removing them. After the files,
@@ -451,9 +562,18 @@ func Instructions(dir string, terminal Terminal, answers Answers, options Option
 	message := "Airbender's instructions are in place."
 	switch rules {
 	case "replace":
-		message = "The rules for agents in AGENTS.md were replaced by the current ones. What was there is saved in " + saved + "."
+		message = "The rules for agents that were changed by hand were replaced by the current ones. What was there is saved in " + strings.TrimSpace(saved+" "+savedClaude) + "."
 	case "keep":
-		message = "Your rules for agents in AGENTS.md were kept as they are, and marked as compared with version " + strconv.Itoa(instructions.CurrentVersion) + "."
+		message = "Your rules for agents were kept as they are, and marked as compared with version " + strconv.Itoa(instructions.CurrentVersion) + "."
+	}
+	switch claude {
+	case "link":
+		message += " CLAUDE.md is now a link to AGENTS.md; what it held is saved in " + savedClaude + "."
+	case "rules":
+		message += " CLAUDE.md holds the same rules as AGENTS.md."
+	}
+	if found.ClaudeFile == claudeIsLinked {
+		message += " CLAUDE.md is a link to AGENTS.md and was left as it is."
 	}
 	if len(state.Instructions.Leftovers) > 0 {
 		message += " Beads' sections without markers were left in AGENTS.md for you to remove by hand: " +
@@ -645,4 +765,16 @@ func (method Method) MarshalJSON() ([]byte, error) {
 		Label   string `json:"label"`
 		Command string `json:"command"`
 	}{method.ID, method.Label, method.Command})
+}
+
+// behindIn names the files whose rules were changed by hand and are behind
+// the current version.
+func behindIn(found *InstructionsState) string {
+	switch {
+	case found.Rules == "behind" && found.ClaudeRules == "behind":
+		return "AGENTS.md and CLAUDE.md"
+	case found.ClaudeRules == "behind":
+		return "CLAUDE.md"
+	}
+	return "AGENTS.md"
 }

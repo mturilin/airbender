@@ -40,7 +40,7 @@ behaviour from the owner's point of view, no implementation details.
   true now; the history stays on the beads.
 
 <!-- airbender:rules:start -->
-<!-- airbender:rules:version 3 -->
+<!-- airbender:rules:version 4 -->
 ## Record everything in beads
 
 Beads is this project's memory. Chat history is lost when a session ends;
@@ -221,9 +221,10 @@ not at the end.
 **Across the whole project**
 
 - Standing facts every future session should know (conventions, how to build
-  and install, the user's lasting preferences) are in `FACTS.md`. Read it
-  when you start, and add a new one there as one line under a short key
-  (`bend remember "..."` adds one for you).
+  and install, the user's lasting preferences) are kept in
+  [`FACTS.md`](FACTS.md). It is not loaded for you: open it when you start
+  on something it may bear on, and add a new one there as one line under a
+  short key (`bend remember "..."` adds one for you).
 
 When unsure whether something is worth recording, record it.
 <!-- airbender:rules:end -->

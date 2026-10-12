@@ -100,7 +100,15 @@ function Marked({ text }: { text: string }) {
  * between the current rules and their own (bead-bb-c9l.10).
  */
 const rulesBehind = (status: SetupStatus | null): boolean =>
-  status?.instructions.rules === "behind";
+  status?.instructions.rules === "behind" || status?.instructions.claudeRules === "behind";
+
+/**
+ * Whether the folder has a CLAUDE.md that is a file of its own with none of
+ * Airbender's rules in it: the owner then says what it is to be, a link to
+ * AGENTS.md or a file with the same rules (bead-bb-c9l.12).
+ */
+const claudeOpen = (status: SetupStatus | null): boolean =>
+  status?.instructions.claudeFile === "file" && status.instructions.claudeRules === "none";
 
 /**
  * The mark of a tracker, for the line that says which one a project uses.
@@ -141,7 +149,23 @@ function TrackerIcon({ name, className }: { name: string; className?: string }) 
  * that had been lost (bead-bb-c9l.10).
  */
 const rulesUpdate = (status: SetupStatus | null) =>
-  status?.instructions.rules === "old" || status?.instructions.rules === "behind";
+  status?.instructions.rules === "old" ||
+  status?.instructions.rules === "behind" ||
+  // The rules are in place and only something beside them is not: an
+  // earlier version in CLAUDE.md, or import lines to take out.
+  ((status?.instructions.rules === "current" || status?.instructions.rules === "edited") &&
+    (status.instructions.claudeRules === "old" ||
+      status.instructions.claudeRules === "behind" ||
+      status.instructions.imports));
+
+/**
+ * Whether what is left to settle for the instructions is only what the
+ * folder's CLAUDE.md is to be: the rules themselves are in place.
+ */
+const onlyClaudeOpen = (status: SetupStatus | null) =>
+  claudeOpen(status) &&
+  !rulesUpdate(status) &&
+  (status?.instructions.rules === "current" || status?.instructions.rules === "edited");
 
 const replacesBeads = (status: SetupStatus | null) =>
   status !== null &&
@@ -296,13 +320,21 @@ function setupSteps(status: SetupStatus): SetupStep[] {
         ? "Replace beads' instructions with Airbender's"
         : rulesUpdate(status)
           ? "Update Airbender's instructions for agents"
-          : "Add Airbender's instructions for agents",
+          : onlyClaudeOpen(status)
+            ? "Decide what CLAUDE.md is here"
+            : "Add Airbender's instructions for agents",
       // An update, not a first setup: said differently on the card.
-      update: !replacesBeads(status) && rulesUpdate(status),
+      update: !replacesBeads(status) && (rulesUpdate(status) || onlyClaudeOpen(status)),
       why: replacesBeads(status)
         ? "Beads wrote instructions of its own into this folder. They tell agents to close issues themselves, which is the opposite of how this tab works. This takes them out and leaves Airbender's."
+        : rulesBehind(status) && status.instructions.rules !== "behind"
+          ? "The rules for agents in CLAUDE.md were changed by hand here, and Airbender's own rules have changed since. Agents that read that file work by the earlier rules until you choose."
         : rulesBehind(status)
           ? `The rules for agents in AGENTS.md were changed by hand here, and Airbender's own rules have changed since (${status.instructions.rulesVersion > 0 ? `yours are from version ${status.instructions.rulesVersion}` : "yours name no version"}, the current ones are version ${status.instructions.currentVersion}). Agents here work by the earlier rules until you choose.`
+          : onlyClaudeOpen(status)
+            ? "This folder has a CLAUDE.md of its own beside AGENTS.md, where Airbender's rules are. Choose what it is to be: a link to AGENTS.md, so there is one file of rules for every agent, or a file that holds the same rules."
+          : status.instructions.rules !== "old" && rulesUpdate(status)
+            ? "Something an earlier setup wrote for agents here is no longer used, or is from an earlier version. Nothing is wrong; this brings it up to date."
           : status.instructions.rules === "old"
             ? `Airbender's rules for agents have changed since this folder was set up: it has ${status.instructions.rulesVersion > 0 ? `version ${status.instructions.rulesVersion}` : "an earlier version"}, the current ones are version ${status.instructions.currentVersion}. Nothing is wrong here; this brings them up to date.`
             : "The rules this tab's buttons rely on: agents take an issue one step at a time, leave closing to you, and commit when you accept it.",
@@ -370,13 +402,17 @@ export function useSetup(scope: Scope, state: IssuesResult["state"] | null) {
   const rpc = useRpc<typeof rpcContract>();
   const { threadId, projectId } = scope;
   const [status, setStatus] = useState<SetupStatus | null>(null);
-  const reload = useCallback(() => {
-    rpc.call("setup_status", { threadId, projectId }).then(setStatus, () => {
-      // Without an answer nothing is offered; the list's own message stands.
-    });
-  }, [rpc, threadId, projectId]);
+  const reload = useCallback(
+    // The promise is given back so that a caller can wait for the fresh
+    // answer (the card, to stop saying "applying").
+    () =>
+      rpc.call("setup_status", { threadId, projectId }).then(setStatus, () => {
+        // Without an answer nothing is offered; the list's own message stands.
+      }),
+    [rpc, threadId, projectId],
+  );
   useEffect(() => {
-    if (state !== null) reload();
+    if (state !== null) void reload();
   }, [reload, state]);
   useRealtime(CHANGED_CHANNEL, reload);
   useEffect(() => {
@@ -432,7 +468,15 @@ export function SetupCard({
   skipped,
   onSkip,
   onStart,
+  applying = null,
 }: {
+  /**
+   * The key of the step that was confirmed and is being applied right now;
+   * null when none is. That step shows a spinner in place of its buttons,
+   * and the others cannot be started meanwhile: the owner had pressed, and
+   * the card went on looking as if nothing had happened (bead-bb-c9l.12).
+   */
+  applying?: string | null;
   status: SetupStatus;
   skipped: string[];
   onSkip: (key: string) => void;
@@ -487,23 +531,33 @@ export function SetupCard({
       {offered.map((step) => (
         <div key={step.key} className="space-y-1.5">
           <p className="text-sm text-muted-foreground">{step.why}</p>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              size="sm"
-              disabled={step.blocked !== null}
-              onClick={() => onStart(step)}
-            >
-              {step.label}
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              tip="Take this off the card. It stays in the menu at the top right."
-              onClick={() => onSkip(step.key)}
-            >
-              Skip
-            </Button>
-          </div>
+          {applying === step.key ? (
+            // Being applied: said, in the place of the buttons, until the
+            // answer is back and the card is drawn anew from it.
+            <p role="status" className="flex h-8 items-center gap-2 text-sm">
+              <Icon name="Loading" className="size-4 animate-spin" />
+              <span>Applying: {step.label}…</span>
+            </p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                disabled={step.blocked !== null || applying !== null}
+                onClick={() => onStart(step)}
+              >
+                {step.label}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={applying !== null}
+                tip="Take this off the card. It stays in the menu at the top right."
+                onClick={() => onSkip(step.key)}
+              >
+                Skip
+              </Button>
+            </div>
+          )}
           {step.blocked === null || step.blocked === "running…" ? null : (
             <p className="text-xs text-muted-foreground">
               Not possible here: {step.blocked}.
@@ -798,6 +852,242 @@ export function SetupMenu({
   );
 }
 
+/** One answer to a decision: its value, its words, and what follows from it. */
+type Answer<T extends string> = readonly [value: T, label: string, hint: string];
+
+/**
+ * One thing the owner has to decide in the instructions step: a heading
+ * that names what it is about, what was found, and the answers.
+ *
+ * @param number Its place among the decisions; left out when it is the
+ *   only one, which needs no counting.
+ */
+function Decision<T extends string>({
+  number,
+  heading,
+  finding,
+  name,
+  answers,
+  chosen,
+  onChoose,
+}: {
+  number?: number;
+  heading: React.ReactNode;
+  finding: React.ReactNode;
+  name: string;
+  answers: readonly Answer<T>[];
+  chosen: T | null;
+  onChoose: (value: T) => void;
+}) {
+  return (
+    <section className="space-y-2">
+      <div>
+        <h4 className="flex items-baseline gap-2 text-sm font-medium">
+          {number === undefined ? null : (
+            <span className="text-muted-foreground">{number}</span>
+          )}
+          <span>{heading}</span>
+        </h4>
+        <p className="text-muted-foreground">{finding}</p>
+      </div>
+      <div className="space-y-1.5">
+        {answers.map(([value, label, hint]) => (
+          <label key={value} className="flex cursor-pointer items-start gap-2">
+            <input
+              type="radio"
+              name={name}
+              className="mt-1"
+              checked={chosen === value}
+              onChange={() => onChoose(value)}
+            />
+            <span className="min-w-0">
+              {label}
+              <span className="block text-xs text-muted-foreground">{hint}</span>
+            </span>
+          </label>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/**
+ * The body of the instructions step's window: the decisions, then what is
+ * done without asking, then what is left alone.
+ *
+ * Nothing is chosen for the owner: either answer of either decision changes
+ * or keeps text of their own.
+ */
+function InstructionsBody({
+  status,
+  rulesChoice,
+  onRulesChoice,
+  claudeChoice,
+  onClaudeChoice,
+}: {
+  status: SetupStatus | null;
+  rulesChoice: "replace" | "keep" | null;
+  onRulesChoice: (choice: "replace" | "keep") => void;
+  claudeChoice: "link" | "rules" | null;
+  onClaudeChoice: (choice: "link" | "rules") => void;
+}) {
+  const found = status?.instructions;
+  if (found === undefined) return null;
+  const mono = (text: string) => <span className="font-mono">{text}</span>;
+  const needsRules = rulesBehind(status);
+  const needsClaude = claudeOpen(status);
+  const both = needsRules && needsClaude;
+  // Which file's rules fell behind, for the heading and the finding.
+  const behindFile =
+    found.rules === "behind" && found.claudeRules === "behind"
+      ? "AGENTS.md and CLAUDE.md"
+      : found.rules === "behind"
+        ? "AGENTS.md"
+        : "CLAUDE.md";
+  const from =
+    found.rules === "behind" && found.rulesVersion > 0
+      ? `version ${found.rulesVersion}`
+      : "an earlier version";
+  // What the step does without asking, each as one short line.
+  const done: React.ReactNode[] = [];
+  if (found.rules === "none") {
+    done.push(<>Airbender's rules are added at the end of {mono("AGENTS.md")}</>);
+  }
+  if (found.rules === "old") {
+    done.push(
+      <>
+        the rules in {mono("AGENTS.md")} are brought
+        {found.rulesVersion > 0 ? ` from version ${found.rulesVersion}` : ""} to version{" "}
+        {found.currentVersion}
+      </>,
+    );
+  }
+  if (found.claudeRules === "old") {
+    done.push(<>the rules in {mono("CLAUDE.md")} are brought up to date</>);
+  }
+  if (found.imports) {
+    done.push(
+      <>
+        the lines {mono("@AGENTS.md")} and {mono("@FACTS.md")} are taken out
+      </>,
+    );
+  }
+  for (const file of found.beadsBlocks) {
+    done.push(<>the block beads generated is taken out of {mono(file)}</>);
+  }
+  for (const agent of found.beadsHooks) {
+    done.push(<>beads' own setup for {agent} is removed, with beads' command for that</>);
+  }
+  done.push(<>{mono("FACTS.md")} is created if there is none</>);
+  // What is left as it is, said so that nobody wonders.
+  const left: React.ReactNode[] = [];
+  if (found.rules === "edited") {
+    left.push(<>your own version of the rules in {mono("AGENTS.md")}</>);
+  }
+  if (found.claudeFile === "linked") {
+    left.push(
+      <>
+        {mono("CLAUDE.md")}, which is one file with {mono("AGENTS.md")} here
+      </>,
+    );
+  }
+  if (found.claudeFile === "linked-elsewhere") {
+    left.push(<>{mono("CLAUDE.md")}, which is not a file of its own here</>);
+  }
+  for (const agent of found.machineWide) {
+    left.push(
+      <>
+        beads' setup for {agent} on this whole computer (remove it with{" "}
+        {mono("bd setup … --remove --global")})
+      </>,
+    );
+  }
+  for (const name of found.leftovers) {
+    left.push(
+      <>
+        beads' section "{name}" in {mono("AGENTS.md")}, which has no markers and
+        cannot be told safely from your own text
+      </>,
+    );
+  }
+  const rule = <div className="border-t border-border" />;
+  return (
+    <div className="space-y-3 text-sm">
+      {!needsRules ? null : (
+        <Decision
+          number={both ? 1 : undefined}
+          heading={<>The rules in {behindFile}</>}
+          finding={
+            <>
+              You changed them by hand, and they are from {from}. The current rules
+              are version {found.currentVersion}.
+            </>
+          }
+          name="rules-choice"
+          answers={[
+            ["replace", "Replace them with the current rules", "Your version is saved first."],
+            ["keep", "Keep mine", "Asked again only when the rules change once more."],
+          ]}
+          chosen={rulesChoice}
+          onChoose={onRulesChoice}
+        />
+      )}
+      {both ? rule : null}
+      {!needsClaude ? null : (
+        <Decision
+          number={both ? 2 : undefined}
+          heading="CLAUDE.md"
+          finding={
+            <>
+              This folder has a {mono("CLAUDE.md")} of its own, beside{" "}
+              {mono("AGENTS.md")}.
+            </>
+          }
+          name="claude-choice"
+          answers={[
+            [
+              "link",
+              "Make CLAUDE.md a link to AGENTS.md",
+              "One file of rules for every agent. Your own text in it moves to the end of AGENTS.md; the file is saved first.",
+            ],
+            [
+              "rules",
+              "Keep CLAUDE.md a file, with the same rules",
+              "The rules are written into it too, and updated with AGENTS.md from now on.",
+            ],
+          ]}
+          chosen={claudeChoice}
+          onChoose={onClaudeChoice}
+        />
+      )}
+      {needsRules || needsClaude ? rule : null}
+      <div className="space-y-1 text-muted-foreground">
+        <p>{needsRules || needsClaude ? "Also done, without asking:" : "What it does:"}</p>
+        <ul className="list-disc space-y-0.5 pl-5">
+          {done.map((line, index) => (
+            <li key={index}>{line}</li>
+          ))}
+        </ul>
+      </div>
+      {left.length === 0 ? null : (
+        <div className="space-y-1 text-muted-foreground">
+          <p>Left as it is:</p>
+          <ul className="list-disc space-y-0.5 pl-5">
+            {left.map((line, index) => (
+              <li key={index}>{line}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {!needsRules && !needsClaude ? null : (
+        <p className="text-xs text-muted-foreground">
+          Saved copies go to {mono(".git/bend/instructions")} in this repository.
+        </p>
+      )}
+    </div>
+  );
+}
+
 /**
  * The confirmation before a setup step runs: what it will do, and the exact
  * command where there is one, so nothing is done to the machine or the
@@ -827,18 +1117,28 @@ export function SetupDialog({
   // behind: nothing is chosen for the owner, since either answer changes
   // or keeps their own text.
   const [rulesChoice, setRulesChoice] = useState<"replace" | "keep" | null>(null);
+  // The same for a CLAUDE.md that is a file of its own: a link, or the
+  // same rules. Not chosen for the owner either.
+  const [claudeChoice, setClaudeChoice] = useState<"link" | "rules" | null>(null);
   // Asked afresh every time the window opens: a choice from an earlier
   // opening, cancelled, must not be standing there already picked.
   useEffect(() => {
     setRulesChoice(null);
+    setClaudeChoice(null);
   }, [step]);
+  // What the instructions step needs decided, and how much of it is not
+  // answered yet.
+  const needsRules = step?.action === "rules" && rulesBehind(status);
+  const needsClaude = step?.action === "rules" && claudeOpen(status);
+  const decisions = (needsRules ? 1 : 0) + (needsClaude ? 1 : 0);
+  const unanswered =
+    (needsRules && rulesChoice === null ? 1 : 0) + (needsClaude && claudeChoice === null ? 1 : 0);
   // For GitHub issues, the repository when the remote does not say it.
   const [repository, setRepository] = useState("");
   // The facts step: every saved fact is carried over unless unticked, so
   // nothing is dropped by pressing the button without reading.
   const facts = status?.savedFacts ?? [];
   const [left, setLeft] = useState<string[]>([]);
-  const found = status?.instructions;
   const method =
     methods.find((candidate) => candidate.id === methodId) ?? methods[0];
   return (
@@ -855,9 +1155,15 @@ export function SetupDialog({
             {step?.action === "tracker"
               ? "Says which tracker this repository uses. It writes one small file; nothing is run in a terminal."
               : step?.action === "rules"
-              ? !replacesBeads(status) && rulesUpdate(status)
-                ? "Brings Airbender's instructions for agents in this folder up to the current version. It changes files in the repository; nothing is run in a terminal."
-                : "Makes Airbender's instructions the only ones about issues in this folder. It changes files in the repository; nothing is run in a terminal."
+              ? decisions === 2
+                ? "Two things here need your decision."
+                : decisions === 1
+                  ? "One thing here needs your decision."
+                  : replacesBeads(status)
+                    ? "Makes Airbender's instructions the only ones about issues in this folder. It changes files in the repository; nothing is run in a terminal."
+                    : rulesUpdate(status)
+                      ? "Nothing to decide: this brings the instructions for agents here up to the current version."
+                      : "Adds the rules agents work by here. It changes files in the repository; nothing is run in a terminal."
               : step?.action === "facts"
                 ? "Choose which saved facts agents should keep seeing."
                 : "Runs in a BB terminal, so you can watch it and answer anything it asks."}
@@ -1005,130 +1311,20 @@ export function SetupDialog({
             </div>
           </div>
         ) : (
-          // The instructions step: said from what the server found, so the
-          // confirmation lists exactly what will change in this folder.
-          <div className="space-y-2 text-sm">
-            <ul className="list-disc space-y-0.5 pl-5 text-muted-foreground">
-              <li>
-                {found?.rules === "behind" ? (
-                  <>
-                    Airbender's rules in{" "}
-                    <span className="font-mono">AGENTS.md</span> were changed
-                    by hand in this folder, and are from{" "}
-                    {found.rulesVersion > 0
-                      ? `version ${found.rulesVersion}`
-                      : "before versions were written"}
-                    ; the current rules are version {found.currentVersion}.
-                    Choose below.
-                  </>
-                ) : found?.rules === "edited" ? (
-                  <>
-                    Airbender's rules in{" "}
-                    <span className="font-mono">AGENTS.md</span> were changed
-                    by hand in this folder. They are yours and are left as
-                    they are.
-                  </>
-                ) : found?.rules === "old" ? (
-                  <>
-                    Replaces Airbender's rules in{" "}
-                    <span className="font-mono">AGENTS.md</span> with the
-                    current version, where they stand.
-                  </>
-                ) : found?.rules === "current" ? (
-                  <>
-                    Airbender's rules are in{" "}
-                    <span className="font-mono">AGENTS.md</span> already.
-                  </>
-                ) : (
-                  <>
-                    Adds Airbender's rules to{" "}
-                    <span className="font-mono">AGENTS.md</span>, at the end.
-                  </>
-                )}
-              </li>
-              {(found?.beadsBlocks ?? []).map((file) => (
-                <li key={file}>
-                  Removes the block beads generated in{" "}
-                  <span className="font-mono">{file}</span>, between its own
-                  markers. Nothing outside the markers changes.
-                </li>
-              ))}
-              {(found?.beadsHooks ?? []).map((agent) => (
-                <li key={agent}>
-                  Removes beads' own setup for {agent}, with beads' command
-                  for that. It is what prints beads' instructions at the
-                  start of every session.
-                </li>
-              ))}
-              <li>
-                A <span className="font-mono">CLAUDE.md</span>, if this folder
-                has one, is made to point at{" "}
-                <span className="font-mono">AGENTS.md</span> and{" "}
-                <span className="font-mono">FACTS.md</span>. None is created.
-              </li>
-              <li>
-                Creates <span className="font-mono">FACTS.md</span> for
-                standing facts, if there is none.
-              </li>
-            </ul>
-            {(found?.machineWide ?? []).length === 0 ? null : (
-              <p className="text-muted-foreground">
-                Not touched: beads is also set up for{" "}
-                {found!.machineWide.join(" and ")} on this whole computer,
-                outside this folder. Its text will still appear when a
-                session starts, until that is removed with{" "}
-                <span className="font-mono">bd setup … --remove --global</span>.
-              </p>
-            )}
-            {(found?.leftovers ?? []).length === 0 ? null : (
-              <p className="text-muted-foreground">
-                Left in place, for you to remove if you wish: beads also
-                wrote {found!.leftovers.join(", ")} into{" "}
-                <span className="font-mono">AGENTS.md</span> without markers,
-                so it cannot be told safely from your own text.
-              </p>
-            )}
-            {/* Rules of the owner's own that fell behind: which they want.
-                Nothing is picked for them; the button waits for a choice. */}
-            {found?.rules !== "behind" ? null : (
-              <div className="space-y-1.5">
-                {(
-                  [
-                    [
-                      "replace",
-                      "Replace with the current rules",
-                      "What is there now is saved first, outside your working files: in the repository's git folder, under bend/instructions.",
-                    ],
-                    [
-                      "keep",
-                      "Keep mine",
-                      `They stay as they are and are marked as compared with version ${found.currentVersion}, so this is asked again only when the rules change once more.`,
-                    ],
-                  ] as const
-                ).map(([id, label, hint]) => (
-                  <label key={id} className="flex cursor-pointer items-start gap-2">
-                    <input
-                      type="radio"
-                      name="rules-choice"
-                      className="mt-1"
-                      checked={rulesChoice === id}
-                      onChange={() => setRulesChoice(id)}
-                    />
-                    <span className="min-w-0">
-                      {label}
-                      <span className="block text-xs text-muted-foreground">{hint}</span>
-                    </span>
-                  </label>
-                ))}
-              </div>
-            )}
-            <p className="text-muted-foreground">
-              The rules tell agents to give every piece of work an issue,
-              take it through its workflow one step at a time, record
-              decisions on the issue, leave closing to you, and commit when
-              you accept it.
-            </p>
-          </div>
+          // The instructions step (bead-bb-c9l.12): one block per thing the
+          // owner has to decide, each with what was found and its answers
+          // right under it, and apart from those a plain list of what is
+          // done without asking. The first version put every finding in one
+          // list of bullets and every answer in one run of radio buttons,
+          // and the owner could not tell which answer went with which
+          // question ("the most, utmost confusing shit I've seen").
+          <InstructionsBody
+            status={status}
+            rulesChoice={rulesChoice}
+            onRulesChoice={setRulesChoice}
+            claudeChoice={claudeChoice}
+            onClaudeChoice={setClaudeChoice}
+          />
         )}
         <DialogFooter>
           <Button variant="ghost" onClick={onClose}>
@@ -1137,7 +1333,7 @@ export function SetupDialog({
           <Button
             disabled={
               (step?.action === "install" && method === undefined) ||
-              (step?.action === "rules" && rulesBehind(status) && rulesChoice === null)
+              (step?.action === "rules" && unanswered > 0)
             }
             onClick={() => {
               if (step === null) return;
@@ -1145,8 +1341,15 @@ export function SetupDialog({
                 step,
                 step.action === "install"
                   ? (method?.id ?? null)
-                  : step.action === "rules" && rulesBehind(status)
-                    ? rulesChoice
+                  : step.action === "rules" && (rulesBehind(status) || claudeOpen(status))
+                    ? [
+                        ...(rulesBehind(status) && rulesChoice !== null
+                          ? [`rules:${rulesChoice}`]
+                          : []),
+                        ...(claudeOpen(status) && claudeChoice !== null
+                          ? [`claude:${claudeChoice}`]
+                          : []),
+                      ].join(",")
                     : step.action === "tracker"
                     ? trackerId === "github" && repository.trim() !== ""
                       ? `github:${repository.trim()}`
@@ -1162,10 +1365,14 @@ export function SetupDialog({
             }}
           >
             {step?.action === "rules"
-              ? rulesBehind(status)
-                ? rulesChoice === "keep"
-                  ? "Keep mine"
-                  : "Replace"
+              ? // With something to decide the button is neutral: it stands
+                // for both answers, and says what is still missing.
+                decisions > 0
+                ? unanswered === 0
+                  ? "Apply"
+                  : decisions === 2
+                    ? "Choose both to continue"
+                    : "Choose to continue"
                 : replacesBeads(status)
                   ? "Replace"
                   : rulesUpdate(status)

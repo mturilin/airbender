@@ -127,6 +127,19 @@ type InstructionsState struct {
 	// rules are behind.
 	RulesVersion   int `json:"rulesVersion"`
 	CurrentVersion int `json:"currentVersion"`
+	// ClaudeFile is how the repository's CLAUDE.md stands: "none"; "linked",
+	// a link to its AGENTS.md; "linked-elsewhere", a link to something
+	// else; "file", an ordinary file (see claudeFileOf).
+	ClaudeFile string `json:"claudeFile"`
+	// ClaudeRules is which of Airbender's rules an ordinary CLAUDE.md holds,
+	// as Rules says it for AGENTS.md; "none" also where it is not a file.
+	// "none" for a file means the owner has not yet chosen between making
+	// it a link and having the rules written into it.
+	ClaudeRules string `json:"claudeRules"`
+	// Imports says that AGENTS.md or an ordinary CLAUDE.md still holds a
+	// line that imports AGENTS.md or the facts file, which setup wrote
+	// once and now takes out.
+	Imports bool `json:"imports"`
 	// BeadsBlocks are the files that hold a block beads generated.
 	BeadsBlocks []string `json:"beadsBlocks"`
 	// BeadsHooks are the coding agents beads' hooks are installed for in
@@ -568,16 +581,23 @@ func (state *State) githubIssuesStep(repository string, options Options) Step {
 func (state *State) instructionsStep(chosen string, issuesReady bool) Step {
 	step := Step{Name: StepInstructions, Title: "Add Airbender's instructions for agents", Explain: []string{}}
 	agentsText := textOf(filepath.Join(state.Root, instructions.AgentsFile))
-	claudePath := filepath.Join(state.Root, instructions.ClaudeFile)
-	claudeText, claudeThere := textOf(claudePath), exists(claudePath)
 	state.hooks = beadsHooksIn(state.home)
 	found := &state.Instructions
+	// CLAUDE.md is read only where it is a file of its own: through a link
+	// it would be AGENTS.md, or somebody else's file, read a second time.
+	found.ClaudeFile, found.ClaudeRules = claudeFileOf(state.Root), "none"
+	claudeText := ""
+	if found.ClaudeFile == claudeIsFile {
+		claudeText = textOf(filepath.Join(state.Root, instructions.ClaudeFile))
+		found.ClaudeRules = instructions.RulesIn(claudeText)
+	}
+	found.Imports = instructions.HasImports(agentsText) || instructions.HasImports(claudeText)
 	found.Rules = instructions.RulesIn(agentsText)
 	found.RulesVersion, found.CurrentVersion = instructions.VersionIn(agentsText), instructions.CurrentVersion
 	if instructions.HasBeadsBlocks(agentsText) {
 		found.BeadsBlocks = append(found.BeadsBlocks, instructions.AgentsFile)
 	}
-	if claudeThere && instructions.HasBeadsBlocks(claudeText) {
+	if instructions.HasBeadsBlocks(claudeText) {
 		found.BeadsBlocks = append(found.BeadsBlocks, instructions.ClaudeFile)
 	}
 	found.BeadsHooks = labels(state.hooks)
@@ -592,12 +612,16 @@ func (state *State) instructionsStep(chosen string, issuesReady bool) Step {
 	if replaces {
 		step.Title = "Replace beads' instructions with Airbender's"
 	}
+	// An ordinary CLAUDE.md is settled once it holds the rules (the owner
+	// chose "same rules") and they are current or the owner's own.
+	claudeOpen := found.ClaudeFile == claudeIsFile && found.ClaudeRules == "none"
+	claudeBehind := found.ClaudeRules == "old" || found.ClaudeRules == "behind"
+	behind := found.Rules == "behind" || found.ClaudeRules == "behind"
 	// Done when the rules are there (ours, or the owner's own version of
-	// them), nothing of beads' that can be removed is left, and a
-	// CLAUDE.md, where there is one, needs no change.
-	_, claudeChange := instructions.ClaudeFileFor(claudeText, claudeThere)
+	// them), nothing of beads' that can be removed is left, no import line
+	// is left, and a CLAUDE.md of its own is settled.
 	switch {
-	case (found.Rules == "current" || found.Rules == "edited") && !replaces && !claudeChange:
+	case (found.Rules == "current" || found.Rules == "edited") && !replaces && !found.Imports && !claudeOpen && !claudeBehind:
 		step.State, step.Why = Done, "Airbender's instructions are in place."
 	case !issuesReady:
 		step.State, step.Why = Blocked, "Prepare the issues first."
@@ -645,21 +669,145 @@ func (state *State) instructionsStep(chosen string, issuesReady bool) Step {
 				"You choose. Replace: the rules block is replaced by the current rules, and what was there is saved outside your working files first.",
 				"Keep: your rules stay as they are and are marked as compared with version "+strconv.Itoa(found.CurrentVersion)+", so you are asked again only when the rules change once more.")
 		}
+		settled := found.Rules == "current" || found.Rules == "edited"
+		if found.ClaudeRules == "behind" && found.Rules != "behind" {
+			step.Command = "bend setup instructions --rules replace   (or: --rules keep)"
+			step.Explain = append(step.Explain,
+				"The rules in `CLAUDE.md` were changed by hand and are from an earlier version. You choose: replace them with the current rules (what was there is saved first), or keep yours.")
+			if settled && !replaces {
+				step.Title = "Update Airbender's instructions for agents"
+				step.Why = "The rules for agents in `CLAUDE.md` were changed by hand, and Airbender's own rules have changed since. Agents that read that file go on working by the earlier rules until you choose."
+			}
+		}
+		if found.ClaudeRules == "old" {
+			step.Explain = append(step.Explain, "Replaces the earlier version of Airbender's rules in `CLAUDE.md` where it stands.")
+			if settled && !replaces {
+				step.Title = "Update Airbender's instructions for agents"
+				step.Why = "Airbender's rules for agents have changed since this repository was set up. Nothing is wrong here; this brings the copy in `CLAUDE.md` up to date."
+			}
+		}
+		if found.Imports {
+			step.Explain = append(step.Explain, "Takes out the lines `@AGENTS.md` and `@"+instructions.FactsFile+"` that an earlier setup wrote: the rules are in `AGENTS.md` itself, and the facts are linked from them, not loaded.")
+			if settled && !replaces && !claudeBehind && !claudeOpen {
+				step.Title = "Update Airbender's instructions for agents"
+				step.Why = "An earlier setup wrote lines that load `AGENTS.md` and `" + instructions.FactsFile + "` into every conversation. They are no longer used. Nothing is wrong here; this takes them out."
+			}
+		}
+		switch found.ClaudeFile {
+		case claudeIsLinked:
+			step.Explain = append(step.Explain, "`CLAUDE.md` and `AGENTS.md` are one file here, one a link to the other. That is left as it is.")
+		case claudeIsElsewhere:
+			step.Explain = append(step.Explain, "`CLAUDE.md` is not a file of its own here (a link to another file, or a folder). It is not this setup's to change, and is left alone.")
+		case claudeIsFile:
+			if claudeOpen {
+				// A file of its own beside AGENTS.md: the owner says what
+				// it is to be (bead-bb-c9l.12).
+				choice := "This repository has a `CLAUDE.md` of its own beside `AGENTS.md`, where Airbender's rules are. Choose what it is to be: a link to `AGENTS.md`, so that there is one file of rules for every agent, or a file that holds the same rules."
+				if settled && !replaces {
+					step.Title, step.Why = "Decide what `CLAUDE.md` is here", choice
+				} else {
+					step.Explain = append(step.Explain, choice)
+				}
+				if !behind {
+					step.Command = "bend setup instructions --claude link   (or: --claude rules)"
+				} else {
+					step.Command = "bend setup instructions --rules replace|keep --claude link|rules"
+				}
+				carried := "Its own text is added at the end of `AGENTS.md` first, so that no agent loses it."
+				if instructions.OwnText(claudeText) == "" {
+					carried = "It holds no text of your own, so nothing has to be carried over."
+				}
+				step.Explain = append(step.Explain,
+					"Link: `CLAUDE.md` becomes a link to `AGENTS.md`. "+carried+" What the file held is saved outside your working files.",
+					"Rules: `CLAUDE.md` stays a file and gets the same rules block as `AGENTS.md`; its other text stays, and later versions of the rules update both.")
+			}
+		}
 		for _, file := range found.BeadsBlocks {
 			step.Explain = append(step.Explain, "Takes beads' generated block out of `"+file+"`; nothing else in the file changes.")
 		}
 		for _, one := range state.hooks {
 			step.Explain = append(step.Explain, "Removes beads' hook for "+one.label+" with beads' own command: `bd setup "+one.id+" --remove`.")
 		}
-		if claudeChange {
-			step.Explain = append(step.Explain, "Makes `CLAUDE.md` point at `AGENTS.md` and `"+instructions.FactsFile+"`.")
-		}
-		step.Explain = append(step.Explain, "Makes sure `"+instructions.FactsFile+"` is there, for standing facts.")
+		step.Explain = append(step.Explain, "Makes sure `"+instructions.FactsFile+"` is there, for facts and memories.")
 		for _, name := range found.Leftovers {
 			step.Explain = append(step.Explain, "Leaves beads' section without markers (\""+name+"\") in `AGENTS.md`: it cannot be told safely from your own text. Remove it by hand if you wish.")
 		}
 	}
 	return step
+}
+
+// How a repository's CLAUDE.md stands; see claudeFileOf.
+const (
+	claudeIsNone      = "none"
+	claudeIsFile      = "file"
+	claudeIsLinked    = "linked"
+	claudeIsElsewhere = "linked-elsewhere"
+)
+
+// claudeFileOf says how the CLAUDE.md of a repository stands, without
+// following it: not there; an ordinary file; a link to the repository's own
+// AGENTS.md; or a link to something else.
+//
+// Why: a read of CLAUDE.md follows a link and gives the text of whatever it
+// points at, and a write goes there too. Setup once took a linked CLAUDE.md
+// for a file of the owner's and wrote import lines "into it", which landed
+// in AGENTS.md itself (bead-bb-c9l.12).
+//
+// "Linked" means the two names give one and the same file: CLAUDE.md is a
+// link to AGENTS.md (relative, absolute, or through another link), or
+// AGENTS.md is a link to CLAUDE.md; and also a link that names the
+// repository's AGENTS.md while that file is not there yet. "Elsewhere" is
+// everything else that is not a plain file of its own: a link to another
+// file, or to an AGENTS.md of another folder, and a CLAUDE.md that is a
+// folder. Taking AGENTS.md -> CLAUDE.md for a file of its own once ended
+// with the two as links to each other (found in review, bead-bb-c9l.12).
+func claudeFileOf(root string) string {
+	path := filepath.Join(root, instructions.ClaudeFile)
+	agents := filepath.Join(root, instructions.AgentsFile)
+	info, err := os.Lstat(path)
+	if err != nil {
+		return claudeIsNone
+	}
+	// The two names for one file, whichever of them is the link (AGENTS.md
+	// may be a link to CLAUDE.md as well as the other way round), and
+	// however the link is written. Asked of the file system, which also
+	// knows that "agents.md" is the same file where names ignore case.
+	same := func() bool {
+		one, err := os.Stat(path)
+		if err != nil {
+			return false
+		}
+		other, err := os.Stat(agents)
+		return err == nil && os.SameFile(one, other)
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		switch {
+		case same():
+			return claudeIsLinked
+		case !info.Mode().IsRegular():
+			// A folder, or something else that is not a file of text: not
+			// this setup's to read, replace or write.
+			return claudeIsElsewhere
+		}
+		return claudeIsFile
+	}
+	if same() {
+		return claudeIsLinked
+	}
+	if _, err := os.Stat(path); err == nil {
+		return claudeIsElsewhere
+	}
+	// A link whose target is not there: to this folder's AGENTS.md, which
+	// setup is about to write, or to nothing.
+	if named, err := os.Readlink(path); err == nil {
+		if !filepath.IsAbs(named) {
+			named = filepath.Join(root, named)
+		}
+		if filepath.Clean(named) == filepath.Clean(agents) {
+			return claudeIsLinked
+		}
+	}
+	return claudeIsElsewhere
 }
 
 // behindWords says that the rules for agents were changed by hand and are

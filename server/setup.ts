@@ -275,6 +275,9 @@ export function createSetup({
         rules: "none" as const,
         rulesVersion: 0,
         currentVersion: 0,
+        claudeFile: "none" as const,
+        claudeRules: "none" as const,
+        imports: false,
         beadsBlocks: [],
         beadsHooks: [],
         machineWide: [],
@@ -431,8 +434,10 @@ export function createSetup({
    *
    * @param option The install method's id (for "install"), the tracker's
    *   name (for "tracker"), the keys of the facts to carry over as a JSON
-   *   list (for "facts"), or "replace" or "keep" for rules that were
-   *   changed by hand and fell behind (for "rules"); null otherwise.
+   *   list (for "facts"), or for "rules" the owner's answers as words
+   *   joined by a comma: "rules:replace" or "rules:keep" for rules that
+   *   were changed by hand and fell behind, "claude:link" or
+   *   "claude:rules" for a CLAUDE.md of its own; null otherwise.
    * @returns `{ message: null }` once the step is done or its terminal is
    *   started; otherwise the reason in plain words.
    * Side effects: whatever the step does (see bend/internal/setup); for a
@@ -498,8 +503,20 @@ export function createSetup({
       // Rules the owner changed by hand that fell behind the current ones:
       // the tab asked which they want, and bend is told. Anywhere else the
       // option is not needed, and bend ignores it.
-      const rules = option === "replace" || option === "keep" ? [`--rules=${option}`] : [];
-      return direct(["instructions", "--yes", ...rules]);
+      // The same for a CLAUDE.md that is a file of its own: a link, or
+      // the same rules. Both answers come as words in one option,
+      // "rules:keep" and "claude:link", in either order.
+      const said = (option ?? "").split(",").map((word) => word.trim());
+      const answer = (name: string, allowed: string[]) => {
+        const value = said.find((word) => word.startsWith(`${name}:`))?.slice(name.length + 1);
+        return value !== undefined && allowed.includes(value) ? [`--${name}=${value}`] : [];
+      };
+      return direct([
+        "instructions",
+        "--yes",
+        ...answer("rules", ["replace", "keep"]),
+        ...answer("claude", ["link", "rules"]),
+      ]);
     }
     if (action === "facts") {
       let keys: unknown;

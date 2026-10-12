@@ -36,7 +36,10 @@ const bendState = (steps: BendSetup["steps"], over: Partial<BendSetup> = {}): Be
   instructions: {
     rules: "none",
     rulesVersion: 0,
-    currentVersion: 3,
+    currentVersion: 4,
+    claudeFile: "none",
+    claudeRules: "none",
+    imports: false,
     beadsBlocks: [],
     beadsHooks: [],
     machineWide: [],
@@ -121,7 +124,8 @@ test("the steps whose words are bend's come through with what they run", () => {
 
 test("a repository set up the old way is switched over by the tab's actions", async (t) => {
   const { execFileSync } = await import("node:child_process");
-  const { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } = await import("node:fs");
+  const { existsSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync, writeFileSync } =
+    await import("node:fs");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
   const { createSetup } = await import("./setup.ts");
@@ -173,13 +177,27 @@ test("a repository set up the old way is switched over by the tab's actions", as
     // No remote to publish to: not offered.
     assert.equal(status.syncSteps.on, null);
 
-    assert.deepEqual(await setup.runSetup({ ...here, action: "rules", option: null }), { message: null });
-    assert.equal(published, 1);
+    // The CLAUDE.md beads generated is a file of its own: what it is to be
+    // has to be said, and the tab passes the owner's answer on.
+    assert.deepEqual(
+      [status.instructions.claudeFile, status.instructions.claudeRules],
+      ["file", "none"],
+    );
+    assert.match(
+      (await setup.runSetup({ ...here, action: "rules", option: null })).message ?? "",
+      /--claude link or --claude rules/u,
+    );
+    assert.deepEqual(await setup.runSetup({ ...here, action: "rules", option: "claude:link" }), {
+      message: null,
+    });
+    assert.equal(published, 2);
     const after = readFileSync(agentsFile, "utf8");
     assert.doesNotMatch(after, /BEGIN BEADS/u);
     assert.match(after, /<!-- airbender:rules:start -->/u);
     assert.ok(after.includes("## Mine\n\nMy own rules.\n"));
-    assert.match(readFileSync(join(root, "CLAUDE.md"), "utf8"), /^@AGENTS\.md\n@FACTS\.md$/mu);
+    // A link to AGENTS.md now, and no line that imports a file anywhere.
+    assert.equal(readlinkSync(join(root, "CLAUDE.md")), "AGENTS.md");
+    assert.doesNotMatch(after, /^@(AGENTS|FACTS)\.md$/mu);
     assert.ok(existsSync(join(root, "FACTS.md")));
     assert.doesNotMatch(readFileSync(join(root, ".claude", "settings.json"), "utf8"), /bd prime/u);
     // What was kept about the folder was dropped: the answer follows at once.
@@ -228,13 +246,13 @@ test("a repository set up the old way is switched over by the tab's actions", as
     assert.equal(status.instructions.rulesVersion, 1);
     assert.ok(status.instructions.currentVersion > 1);
     // Keep: theirs stay, marked as compared with the current version.
-    assert.deepEqual(await setup.runSetup({ ...here, action: "rules", option: "keep" }), { message: null });
+    assert.deepEqual(await setup.runSetup({ ...here, action: "rules", option: "rules:keep" }), { message: null });
     assert.match(readFileSync(agentsFile, "utf8"), /has an issue, here too/u);
     status = await setup.setupStatus(here);
     assert.deepEqual([status.rulesPresent, status.instructions.rules], [true, "edited"]);
     // Replace: the current rules stand there.
     writeFileSync(agentsFile, mine);
-    assert.deepEqual(await setup.runSetup({ ...here, action: "rules", option: "replace" }), { message: null });
+    assert.deepEqual(await setup.runSetup({ ...here, action: "rules", option: "rules:replace" }), { message: null });
     assert.doesNotMatch(readFileSync(agentsFile, "utf8"), /here too/u);
     status = await setup.setupStatus(here);
     assert.deepEqual([status.rulesPresent, status.instructions.rules], [true, "current"]);

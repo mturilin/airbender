@@ -1,5 +1,5 @@
 <!-- airbender:rules:start -->
-<!-- airbender:rules:version 3 -->
+<!-- airbender:rules:version 4 -->
 ## Working with issues through Airbender
 
 This repository's issues are worked from the Airbender tab in BB, and read
@@ -30,11 +30,12 @@ says which tracker this repository uses):
   other one.
 - `bend list` and `bend ready`: what there is, and what can be worked on.
 
-- **Standing facts are in `FACTS.md`.** Read it when you start. When
-  you learn something every later session should know (how to build, a
-  convention, a lasting preference of the user's), add it there as one
-  line, `- **short-key** — the fact`. `bend remember "..."` adds
-  one for you.
+- **Facts and memories are kept in [`FACTS.md`](FACTS.md).** It is the
+  place to store what every later session should know: how to build, a
+  convention, a lasting preference of the user's. It is not loaded for
+  you: open it when you start on something it may bear on. Add to it as
+  one line, `- **short-key** — the fact`; `bend remember "..."` adds one
+  for you, and `bend recall` shows them.
 
 - **Every piece of work has an issue.** If the user asks for something that
   has no issue yet, create one first (`bend create`), with what is wanted and
