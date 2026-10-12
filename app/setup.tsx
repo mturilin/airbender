@@ -103,6 +103,37 @@ const rulesBehind = (status: SetupStatus | null): boolean =>
   status?.instructions.rules === "behind";
 
 /**
+ * The mark of a tracker, for the line that says which one a project uses.
+ *
+ * Drawn here, like the tab's other small marks: BB's icon set draws a
+ * lightning bolt for a name it does not have. GitHub's is its own mark.
+ * Beads has none that people know, so it gets a plain one of ours: three
+ * beads on a thread. Any other tracker gets no mark, and takes no room.
+ *
+ * @param name The tracker's name, "github" or "beads".
+ */
+function TrackerIcon({ name, className }: { name: string; className?: string }) {
+  if (name === "github") {
+    return (
+      <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" className={className}>
+        <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
+      </svg>
+    );
+  }
+  if (name === "beads") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true" className={className}>
+        <path d="M1 12h22" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+        <circle cx="5.5" cy="12" r="3" fill="currentColor" />
+        <circle cx="12" cy="12" r="3" fill="currentColor" />
+        <circle cx="18.5" cy="12" r="3" fill="currentColor" />
+      </svg>
+    );
+  }
+  return null;
+}
+
+/**
  * Whether the folder has Airbender's rules already and they are only not
  * the current ones: an earlier version of ours, or the owner's own from an
  * earlier version. The step is then an update, and is said as one: the
@@ -506,6 +537,7 @@ export function SetupMenu({
   onStart,
   workflow,
   onChooseWorkflow,
+  tracker,
   onSyncGithub,
   issueSync,
 }: {
@@ -516,7 +548,13 @@ export function SetupMenu({
   workflow: WorkflowId | null;
   onChooseWorkflow: (id: WorkflowId) => void;
   /**
-   * Opens the "Sync with GitHub" window; left out where there are no
+   * The tracker the project's issues are kept in, for the line at the top
+   * of the menu: its name ("beads" or "github") and, for GitHub issues,
+   * the repository as "owner/name". Left out where none is chosen yet.
+   */
+  tracker?: { name: string; repository: string | null };
+  /**
+   * Opens the "Import / export GitHub issues" window; left out where there are no
    * issues to sync (no folder with beads).
    */
   onSyncGithub?: () => void;
@@ -528,6 +566,17 @@ export function SetupMenu({
   issueSync?: { state: string; message: string | null; onLog: () => void };
 }) {
   const { open, setOpen, root } = useMenu();
+  // The setup steps are folded away until asked for (bead-bb-c9l.21, the
+  // owner: "setup can be under chevron because we don't need it all the
+  // time ... it takes a lot of space"). Folded again each time the menu
+  // is opened anew. What is missing is still said on the folded row, and
+  // offered on the card in the middle of the tab.
+  const [showingSetup, setShowingSetup] = useState(false);
+  useEffect(() => {
+    if (!open) setShowingSetup(false);
+  }, [open]);
+  const steps = status === null || status.unavailable !== null ? [] : setupSteps(status);
+  const toDo = steps.filter((step) => step.needed).length;
   return (
     <div ref={root} className="relative shrink-0">
       <Button
@@ -556,6 +605,42 @@ export function SetupMenu({
       </Button>
       {open ? (
         <MenuPanel className="w-80 max-w-[85vw]">
+          {/* Which tracker the project uses (bead-bb-c9l.21). First in the
+              menu, where the owner looks it up when they want to know; it
+              used to stand in the toolbar, in the path's own hand, and read
+              as part of the path. It only informs for now: the switch to
+              the other tracker is to go in this same spot
+              (bead-bb-c9l.18). */}
+          {tracker === undefined ? null : (
+            <>
+              <div className="flex items-start gap-2 px-2 py-1 text-sm">
+                <TrackerIcon
+                  name={tracker.name}
+                  className="mt-0.5 size-4 shrink-0 text-muted-foreground"
+                />
+                <span className="min-w-0">
+                  This project uses{" "}
+                  {tracker.name === "github"
+                    ? "GitHub issues"
+                    : tracker.name === "beads"
+                      ? "beads issues"
+                      : `${tracker.name} issues`}
+                  {tracker.name !== "github" || tracker.repository === null ? null : (
+                    <a
+                      href={`https://github.com/${tracker.repository}/issues`}
+                      target="_blank"
+                      rel="noreferrer"
+                      title="Open this repository's issues on github.com"
+                      className="block truncate font-mono text-xs text-muted-foreground underline-offset-2 hover:underline"
+                    >
+                      {tracker.repository}
+                    </a>
+                  )}
+                </span>
+              </div>
+              <div className="my-1 border-t border-border" />
+            </>
+          )}
           {workflow === null ? null : (
             <>
               <div className="px-2 pb-1 text-xs font-medium text-muted-foreground">
@@ -590,30 +675,6 @@ export function SetupMenu({
                   </span>
                 </button>
               ))}
-              <div className="my-1 border-t border-border" />
-            </>
-          )}
-          {/* Syncing with GitHub issues (bead-bb-rh3): an occasional task,
-              so it lives here and opens a window of its own. */}
-          {onSyncGithub === undefined ? null : (
-            <>
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  setOpen(false);
-                  onSyncGithub();
-                }}
-                className="flex w-full cursor-pointer items-start rounded px-2 py-1 text-left text-sm hover:bg-state-hover"
-              >
-                <span className="min-w-0">
-                  Sync with GitHub…
-                  <span className="block text-xs text-muted-foreground">
-                    Bring GitHub issues in, or send issues to GitHub. You
-                    choose which, and see a preview first.
-                  </span>
-                </span>
-              </button>
               <div className="my-1 border-t border-border" />
             </>
           )}
@@ -653,17 +714,37 @@ export function SetupMenu({
               <div className="my-1 border-t border-border" />
             </>
           )}
-          <div className="px-2 pb-1 text-xs font-medium text-muted-foreground">
-            Setup
-          </div>
-          {status === null ? (
+          <button
+            type="button"
+            aria-expanded={showingSetup}
+            onClick={() => setShowingSetup((shown) => !shown)}
+            className="flex w-full cursor-pointer items-center gap-1 rounded px-2 py-1 text-left text-sm hover:bg-state-hover"
+          >
+            <Icon
+              name={showingSetup ? "ChevronDown" : "ChevronRight"}
+              className="size-4 shrink-0 text-muted-foreground"
+            />
+            <span className="min-w-0 flex-1">Setup</span>
+            {/* In a word, so that the folded row still says whether there
+                is anything to do. */}
+            <span className="shrink-0 text-xs text-muted-foreground">
+              {status === null
+                ? "checking…"
+                : status.unavailable !== null
+                  ? ""
+                  : toDo === 0
+                    ? "all set"
+                    : `${toDo} to do`}
+            </span>
+          </button>
+          {!showingSetup ? null : status === null ? (
             <p className="px-2 py-1 text-sm text-muted-foreground">Checking…</p>
           ) : status.unavailable !== null ? (
             <p className="px-2 py-1 text-sm text-muted-foreground">
               {status.unavailable}
             </p>
           ) : (
-            setupSteps(status).map((step) => (
+            steps.map((step) => (
               <button
                 key={step.key}
                 type="button"
@@ -673,7 +754,7 @@ export function SetupMenu({
                   setOpen(false);
                   onStart(step);
                 }}
-                className="flex w-full cursor-pointer items-center justify-between gap-3 rounded px-2 py-1 text-left text-sm hover:bg-state-hover disabled:cursor-default disabled:text-muted-foreground/60 disabled:hover:bg-transparent"
+                className="flex w-full cursor-pointer items-center justify-between gap-3 rounded py-1 pl-7 pr-2 text-left text-sm hover:bg-state-hover disabled:cursor-default disabled:text-muted-foreground/60 disabled:hover:bg-transparent"
               >
                 <span className="min-w-0">{step.label}</span>
                 {step.blocked === null ? null : (
@@ -681,6 +762,27 @@ export function SetupMenu({
                 )}
               </button>
             ))
+          )}
+          {/* Copying issues between beads and GitHub issues (bead-bb-rh3).
+              Under Setup, with the steps: it is done once or twice in a
+              project's life, not day to day (bead-bb-c9l.21). Called
+              "import and export", not "sync": it used to stand beside
+              "Issue sync" under the name "Sync with GitHub", and the two
+              are different things. */}
+          {!showingSetup || onSyncGithub === undefined ? null : (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                onSyncGithub();
+              }}
+              className="flex w-full cursor-pointer items-start rounded py-1 pl-7 pr-2 text-left text-sm hover:bg-state-hover"
+            >
+              {/* No line under it: the name says what it is (the owner:
+                  "It's already self descriptive"). */}
+              Import / export GitHub issues…
+            </button>
           )}
           {/* Where the plugin's settings are. In words, because a tab has
               no way to open that page (asked of BB in get-bb/bb#5014); the

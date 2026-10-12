@@ -18,7 +18,7 @@ panel, beside a thread or on the New thread screen.
   plugin;
   `github-comments.ts` copies the comments of imported
   GitHub issues, which beads' own sync leaves behind; `github.ts` lists GitHub issues, open and closed, and
-  runs `bd github sync` for the ones chosen in the "Sync with GitHub"
+  runs `bd github sync` for the ones chosen in the "Import / export GitHub issues"
   window (`app/github-sync.tsx`);
   `current-bead.ts` is the thread's current issue; `issues.ts` turns the
   tracker's issues into the tab's (its names for links, what it keeps in
@@ -476,7 +476,7 @@ An epic's branch is kept with the issue as free-form data; on GitHub that
 is one hidden line at the end of the description
 (`<!-- bend:data {"branch":"…"} -->`).
 
-Still beads-specific in the tab: the "Sync with GitHub…" window (beads'
+Still beads-specific in the tab: the "Import / export GitHub issues…" window (beads'
 own mirroring, offered on beads only), the "bd command" setting, and
 switching a repository's tracker, which the tab cannot do yet
 (bead-bb-c9l.18; from a terminal: `bend setup tracker --use github`).
@@ -504,7 +504,7 @@ cannot open that page itself, see get-bb/bb#5014).
   by default `claude-code` and `claude-haiku-4-5-20251001`. The model must
   belong to the provider (`bb provider models <provider>` lists them). These
   three are read each time a sizing starts; no reload is needed.
-- `GitHub token` — optional. "Sync with GitHub" (the tab's "⋯" menu) uses
+- `GitHub token` — optional. "Import / export GitHub issues" (the tab's "⋯" menu) uses
   the `gh` command's sign-in (`gh auth token`) for each run when this is
   empty, storing nothing. Set a personal access token here to use that one
   instead, for example one that can only read and write this repository's

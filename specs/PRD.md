@@ -679,7 +679,10 @@ Rules:
 
 - **The owner can sync issues with GitHub issues from a dialog, both
   ways**: GitHub issues are brought into the folder's issues, and issues
-  are sent to GitHub. It is called "Sync with GitHub". `[rh3]`
+  are sent to GitHub. `[rh3]` It is called "Import / export GitHub
+  issues", not "sync", so that it is not taken for the issue sync, and
+  it stands under Setup in the menu, since it is done once or twice and
+  not day to day. `[c9l.21]`
 - **The owner selects the issues, and previews the result** before
   anything is changed. `[rh3]`
 - **Closed issues are synced as well as open ones.** `[rh3]`
@@ -858,6 +861,12 @@ panel. `[bwr]`
     their issue, what they were, their text and the reason.
   - **On screen it says "issue" everywhere**, on every tracker; "beads" is
     only the name of one tracker.
+  - **The menu says which tracker the project uses**, as its first line,
+    above the workflow choice, with a small icon: "This project uses
+    GitHub issues" or "This project uses beads issues". It only informs;
+    the toolbar does not name the tracker. `[c9l.21]`
+  - **The menu's setup steps are folded away** under one row that opens
+    them, since they are not needed all the time. `[c9l.21]`
   - **What an agent is told there names `bend`, not `bd`**: the message
     for each step, the rules in the repository's instruction file, the
     agent tools' texts and the background sizing.
@@ -1450,12 +1459,10 @@ breaking a requirement above.
   left by an earlier version is put aside with a warning and made anew; so
   is a damaged file of issues.
   `[c9l.15]`
-- The panel on GitHub issues: the toolbar says "GitHub issues" beside the
-  folder, with the repository in its tooltip; on a beads repository it says
-  nothing more than before. An issue with unsent changes carries a small
+- The panel on GitHub issues: an issue with unsent changes carries a small
   "not sent yet" mark. The refused changes are at the top of the sync log
   window, each with "Send again" and "Dismiss", and the "Issue sync" row
-  says when there are any. "Sync with GitHub…", which mirrors beads issues
+  says when there are any. "Import / export GitHub issues…", which mirrors beads issues
   to GitHub, is not offered there. A folder with no tracker says so
   whether or not the beads program is installed. A missing GitHub login is
   said in `bend`'s words, with the setup card and its sign-in step. A sync
@@ -1468,6 +1475,14 @@ breaking a requirement above.
   pull) is noticed at the next read. In what an agent is told, the
   owner's own words (titles, the note an issue is sent back with) are
   left as written. `[c9l.6]`
+- The menu's folded setup row reads "Setup" with a chevron, and at its
+  right "all set" or how many steps are to do; it is folded again each
+  time the menu is opened. `[c9l.21]`
+- The tracker's line in the menu: for GitHub issues the repository's name
+  stands under it and opens the repository's issues page on github.com.
+  The GitHub mark is GitHub's own; beads' is three beads on a thread,
+  drawn for this. A folder with no tracker chosen shows no such line.
+  `[c9l.21]`
 - The epic's branch on GitHub: the hidden line reads
   `<!-- bend:data {"branch":"…"} -->` and counts only as the very last
   line of the description, so that a description which quotes such a line

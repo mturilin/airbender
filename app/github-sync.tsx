@@ -1,4 +1,5 @@
-// app/github-sync.tsx — the "Sync with GitHub" window.
+// app/github-sync.tsx — the "Import / export GitHub issues" window (it
+// was called "Sync with GitHub" until bead-bb-c9l.21).
 //
 // What: a window in which the owner ticks GitHub issues to bring into beads
 // and beads issues to send to GitHub, previews what that would do, and then
@@ -472,10 +473,10 @@ export function GithubSync({
       {/* Wider than the details window: three columns of titles. */}
       <DialogContent className="flex h-[88vh] w-[min(96rem,96vw)] max-w-none flex-col">
         <DialogHeader>
-          <DialogTitle>Sync with GitHub</DialogTitle>
+          <DialogTitle>Import / export GitHub issues</DialogTitle>
           <DialogDescription>
             {listed?.repository == null
-              ? "Bring GitHub issues into this folder's issues, and send issues to GitHub."
+              ? "Copy GitHub issues into this folder's beads issues, and beads issues out to GitHub."
               : `Issues of ${listed.repository} on GitHub, and this folder's issues.`}
           </DialogDescription>
         </DialogHeader>

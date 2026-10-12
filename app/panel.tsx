@@ -351,21 +351,6 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
               <span className="min-w-0 truncate" title={result?.path ?? undefined}>
                 {result?.path == null ? "" : shortPath(result.path, result.home)}
               </span>
-              {/* Which tracker holds the issues, said only where it is not
-                  beads (bead-bb-c9l.6): there the path alone has always
-                  been enough, and the toolbar is short of room. */}
-              {result?.tracker == null || result.tracker === "beads" ? null : (
-                <span
-                  className="shrink-0 whitespace-nowrap"
-                  title={
-                    result.trackerRepository === null
-                      ? "This folder's issues are GitHub issues"
-                      : `This folder's issues are the GitHub issues of ${result.trackerRepository}`
-                  }
-                >
-                  {result.tracker === "github" ? "GitHub issues" : result.tracker}
-                </span>
-              )}
               {/* In a work tree, said first, with the fir of the "start
                   in a work tree" commands (the user: "also mention
                   worktree with fir tree icon there"). */}
@@ -445,6 +430,13 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
               onOpen={setup.reload}
               onStart={setConfirmingStep}
               workflow={ok ? result.workflow : null}
+              // Which tracker the project uses, said at the top of the
+              // menu; nothing where none is chosen yet.
+              tracker={
+                ok && result.tracker !== null
+                  ? { name: result.tracker, repository: result.trackerRepository }
+                  : undefined
+              }
               // Beads' own mirroring of its issues to GitHub: nothing to
               // mirror where the issues are GitHub's already.
               onSyncGithub={
