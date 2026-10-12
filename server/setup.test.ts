@@ -33,7 +33,15 @@ const bendState = (steps: BendSetup["steps"], over: Partial<BendSetup> = {}): Be
   steps,
   installMethods: [],
   issuesHow: "",
-  instructions: { rules: "none", beadsBlocks: [], beadsHooks: [], machineWide: [], leftovers: [] },
+  instructions: {
+    rules: "none",
+    rulesVersion: 0,
+    currentVersion: 3,
+    beadsBlocks: [],
+    beadsHooks: [],
+    machineWide: [],
+    leftovers: [],
+  },
   savedFacts: [],
   ...over,
 });
@@ -199,6 +207,37 @@ test("a repository set up the old way is switched over by the tab's actions", as
     assert.match((await setup.runSetup({ ...here, action: "install", option: "script" })).message ?? "", /already installed/u);
     assert.match((await setup.runSetup({ ...here, action: "tracker", option: "linear" })).message ?? "", /not understood/u);
     assert.match((await setup.runSetup({ ...here, action: "bend", option: null })).message ?? "", /already built/u);
+
+    // The owner changes the rules by hand, and they are from an earlier
+    // version: the step is offered again, and needs to be told which.
+    const mine = readFileSync(agentsFile, "utf8")
+      .replace(/rules:version \d+ -->/u, "rules:version 1 -->")
+      .replace("Every piece of work has an issue", "Every piece of work has an issue, here too");
+    writeFileSync(agentsFile, mine);
+    // Without the choice bend refuses in its own words and changes nothing.
+    // (Asked first: the tab keeps "everything is in place" for a while, and
+    // a step that was run makes it look again.)
+    assert.match(
+      (await setup.runSetup({ ...here, action: "rules", option: null })).message ?? "",
+      /--rules replace or --rules keep/u,
+    );
+    assert.equal(readFileSync(agentsFile, "utf8"), mine);
+    status = await setup.setupStatus(here);
+    assert.equal(status.rulesPresent, false);
+    assert.equal(status.instructions.rules, "behind");
+    assert.equal(status.instructions.rulesVersion, 1);
+    assert.ok(status.instructions.currentVersion > 1);
+    // Keep: theirs stay, marked as compared with the current version.
+    assert.deepEqual(await setup.runSetup({ ...here, action: "rules", option: "keep" }), { message: null });
+    assert.match(readFileSync(agentsFile, "utf8"), /has an issue, here too/u);
+    status = await setup.setupStatus(here);
+    assert.deepEqual([status.rulesPresent, status.instructions.rules], [true, "edited"]);
+    // Replace: the current rules stand there.
+    writeFileSync(agentsFile, mine);
+    assert.deepEqual(await setup.runSetup({ ...here, action: "rules", option: "replace" }), { message: null });
+    assert.doesNotMatch(readFileSync(agentsFile, "utf8"), /here too/u);
+    status = await setup.setupStatus(here);
+    assert.deepEqual([status.rulesPresent, status.instructions.rules], [true, "current"]);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

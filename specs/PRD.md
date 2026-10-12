@@ -824,6 +824,28 @@ panel. `[bwr]`
   - **The copy is kept in the repository's git folder**, shared by all its
     work trees, never committed. It holds issue texts, never the login.
   - **No background service for now**; a sync can be asked for at any time.
+- **Agents read and change issues with `bend` in every repository**, also
+  where the tracker is beads; they do not need to know which tracker a
+  repository uses. `[c9l.7]` `[c9l.10]`
+  - **What they are told is one wording for every tracker.** It names
+    `bend` only, and says "issue", not "beads issue".
+  - **Issues only through `bend`**: the rules rule out the tracker's own
+    program (`bd`, `gh`) and its website for issues.
+  - **An issue is never closed by any means** unless the owner says so:
+    not with `bend`, not with the tracker's own program, and not by
+    closing words in a commit or a pull request. `[c9l.19]`
+  - **The two agent tools are called `airbender_set_current` and
+    `airbender_workflow_move`.**
+  - **Setup keeps a repository's rules from drifting behind.** The rules
+    change over time. Where a repository's rules were changed by hand and
+    are from an earlier version than the current one, setup says so and
+    asks the owner to choose: replace them with the current rules, or keep
+    their own. It never replaces them unasked, and never leaves them
+    behind unsaid.
+  - **An update is said to be an update.** Where a repository has
+    Airbender's rules and they are only not the current ones, setup says
+    that the rules have changed and offers to update them; it does not
+    say the folder has to be got ready, which it was.
 - **The panel works on a repository whose issues are GitHub issues** as it
   does on a beads one: the owner sees them, changes them and starts agents
   on them. It does so through `bend`'s copy, so it answers at once.
@@ -1453,14 +1475,46 @@ breaking a requirement above.
   github.com can delete it, or type under it; the epic then reads as
   having no branch. A line broken by hand is left where it is and counts
   as no data. `[c9l.6]`
-- What agents are told on GitHub issues is made from the beads wording by
-  replacing each command with `bend`'s (`bend show`, `bend comments`,
-  `bend write <id> description|done|plan`, `bend start`), so the two ask
-  the same. The rules in the instruction file exist in the two wordings;
-  setup writes the one for the repository's tracker and replaces the
-  other in place. The texts that come with the two agent tools are one
-  text for every repository and were reworded to fit both; their names
-  still begin "beads_". `[c9l.6]`
+- What agents are told: the step messages name `bend show`, `bend
+  comments`, `bend write <id> description|done|plan` and `bend start`. The
+  rules in the instruction file are version 3; setup takes version 1 and
+  both wordings of version 2 (the one that named `bd` and the one that
+  named `bend`) as earlier versions of its own and replaces them in place,
+  and leaves a block the owner edited alone. The two tools are still
+  offered under the names they had (`beads_set_current`,
+  `beads_workflow_move`), doing the same and saying in one line that they
+  were renamed, so that a conversation open at the change and a repository
+  not yet set up again go on working; to be taken out later. The
+  background sizing's own tool is `airbender_report_sizes`. `[c9l.10]`
+- Rules that fell behind: the rules block names its version in a hidden
+  line. A block changed by hand that names the current version is the
+  owner's and the step counts as done; one that names an earlier version,
+  or none, is "behind". For it, and for an unchanged earlier version, the
+  instructions step is called "Update Airbender's instructions for agents"
+  and says which version is there and which is current; for the unchanged
+  one it adds "Nothing is wrong here". Where updates are all the panel has
+  to offer, its card is headed "This folder is set up. Airbender has an
+  update for it", and the step's button reads "Update". In a terminal it asks, or takes
+  `--rules replace` or `--rules keep`; with nobody to ask and no answer it
+  changes nothing and names the option. Replace saves what was there
+  first, outside the working files (in the repository's git folder), and
+  says where; it is refused, with nothing changed, for a block whose end
+  marker is gone, since nothing then says where the owner's own text
+  begins. Keep changes nothing but the version the block names, so the
+  question returns only when the rules change again. Rules that name a
+  later version than this `bend` writes are left alone and not called
+  behind. In the panel the
+  step's window shows the two choices with neither chosen, and its button
+  waits for one. The panel keeps "everything is in place" for a few
+  minutes, so a change made by hand to the rules shows after that or
+  after a step is run. `[c9l.10]`
+- `bend note <id>` adds a paragraph to an issue's notes and keeps what is
+  there. On a hosted tracker it waits as a change of its own and is added
+  to the notes the tracker holds when it is sent, so a note made elsewhere
+  meanwhile is kept. `bend stop <id>` puts an issue that is in progress
+  back to open and leaves its assignee; for one that is not in progress it
+  changes nothing and says so; it is refused for a closed one. A step
+  message names its commands with the issue's own id. `[c9l.10]`
 - `bend sync` names, for a program, the issues whose changes it sent and
   those that came in new or changed; `bend status --quick` says whether
   changes are queued for a hosted tracker. `[c9l.6]`

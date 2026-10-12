@@ -131,6 +131,7 @@ func (s *standIn) Comment(id, text string) error {
 
 func (s *standIn) Write(string, string, string) error                 { return nil }
 func (s *standIn) Start(string) error                                 { return nil }
+func (s *standIn) Stop(string) error                                  { return nil }
 func (s *standIn) Close(string, string) error                         { return nil }
 func (s *standIn) Reopen(string) error                                { return nil }
 func (s *standIn) Move(string, *string) error                         { return nil }

@@ -1,6 +1,8 @@
 # Agent Instructions
 
-This project uses **bd** (beads) for issue tracking.
+This project uses **beads** for issue tracking. Agents read and change its
+issues with the **`bend`** command only, never with `bd` itself: `bend`
+keeps things with an issue that `bd` does not know of (`bend --help`).
 
 > **Architecture in one line:** Issues live in a local Dolt database
 > (`.beads/dolt/`); cross-machine sync uses `bd dolt push/pull` (a
@@ -38,6 +40,7 @@ behaviour from the owner's point of view, no implementation details.
   true now; the history stays on the beads.
 
 <!-- airbender:rules:start -->
+<!-- airbender:rules:version 3 -->
 ## Record everything in beads
 
 Beads is this project's memory. Chat history is lost when a session ends;
@@ -47,13 +50,13 @@ not at the end.
 **Before starting work**
 
 - Every piece of work has a bead. If the user asks for something that has no
-  bead yet, create one first (`bd create`), then claim it.
+  bead yet, create one first (`bend create`), then claim it (`bend start`).
 - **A question is not work.** A plain question or a discussion needs no
   bead: answer it in the conversation. Create a bead only when something is
   to be changed. Where a discussion ends in a decision worth keeping, offer
   to record it.
 - **Make the bead you work on the thread's current bead**, by calling the
-  `beads_set_current` tool with its id, as soon as you start on it. This
+  `airbender_set_current` tool with its id, as soon as you start on it. This
   matters most when the work began from a plain typed request and you
   created the bead yourself: the tab's buttons set the current bead for you,
   a typed request does not. While a thread has a current bead, the Airbender
@@ -64,9 +67,10 @@ not at the end.
   and you are on no bead, clear it.
 - Give the bead a real description: what is wanted and **why**, in the user's
   own words where possible. Set type and priority. You may also give a bead
-  you create a size, with the label `size:s`, `size:m` or `size:l`: you know
-  it better than the background agent that sizes unsized beads.
-- Write what "done" means: `bd update <id> --acceptance "..."`.
+  you create a size, with the label `size:s`, `size:m` or `size:l`
+  (`bend edit <id> --add-label size:m`): you know it better than the
+  background agent that sizes unsized beads.
+- Write what "done" means: `bend write <id> done "..."`.
 
 - **Ask the bead's open questions first.** If the bead records open
   questions for the user, put them to the user and wait for the answers
@@ -104,8 +108,8 @@ not at the end.
   1. *Define.* Make sure it is clear what is wanted, why, and what "done"
      means; ask the user what is unclear; write the agreed description and
      acceptance criteria onto the bead.
-  2. *Plan.* Say what you will change and how, and write the plan into the
-     bead's design field. Change nothing yet.
+  2. *Plan.* Say what you will change and how, and write the plan onto the
+     bead (`bend write <id> plan`). Change nothing yet.
   3. *Implement.* Do the work.
   4. *Agent review.* Review the work against the bead as if someone else had
      done it; fix what you find.
@@ -120,7 +124,7 @@ not at the end.
   conversation, record a spoken approval with `approved`, quoting them, and
   carry on; if they only ask a question, answer it and leave the bead where
   it is. Never move a bead forward past a review the user has not given.
-  When you finish a step, report it with the `beads_workflow_move` tool,
+  When you finish a step, report it with the `airbender_workflow_move` tool,
   with a one-line note. It tells you what comes next: your next step, or
   that the bead now waits for the user, in which case say so and stop.
   You have the judgment to move a bead to where the work really is, with
@@ -130,30 +134,31 @@ not at the end.
 
 **While working**
 
-- **Design and intent** go in the design field, kept current as the design
-  changes: `bd update <id> --design "..."` (or `--design-file`). Say what was
+- **Design and intent** go in the bead's plan, kept current as the design
+  changes: `bend write <id> plan "..."` (or `--text-file`). Say what was
   chosen, what was rejected, and why.
 - **Every decision** — yours or the user's — gets a comment at the moment it
-  is made, with the reason: `bd comment <id> "Decided X because Y"`. Record
+  is made, with the reason: `bend decide <id> "X, because Y"`. Record
   the user's decisions and preferences in their words, and say that they came
   from the user.
 - **Things tried that did not work**, surprises, and gotchas get a comment
-  too, so the next agent does not repeat them.
-- **Progress** worth resuming from goes in the notes: `bd note <id> "..."`.
+  too (`bend comment <id> "..."`), so the next agent does not repeat them.
+- **Progress** worth resuming from goes in the notes: `bend note <id> "..."`.
 - **Follow-up work** you notice becomes its own bead, linked to the one it
-  came from: `bd create "..." --deps discovered-from:<id>`.
-- **Work that must wait for other work** is linked: `--deps blocked-by:<id>`.
+  came from: `bend create "..." --from <id>`.
+- **Work that must wait for other work** is linked: `--blocked-by <id>`.
 - **Decisions that span several beads** become a bead of type `decision`,
   linked from the beads they affect.
 
 **When finishing**
 
 - **Do not close the bead.** The user validates the work and accepts it;
-  the bead closes when its last step, the commit, is reported done. Never run
-  `bd close` on it yourself, unless the user tells you to close that bead.
+  the bead closes when its last step, the commit, is reported done. Never
+  close it yourself (`bend close`, or closing words in a commit), unless the
+  user tells you to close that bead.
   This overrides any "close when done" wording elsewhere in this file.
 - Instead, add a comment that says what was done and how it was checked, and
-  state plainly what was not tested: `bd comment <id> "..."`. Leave the bead
+  state plainly what was not tested: `bend comment <id> "..."`. Leave the bead
   in progress and tell the user it is ready for them to validate.
 - Update `specs/PRD.md` to match what you changed (see "The spec"), and say
   in your hand-over comment that you did.
@@ -189,7 +194,7 @@ not at the end.
   there and never merged by itself. The branch is merged once, when the
   user closes the epic with "Close & merge".
 - When the work is in git, report the step done with the
-  `beads_workflow_move` tool, naming the commit. That closes the bead.
+  `airbender_workflow_move` tool, naming the commit. That closes the bead.
 - One commit per bead. Stage only the files that belong to it; never
   `git add -A`.
 - The commit message names the bead by **id and description**:
@@ -217,8 +222,8 @@ not at the end.
 
 - Standing facts every future session should know (conventions, how to build
   and install, the user's lasting preferences) are in `FACTS.md`. Read it
-  when you start, and add a new one there as one line under a short key. Do
-  not use `bd remember` for that.
+  when you start, and add a new one there as one line under a short key
+  (`bend remember "..."` adds one for you).
 
 When unsure whether something is worth recording, record it.
 <!-- airbender:rules:end -->

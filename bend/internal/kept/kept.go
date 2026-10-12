@@ -582,6 +582,26 @@ func (kept *Tracker) Start(id string) error {
 	return kept.record(change{Kind: opStart, ID: id})
 }
 
+// Stop puts an issue that is being worked on back to open.
+func (kept *Tracker) Stop(id string) error {
+	if !kept.isQueued() {
+		return kept.changed(kept.inner.Stop(id))
+	}
+	id = kept.canon(id)
+	issue, err := kept.known(id)
+	if err != nil {
+		return err
+	}
+	if issue.Status == closedStatus {
+		return tracker.Refused("%s is closed. Reopen it to work on it again.", id)
+	}
+	// Nothing would change: nothing waits to be sent.
+	if issue.Status != "in_progress" {
+		return nil
+	}
+	return kept.record(change{Kind: opStop, ID: id})
+}
+
 // Close closes an issue; reason may be "".
 func (kept *Tracker) Close(id, reason string) error {
 	if !kept.isQueued() {

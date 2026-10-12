@@ -322,6 +322,11 @@ type Tracker interface {
 	Comment(id, text string) error
 	// Start marks an issue as being worked on by the actor.
 	Start(id string) error
+	// Stop puts an issue that is being worked on back to open: nobody is
+	// working on it now. An issue that is open and not in progress is left
+	// as it is; refused for a closed one. Who it is assigned to is not
+	// changed.
+	Stop(id string) error
 	// Close closes an issue; reason may be "".
 	Close(id, reason string) error
 	Reopen(id string) error

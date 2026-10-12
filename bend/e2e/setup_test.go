@@ -304,3 +304,104 @@ func TestSetupForGitHubIssuesWithoutALogin(t *testing.T) {
 		t.Fatalf("got %q", waiting.Error)
 	}
 }
+
+func TestSetupNoticesRulesChangedByHandThatFellBehind(t *testing.T) {
+	newOnly(t)
+	repo := bare(t)
+	repo.ok("setup", "tracker", "--use", "beads")
+	repo.ok("setup", "all", "-y")
+	current := repo.file("AGENTS.md")
+
+	// The owner's own variant of the current rules: theirs, and up to date.
+	own := strings.Replace(current, "Every piece of work has an issue", "Every piece of work has an issue, here too", 1)
+	os.WriteFile(filepath.Join(repo.root, "AGENTS.md"), []byte(own), 0o644)
+	same(t, repo.setup().Instructions.Rules, "edited", "an edited block of the current version")
+	same(t, repo.setup().Steps[3].State, "done", "the step, with rules that are the owner's and current")
+
+	// The same, from an earlier version: behind. The step is offered and
+	// asks; with nobody to ask it names the option and changes nothing.
+	behind := "# Mine\n\n" + strings.Replace(own, "rules:version 3 -->", "rules:version 2 -->", 1) + "\n## After\n"
+	os.WriteFile(filepath.Join(repo.root, "AGENTS.md"), []byte(behind), 0o644)
+	found := repo.setup()
+	same(t, found.Instructions.Rules, "behind", "an edited block of an earlier version")
+	same(t, found.Steps[3].State, "missing", "the step, with rules that fell behind")
+	same(t, found.Steps[3].Title, "Update Airbender's instructions for agents", "the step's name")
+	if !strings.Contains(found.Steps[3].Why, "yours are from version 2, the current ones are version 3") {
+		t.Fatalf("the step says: %s", found.Steps[3].Why)
+	}
+	asked := repo.fails("setup", "instructions", "-y")
+	same(t, asked.Kind, "usage", "the step without the choice")
+	if !strings.Contains(asked.Error, "--rules replace or --rules keep") {
+		t.Fatalf("got %q", asked.Error)
+	}
+	same(t, repo.fails("setup", "instructions", "-y", "--rules", "burn").Kind, "usage", "a choice that is neither")
+	same(t, repo.file("AGENTS.md"), behind, "the file after refused steps")
+
+	// Keep: nothing of theirs changes but the version it is compared with,
+	// and the step is done until the rules change again.
+	repo.ok("setup", "instructions", "-y", "--rules", "keep")
+	same(t, repo.file("AGENTS.md"), "# Mine\n\n"+own+"\n## After\n", "the file after keeping")
+	same(t, repo.setup().Steps[3].State, "done", "the step after keeping")
+
+	// Replace: the current rules stand where theirs stood, the rest of the
+	// file is untouched, and what was there is saved outside the working
+	// files.
+	os.WriteFile(filepath.Join(repo.root, "AGENTS.md"), []byte(behind), 0o644)
+	said := repo.ok("setup", "instructions", "-y", "--rules", "replace")
+	same(t, repo.file("AGENTS.md"), "# Mine\n\n"+current+"\n## After\n", "the file after replacing")
+	same(t, repo.setup().Instructions.Rules, "current", "the rules after replacing")
+	at := strings.Index(said, "saved in ")
+	if at == -1 {
+		t.Fatalf("the step does not say where the earlier rules are: %s", said)
+	}
+	saved := strings.TrimSuffix(strings.TrimSpace(said[at+len("saved in "):]), ".")
+	kept, err := os.ReadFile(saved)
+	if err != nil || !strings.Contains(string(kept), "Every piece of work has an issue, here too") {
+		t.Fatalf("the earlier rules were not saved in %s: %v", saved, err)
+	}
+	// In the repository's own git folder, which no commit takes in.
+	if !strings.HasPrefix(saved, filepath.Join(repo.root, ".git", "bend")+string(filepath.Separator)) {
+		t.Fatalf("the earlier rules were not saved in the repository's git folder: %s", saved)
+	}
+
+	// An earlier version of ours, unchanged: offered as an update, in
+	// words that say the repository was set up and nothing is wrong.
+	earlier, err := os.ReadFile(filepath.Join("..", "internal", "instructions", "testdata", "rules-v2-bend.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(repo.root, "AGENTS.md"), earlier, 0o644)
+	update := repo.setup()
+	same(t, update.Instructions.Rules, "old", "an unchanged earlier version")
+	same(t, update.Steps[3].Title, "Update Airbender's instructions for agents", "the step's name for an update")
+	if why := update.Steps[3].Why; !strings.Contains(why, "it has version 2, the current ones are version 3") || !strings.Contains(why, "Nothing is wrong here") {
+		t.Fatalf("the step says: %s", why)
+	}
+	repo.ok("setup", "instructions", "-y")
+	same(t, repo.file("AGENTS.md"), current, "the file after the update")
+
+	// A block whose end marker is gone cannot be replaced: nothing says
+	// where it stops, and the owner's text below it would go too. Refused,
+	// with nothing changed and nothing saved; keeping it still works.
+	open := strings.Replace(behind, "<!-- airbender:rules:end -->\n", "", 1)
+	os.WriteFile(filepath.Join(repo.root, "AGENTS.md"), []byte(open), 0o644)
+	refused := repo.fails("setup", "instructions", "-y", "--rules", "replace")
+	same(t, refused.Kind, "refused", "replacing a block with no end marker")
+	if !strings.Contains(refused.Error, "no end marker") {
+		t.Fatalf("got %q", refused.Error)
+	}
+	same(t, repo.file("AGENTS.md"), open, "the file after the refusal")
+	repo.ok("setup", "instructions", "-y", "--rules", "keep")
+	if !strings.HasSuffix(repo.file("AGENTS.md"), "\n## After\n") {
+		t.Fatalf("keeping a block with no end marker lost what follows it:\n%s", repo.file("AGENTS.md"))
+	}
+
+	// A block with no version line at all (written by hand between the
+	// markers) is behind too, and keeping it gives it one.
+	bare := "<!-- airbender:rules:start -->\n## My own rules\n\nDo as I say.\n<!-- airbender:rules:end -->\n"
+	os.WriteFile(filepath.Join(repo.root, "AGENTS.md"), []byte(bare), 0o644)
+	same(t, repo.setup().Instructions.Rules, "behind", "a block that names no version")
+	repo.ok("setup", "instructions", "-y", "--rules", "keep")
+	same(t, repo.file("AGENTS.md"), "<!-- airbender:rules:start -->\n<!-- airbender:rules:version 3 -->\n## My own rules\n\nDo as I say.\n<!-- airbender:rules:end -->\n", "a kept block that named no version")
+	same(t, repo.setup().Steps[3].State, "done", "the step after keeping a block of the owner's own")
+}

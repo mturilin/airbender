@@ -34,7 +34,7 @@
 //   would start dozens.
 // - The worker writes nothing itself. It is given the issues' text, judges
 //   them (it may read the code), and reports its sizes through a tool of
-//   the plugin's, `beads_report_sizes`; the plugin writes the label and the
+//   the plugin's, `airbender_report_sizes`; the plugin writes the label and the
 //   comment, after checking at that moment that the issue may still be
 //   sized. The first version had the worker run bd, and failed on its
 //   first real run: an agent's sandbox has the beads database read-only,
@@ -170,7 +170,7 @@ export function toSize(
 }
 
 /** The tool a worker reports its sizes with (registered in server.ts). */
-export const REPORT_TOOL = "beads_report_sizes";
+export const REPORT_TOOL = "airbender_report_sizes";
 
 /** What every worker's title begins with; how its thread is recognised. */
 const WORKER_TITLE = "Airbender sizing ";

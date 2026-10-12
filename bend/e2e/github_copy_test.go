@@ -229,3 +229,21 @@ func TestGitHubCopyKeptDataIsAHiddenLineAndASyncNamesItsIssues(t *testing.T) {
 		t.Fatal("the branch is still on GitHub after it was taken out")
 	}
 }
+
+func TestGitHubCopyNotesAddUpAndAnIssueCanBeSetAside(t *testing.T) {
+	repo := newCopyScratch(t)
+	id := repo.create("Copy: notes and stopping")
+	repo.ok("note", id, "First note.")
+	repo.ok("note", id, "Second note.")
+	if shown := repo.ok("show", id); !strings.Contains(shown, "First note.\n\nSecond note.") {
+		t.Fatalf("the notes, here:\n%s", shown)
+	}
+	repo.ok("start", id)
+	repo.ok("stop", id)
+	same(t, repo.show(id).Status, "open", "the status, here")
+	repo.ok("sync")
+	live := repo.live("show", id, "--json")
+	if !strings.Contains(live, `First note.\n\nSecond note.`) || !strings.Contains(live, `"status": "open"`) {
+		t.Fatalf("GitHub lacks the notes, or the issue is still in progress:\n%s", live)
+	}
+}

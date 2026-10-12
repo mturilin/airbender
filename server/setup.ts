@@ -273,6 +273,8 @@ export function createSetup({
       rulesPresent: false,
       instructions: {
         rules: "none" as const,
+        rulesVersion: 0,
+        currentVersion: 0,
         beadsBlocks: [],
         beadsHooks: [],
         machineWide: [],
@@ -428,8 +430,9 @@ export function createSetup({
    * terminal are checked here first, so that no terminal opens for nothing.
    *
    * @param option The install method's id (for "install"), the tracker's
-   *   name (for "tracker"), or the keys of the facts to carry over as a
-   *   JSON list (for "facts"); null otherwise.
+   *   name (for "tracker"), the keys of the facts to carry over as a JSON
+   *   list (for "facts"), or "replace" or "keep" for rules that were
+   *   changed by hand and fell behind (for "rules"); null otherwise.
    * @returns `{ message: null }` once the step is done or its terminal is
    *   started; otherwise the reason in plain words.
    * Side effects: whatever the step does (see bend/internal/setup); for a
@@ -491,7 +494,13 @@ export function createSetup({
         ...(use === "github" && repository ? [`--repository=${repository}`] : []),
       ]);
     }
-    if (action === "rules") return direct(["instructions", "--yes"]);
+    if (action === "rules") {
+      // Rules the owner changed by hand that fell behind the current ones:
+      // the tab asked which they want, and bend is told. Anywhere else the
+      // option is not needed, and bend ignores it.
+      const rules = option === "replace" || option === "keep" ? [`--rules=${option}`] : [];
+      return direct(["instructions", "--yes", ...rules]);
+    }
     if (action === "facts") {
       let keys: unknown;
       try {

@@ -13,9 +13,12 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { standardWorkflow } from "../shared/standard-workflow.ts";
 import {
+  CURRENT_TOOL,
   CURRENT_TOOL_INSTRUCTIONS,
+  EARLIER_TOOL_NAMES,
   currentRefusal,
   moveToolInstructions,
+  renamedTo,
   switchNote,
   workflowLine,
 } from "./agent-tools.ts";
@@ -75,7 +78,7 @@ test("a folder whose issues cannot be read refuses, with the folder's reason", (
 test("the agent is told which workflow applies and where the issue stands", () => {
   const simple = workflowLine(null, "plan");
   assert.match(simple, /simple workflow/u);
-  assert.match(simple, /do not call beads_workflow_move/u);
+  assert.match(simple, /do not call airbender_workflow_move/u);
   // A step kept from before the switch is not mentioned on Simple.
   assert.doesNotMatch(simple, /Plan/u);
   const agents = workflowLine(standardWorkflow, "plan");
@@ -96,7 +99,7 @@ test("a switch of workflow is told as a note that asks for nothing", () => {
     assert.match(note, new RegExp(`${to} workflow`, "u"));
     assert.match(note, /No action is needed\.$/u);
   }
-  assert.match(switchNote("simple"), /do not call beads_workflow_move/u);
+  assert.match(switchNote("simple"), /do not call airbender_workflow_move/u);
 });
 
 test("the step tool's standing instructions fit the limit BB sets", () => {
@@ -105,4 +108,23 @@ test("the step tool's standing instructions fit the limit BB sets", () => {
   assert.ok(
     moveToolInstructions(standardWorkflow.describeForAgents()).length <= 4096,
   );
+});
+
+test("the tools have their new names, and each earlier name points at one", () => {
+  assert.equal(CURRENT_TOOL, "airbender_set_current");
+  assert.deepEqual(
+    EARLIER_TOOL_NAMES.map(([earlier, now]) => `${earlier} -> ${now}`),
+    ["beads_set_current -> airbender_set_current", "beads_workflow_move -> airbender_workflow_move"],
+  );
+  // What an agent reads of a tool offered under an earlier name is one
+  // short sentence, far from the limit BB sets on a tool's instructions.
+  assert.ok(renamedTo(CURRENT_TOOL).length < 120);
+  assert.match(renamedTo(CURRENT_TOOL), /Call airbender_set_current instead\./u);
+  // The standing texts name bend and the new names only.
+  const texts = [
+    CURRENT_TOOL_INSTRUCTIONS,
+    moveToolInstructions(standardWorkflow.describeForAgents()),
+  ].join("\n");
+  assert.doesNotMatch(texts, /\bbd\b|beads_|beads issue/u);
+  assert.match(texts, /`bend start`/u);
 });

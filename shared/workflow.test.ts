@@ -228,7 +228,7 @@ test("the agent is told its step, how to report it, and about sub-issues", () =>
   };
   for (const state of flow.states.filter((s) => s.actor === "agent")) {
     const text = flow.instruction(state, issue);
-    assert.match(text, /Work on beads issue x-1: "Fix \\"it\\""/u);
+    assert.match(text, /Work on issue x-1: "Fix \\"it\\""/u);
     assert.ok(text.includes(`"${state.label}" step`));
     assert.ok(text.includes(MOVE_TOOL), state.id);
     // Every move the agent may make in this state is named in its text.
@@ -390,7 +390,7 @@ test("the size can be changed until the work reaches the user, and the agent is 
     "s",
     "m",
   );
-  assert.match(text ?? "", /changed the size of beads issue x-1 \("T"\) from S to M/u);
+  assert.match(text ?? "", /changed the size of issue x-1 \("T"\) from S to M/u);
   assert.match(text ?? "", /"Implement" step/u);
   assert.match(text ?? "", /move `to:<step id>`/u);
   // An issue that had no size yet.
@@ -703,23 +703,20 @@ test("the epic an issue belongs to is the nearest one above it that holds a bran
   assert.equal(over("e"), null);
 });
 
-test("on another tracker every instruction names bend, and with beads it is as it was", () => {
+test("every instruction names bend and nothing of beads, whatever the tracker", () => {
   const sub = { id: "x-2", title: "A part" };
   for (const state of flow.states) {
     for (const size of [null, "s", "m", "l"]) {
       for (const openSubIssues of [[], [sub]]) {
         for (const note of [undefined, "Do it again."]) {
-          const issue = { id: "x-1", title: "A thing", size, openSubIssues };
-          const beads = flow.instruction(state, issue, note);
-          // Saying "bd" is the same as saying nothing: the text beads
-          // repositories have always had.
-          assert.equal(flow.instruction(state, { ...issue, commands: "bd" }, note), beads);
-          const bend = flow.instruction(state, { ...issue, commands: "bend" }, note);
-          // Nothing of beads but the tools' own names.
-          const without = bend.replaceAll("beads_workflow_move", "").replaceAll("beads_set_current", "");
-          assert.doesNotMatch(without, /`bd\b|\bbd |beads/iu, `${state.id} ${size}`);
-          assert.match(bend, /^Work on issue x-1: "A thing"\./u);
-          assert.match(bend, /Start with `bend show x-1` and `bend comments x-1`\./u);
+          const told = flow.instruction(
+            state,
+            { id: "x-1", title: "A thing", size, openSubIssues },
+            note,
+          );
+          assert.doesNotMatch(told, /`bd\b|\bbd |beads/iu, `${state.id} ${size}`);
+          assert.match(told, /^Work on issue x-1: "A thing"\./u);
+          assert.match(told, /Start with `bend show x-1` and `bend comments x-1`\./u);
         }
       }
     }
@@ -731,30 +728,18 @@ test("on another tracker every instruction names bend, and with beads it is as i
       title: "A thing",
       size,
       openSubIssues: [],
-      commands: "bend",
     });
-  assert.match(told("define", "l"), /with `bend write x-1 description` and `bend write x-1 done`: a description/u);
+  assert.match(
+    told("define", "l"),
+    /with `bend write x-1 description` and `bend write x-1 done`: a description/u,
+  );
   assert.match(told("plan", "l"), /the issue's plan \(`bend write x-1 plan`\)/u);
   assert.match(told("implement", "l"), /\(`bend start x-1`\)/u);
   assert.match(
     told("implement", "s"),
     /onto it with `bend write x-1 description` and `bend write x-1 done`/u,
   );
-  // The owner's own words are left as written, even where they name beads.
-  const title = "Port the beads issue importer; see `bd show x` for $& and $1";
-  const own = flow.instruction(
-    stateOf(flow, "implement"),
-    {
-      id: "x-1",
-      title,
-      size: "l",
-      openSubIssues: [{ id: "x-2", title: "Run `bd update --design` once" }],
-      commands: "bend",
-    },
-    "Use `bd show` on the beads issue first.",
-  );
-  assert.ok(own.includes(JSON.stringify(title)));
-  assert.ok(own.includes(JSON.stringify("Run `bd update --design` once")));
-  assert.ok(own.includes("Use `bd show` on the beads issue first."));
-  assert.match(own, /^Work on issue x-1: /u);
+  // The standing text for the step tool, and the tool's name.
+  assert.equal(MOVE_TOOL, "airbender_workflow_move");
+  assert.doesNotMatch(flow.describeForAgents(), /\bbd\b|beads/iu);
 });

@@ -163,6 +163,13 @@ var Commands = []Command{
 		Group:   groupChange,
 	},
 	{
+		Name:    "note",
+		Usage:   "<id> [text]",
+		Summary: "Add to an issue's notes, keeping what is there",
+		Details: "The text is added as a new paragraph at the end of the notes.\nTo replace the notes as a whole: bend write <id> notes.\nFor long text use --text-file.",
+		Group:   groupChange,
+	},
+	{
 		Name:    "decide",
 		Usage:   "<id> [text]",
 		Summary: "Record a decision and its reason",
@@ -174,6 +181,13 @@ var Commands = []Command{
 		Usage:   "<id>",
 		Summary: "Mark an issue as being worked on",
 		Details: "With --as, the issue is also assigned to that name.",
+		Group:   groupChange,
+	},
+	{
+		Name:    "stop",
+		Usage:   "<id>",
+		Summary: "Put an issue that is in progress back to open",
+		Details: "For work that was set aside: nobody is working on the issue now.\nWho it is assigned to is not changed.",
 		Group:   groupChange,
 	},
 	{
@@ -318,9 +332,10 @@ var Commands = []Command{
 			{"    --keep <key>", "facts: a saved fact to carry over (repeatable)"},
 			{"    --keep-all", "facts: carry all of them over"},
 			{"    --keep-none", "facts: carry none over"},
+			{"    --rules <replace|keep>", "instructions: what to do with rules changed by hand that are behind the current version"},
 		},
 		Spec: OptionSpec{
-			Values: []string{"use", "repository", "method"},
+			Values: []string{"use", "repository", "method", "rules"},
 			Lists:  []string{"keep"},
 			Flags:  []string{"yes", "no-input", "keep-all", "keep-none"},
 			Short:  map[string]string{"y": "yes"},

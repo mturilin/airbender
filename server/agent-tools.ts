@@ -27,14 +27,34 @@
 //   through the folder and workflow checks in server/work.ts.
 
 import { CLOSED_STATUS } from "../shared/constants.ts";
+import { MOVE_TOOL } from "../shared/standard-workflow.ts";
 import { nextWorkOf, stateOf } from "../shared/workflow.ts";
 import type { Workflow } from "../shared/workflow.ts";
 import type { WorkflowId } from "../shared/workflows.ts";
 import type { IssuesResult } from "./contract.ts";
 
+/** The name of the "set the current issue" tool. */
+export const CURRENT_TOOL = "airbender_set_current";
+
+/**
+ * The names the two tools had before (bead-bb-c9l.10), each with its
+ * present one. They are still offered, doing the same: an agent calls a
+ * tool by name, a conversation that was open at the change keeps the names
+ * it started with, and a repository keeps the rules that name them until
+ * its instructions step is run again. To be taken out in a later issue.
+ */
+export const EARLIER_TOOL_NAMES: readonly (readonly [earlier: string, now: string])[] = [
+  ["beads_set_current", CURRENT_TOOL],
+  ["beads_workflow_move", MOVE_TOOL],
+];
+
+/** What a tool offered under an earlier name says of itself. */
+export const renamedTo = (now: string): string =>
+  `The earlier name of the ${now} tool, which does the same. Call ${now} instead.`;
+
 /** Standing instructions for the "set the current issue" tool. */
 export const CURRENT_TOOL_INSTRUCTIONS =
-  "This applies only if the folder you work in tracks its issues with Airbender (it has a .beads folder, or a .bend.json that names a tracker); otherwise ignore the beads_set_current tool. Its answer also tells you which workflow the repository is on and, on the standard one, which step the issue is at. When you start working on an issue, or switch to another one, call beads_set_current with its id so the user can see what this thread is working on. Call it with an empty id when the thread is no longer working on any issue. It does not change the issue itself: still mark it started with the repository's own command (bd, or bend where the issues are not in beads). Do not close an issue when you finish it; the user validates the work and closes it.";
+  `This applies only if the folder you work in tracks its issues with Airbender (it has a .beads folder, or a .bend.json that names a tracker); otherwise ignore the ${CURRENT_TOOL} tool. Its answer also tells you which workflow the repository is on and, on the standard one, which step the issue is at. When you start working on an issue, or switch to another one, call ${CURRENT_TOOL} with its id so the user can see what this thread is working on. Call it with an empty id when the thread is no longer working on any issue. It does not change the issue itself: still mark it started, with \`bend start\`. Do not close an issue when you finish it; the user validates the work and closes it.`;
 
 /**
  * Standing instructions for the step tool: the condition first, then the
@@ -43,7 +63,7 @@ export const CURRENT_TOOL_INSTRUCTIONS =
  * @param workflowText What the standard workflow says to agents.
  */
 export function moveToolInstructions(workflowText: string): string {
-  return `This applies only if the folder you work in tracks its issues with Airbender (a .beads folder, or .bend.json) and its repository is on the standard workflow. Which workflow a repository is on is the user's choice and can change: you are told it when you set your current issue with beads_set_current, when the user sets one for you, and when the user switches it. Where there is neither, or the repository is on the simple workflow, there are no steps: do not call the step tool; it refuses and says why.\n\n${workflowText}`;
+  return `This applies only if the folder you work in tracks its issues with Airbender (a .beads folder, or .bend.json) and its repository is on the standard workflow. Which workflow a repository is on is the user's choice and can change: you are told it when you set your current issue with ${CURRENT_TOOL}, when the user sets one for you, and when the user switches it. Where there is neither, or the repository is on the simple workflow, there are no steps: do not call the step tool; it refuses and says why.\n\n${workflowText}`;
 }
 
 /**
@@ -86,12 +106,12 @@ export function workflowLine(
   step: string | null,
 ): string {
   if (workflow === null) {
-    return "This repository is on the simple workflow: issues have no steps, so do not call beads_workflow_move. The user directs the work and closes issues themselves.";
+    return `This repository is on the simple workflow: issues have no steps, so do not call ${MOVE_TOOL}. The user directs the work and closes issues themselves.`;
   }
   const state = stateOf(workflow, step);
   const whose =
     nextWorkOf(state) === "agent" ? "the agent's work" : "waiting for the user";
-  return `This repository is on the standard workflow: the issue is at the "${state.label}" step (${whose}). Steps are reported with beads_workflow_move.`;
+  return `This repository is on the standard workflow: the issue is at the "${state.label}" step (${whose}). Steps are reported with ${MOVE_TOOL}.`;
 }
 
 /**
@@ -100,6 +120,6 @@ export function workflowLine(
  */
 export function switchNote(to: WorkflowId): string {
   return to === "simple"
-    ? "FYI: the user switched this repository to the simple workflow. Issues have no steps from now on: do not call beads_workflow_move, and do not wait for a step to be approved. The user directs the work and closes issues themselves. No action is needed."
-    : "FYI: the user switched this repository to the standard workflow. Issues go through their steps again, each from the step it had: you are told the step when you are started on an issue, and you report steps with beads_workflow_move. No action is needed.";
+    ? `FYI: the user switched this repository to the simple workflow. Issues have no steps from now on: do not call ${MOVE_TOOL}, and do not wait for a step to be approved. The user directs the work and closes issues themselves. No action is needed.`
+    : `FYI: the user switched this repository to the standard workflow. Issues go through their steps again, each from the step it had: you are told the step when you are started on an issue, and you report steps with ${MOVE_TOOL}. No action is needed.`;
 }

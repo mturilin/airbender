@@ -22,8 +22,10 @@ Create and change:
   edit <id> [options]       Change title, type, priority, category, assignee, labels or kept data
   write <id> <part> [text]  Replace one written part of an issue
   comment <id> [text]       Add a comment
+  note <id> [text]          Add to an issue's notes, keeping what is there
   decide <id> [text]        Record a decision and its reason
   start <id>                Mark an issue as being worked on
+  stop <id>                 Put an issue that is in progress back to open
   close <id> [options]      Close an issue
   reopen <id>               Reopen a closed issue
 
@@ -90,8 +92,10 @@ Create and change:
   edit <id> [options]       Change title, type, priority, category, assignee, labels or kept data
   write <id> <part> [text]  Replace one written part of an issue
   comment <id> [text]       Add a comment
+  note <id> [text]          Add to an issue's notes, keeping what is there
   decide <id> [text]        Record a decision and its reason
   start <id>                Mark an issue as being worked on
+  stop <id>                 Put an issue that is in progress back to open
   close <id> [options]      Close an issue
   reopen <id>               Reopen a closed issue
 
@@ -317,6 +321,24 @@ Options for every command:
       --as <name>      Who is acting, for the tracker's history
   -h, --help           Help for bend or for one command
 
+$ bend note --help
+[exit 0]
+Add to an issue's notes, keeping what is there.
+
+Usage:
+  bend note <id> [text]
+
+The text is added as a new paragraph at the end of the notes.
+To replace the notes as a whole: bend write <id> notes.
+For long text use --text-file.
+
+Options for every command:
+  -C, --dir <path>     Run as if started in <path>
+      --json           Print machine-readable JSON
+      --text-file <f>  Read the text argument from a file ("-" for stdin)
+      --as <name>      Who is acting, for the tracker's history
+  -h, --help           Help for bend or for one command
+
 $ bend decide --help
 [exit 0]
 Record a decision and its reason.
@@ -342,6 +364,23 @@ Usage:
   bend start <id>
 
 With --as, the issue is also assigned to that name.
+
+Options for every command:
+  -C, --dir <path>     Run as if started in <path>
+      --json           Print machine-readable JSON
+      --text-file <f>  Read the text argument from a file ("-" for stdin)
+      --as <name>      Who is acting, for the tracker's history
+  -h, --help           Help for bend or for one command
+
+$ bend stop --help
+[exit 0]
+Put an issue that is in progress back to open.
+
+Usage:
+  bend stop <id>
+
+For work that was set aside: nobody is working on the issue now.
+Who it is assigned to is not changed.
 
 Options for every command:
   -C, --dir <path>     Run as if started in <path>
@@ -624,6 +663,7 @@ Options:
       --keep <key>               facts: a saved fact to carry over (repeatable)
       --keep-all                 facts: carry all of them over
       --keep-none                facts: carry none over
+      --rules <replace|keep>     instructions: what to do with rules changed by hand that are behind the current version
 
 Options for every command:
   -C, --dir <path>     Run as if started in <path>
@@ -651,12 +691,12 @@ Options for every command:
 
 $ bend version
 [exit 0]
-bend 5
+bend 6
 
 $ bend version --json
 [exit 0]
 {
-  "version": 5
+  "version": 6
 }
 
 $ bend status
@@ -1493,6 +1533,61 @@ $ bend start <other> --as agent-7 --json
   "id": "<other>"
 }
 
+$ bend stop <other>
+[exit 0]
+<other> is open again: nobody is working on it.
+
+$ bend stop <other> --json
+[exit 0]
+{
+  "ok": true,
+  "id": "<other>",
+  "changed": false
+}
+
+$ bend show <other>
+[exit 0]
+<other>  Tidy the cart
+open · P2 · task · assigned to agent-7
+
+Links:
+  discovered-from  <epic>  Checkout
+  <blocker>  Payment provider contract  — blocked-by this
+
+$ bend start <other> --as agent-7
+[exit 0]
+<other> is in progress.
+
+$ bend note <other> "First note."
+[exit 0]
+Added to the notes of <other>.
+
+$ bend note <other> "Second note." --json
+[exit 0]
+{
+  "ok": true,
+  "id": "<other>"
+}
+
+$ bend note <other>
+[exit 2]
+[standard error]
+bend: Missing the text (as an argument, or with --text-file).
+
+$ bend show <other>
+[exit 0]
+<other>  Tidy the cart
+in_progress · P2 · task · assigned to agent-7
+
+Links:
+  discovered-from  <epic>  Checkout
+  <blocker>  Payment provider contract  — blocked-by this
+
+NOTES
+First note.
+
+Second note.
+
 $ bend close <other> --reason validated --as agent-7
 [exit 0]
 Closed <other>.
@@ -1501,6 +1596,11 @@ $ bend start <other>
 [exit 1]
 [standard error]
 bend: <other> is closed. Reopen it before starting work on it.
+
+$ bend stop <other>
+[exit 1]
+[standard error]
+bend: <other> is closed. Reopen it to work on it again.
 
 $ bend list --status closed
 [exit 0]

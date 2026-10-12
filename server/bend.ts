@@ -48,7 +48,7 @@ import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 /** The bend this plugin needs at least; see `Version` in bend's cli. */
-export const NEEDED_VERSION = 5;
+export const NEEDED_VERSION = 6;
 
 /** How long one run of bend may take. */
 const BEND_TIMEOUT_MS = 60_000;

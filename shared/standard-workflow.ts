@@ -109,7 +109,7 @@ import type {
 } from "./workflow.ts";
 
 /** The tool an agent reports a move with (registered in server.ts). */
-export const MOVE_TOOL = "beads_workflow_move";
+export const MOVE_TOOL = "airbender_workflow_move";
 
 const states: WorkflowState[] = [
   {
@@ -687,10 +687,10 @@ const SIZE_PATHS = [
 ];
 
 /** The four things a definition is made of; shared by the paths that write one. */
-const DEFINE_POINTS = [
+const definePoints = (id: string) => [
         "- Make sure it is clear what is wanted, why, and what \"done\" means. Read the code it touches.",
         "- If the issue records open questions for the user, or you have your own, ask them and wait for the answers. Being started on an issue is not permission to assume them. Ask at most a few, only ones whose answer changes what gets built.",
-        "- Then write onto the issue, with `bd update`: a description (what is wanted and why, in the user's words where possible, how things work today, what is out of scope) and acceptance criteria (short checks a person can verify). Set its type and priority if they are missing.",
+        `- Then write onto the issue, with \`bend write ${id} description\` and \`bend write ${id} done\`: a description (what is wanted and why, in the user's words where possible, how things work today, what is out of scope) and acceptance criteria (short checks a person can verify). Set its type and priority if they are missing.`,
         "- Be proportionate: a one-line request gets a short write-up. Stay inside the request. Format with Markdown. Check every claim about the code against the code.",
 ];
 
@@ -710,8 +710,8 @@ function defineText(id: string, size: string | null): string[] {
       return [
         "This issue is sized M, medium: define it and plan it together, for one review by the user. Do not build yet.",
         "",
-        ...DEFINE_POINTS,
-        "- Then work out how to do it and write the plan into the issue's design field (`bd update --design`): the files, the order, anything risky, how you will check it, and what you rejected and why. Do not repeat the definition in the plan.",
+        ...definePoints(id),
+        `- Then work out how to do it and write the plan into the issue's plan (\`bend write ${id} plan\`): the files, the order, anything risky, how you will check it, and what you rejected and why. Do not repeat the definition in the plan.`,
         "- Present both to the user in plain words, briefly.",
         "",
         `When both are on the issue, ${report(id, "to:review-plan")} saying that definition and plan are ready together, and wait: the user approves them or sends them back from the Airbender tab.`,
@@ -720,7 +720,7 @@ function defineText(id: string, size: string | null): string[] {
       return [
         "This issue is sized L, large: every step. Your job now is to define it: turn it from a request into something clear enough to build. Do not plan or build yet.",
         "",
-        ...DEFINE_POINTS,
+        ...definePoints(id),
         "",
         `When the definition is on the issue, ${report(id, "done")}, and tell the user it is ready for them to review. They approve it or send it back from the Airbender tab.`,
       ];
@@ -754,7 +754,7 @@ function stepText(
         "Your job now is to plan the work. The definition is agreed; do not change any file yet, and do not repeat the definition in the plan.",
         "",
         "- Say what you will change and how: the files, the order, anything risky, and how you will check it.",
-        "- Write the plan into the issue's design field (`bd update --design`), with what you rejected and why.",
+        `- Write the plan into the issue's plan (\`bend write ${id} plan\`), with what you rejected and why.`,
         "- Present the plan to the user in plain words.",
         "",
         `When the plan is on the issue, ${report(id, "done")}, and wait: the user approves it or sends it back from the Airbender tab.`,
@@ -766,11 +766,11 @@ function stepText(
           ? [
               "This issue is sized S, small: there was no separate definition or plan, and this step is the whole job. The user sees it once, at the end.",
               "",
-              "- First make sure the issue itself says what is wanted: if its description or acceptance criteria are missing or thin, write a short version of each onto it with `bd update`. A few lines; no plan document.",
+              `- First make sure the issue itself says what is wanted: if its description or acceptance criteria are missing or thin, write a short version of each onto it with \`bend write ${id} description\` and \`bend write ${id} done\`. A few lines; no plan document.`,
               "- If it turns out not to be small after all, stop and say so to the user, and record the larger size with the move `size:m` or `size:l` and a note; that takes the issue back to Define on that path.",
             ]
           : ["Your job now is to do the work. The plan is agreed.", ""]),
-        "- Mark the issue in progress (`bd update --status in_progress`) and build what the plan says.",
+        `- Mark the issue in progress (\`bend start ${id}\`) and build what the plan says.`,
         "- Record decisions, surprises and anything that did not work as comments on the issue as you go. Follow-up work becomes its own issue.",
         "- Check your work: run what can be run.",
         "",
@@ -867,14 +867,14 @@ function instruction(
           ...issue.openSubIssues.map(
             (sub) => `- ${sub.id}: ${JSON.stringify(sub.title)}`,
           ),
-          "Read each with `bd show` as well, and when you build, mark each in progress when you start it and comment on it when it is finished. Do not close any of them.",
+          "Read each with `bend show` as well, and when you build, mark each in progress when you start it and comment on it when it is finished. Do not close any of them.",
         ];
   const back =
     note === undefined || note.trim() === ""
       ? []
       : ["", `It was sent back to this step with this note: ${note.trim()}`];
   const text = [
-    `Work on beads issue ${issue.id}: ${JSON.stringify(issue.title)}. It is at the "${state.label}" step. Start with \`bd show ${issue.id}\` and \`bd comments ${issue.id}\`.`,
+    `Work on issue ${issue.id}: ${JSON.stringify(issue.title)}. It is at the "${state.label}" step. Start with \`bend show ${issue.id}\` and \`bend comments ${issue.id}\`.`,
     ...epic,
     ...inEpic,
     ...landing,
@@ -882,76 +882,7 @@ function instruction(
     "",
     ...stepText(state.id, issue.id, issue.size, issue.workTree === true),
   ].join("\n");
-  return issue.commands === "bend" ? withBend(text, issue.id, ownWords(issue, note)) : text;
-}
-
-/**
- * The texts in an instruction that are the owner's own, as they stand in
- * it: the titles and the note it was sent back with. They are not
- * Airbender's wording and are left as written when the commands are
- * replaced.
- */
-function ownWords(issue: WorkflowIssue, note?: string): string[] {
-  return [
-    JSON.stringify(issue.title),
-    ...issue.openSubIssues.map((sub) => JSON.stringify(sub.title)),
-    ...(issue.epic === undefined ? [] : [JSON.stringify(issue.epic.title), issue.epic.branch]),
-    ...(note === undefined || note.trim() === "" ? [] : [note.trim()]),
-  ];
-}
-
-/**
- * The commands of beads that the instructions name, each with what bend
- * calls the same thing. `ID` stands for the issue's id.
- *
- * In this order: a longer phrase before a shorter one it contains.
- */
-const BEND_FOR: readonly (readonly [string, string])[] = [
-  ["beads issue ", "issue "],
-  ["the issue's design field (`bd update --design`)", "the issue's plan (`bend write ID plan`)"],
-  ["`bd update --status in_progress`", "`bend start ID`"],
-  [
-    "with `bd update`: a description",
-    "with `bend write ID description` and `bend write ID done`: a description",
-  ],
-  [
-    "onto it with `bd update`",
-    "onto it with `bend write ID description` and `bend write ID done`",
-  ],
-  ["`bd update`", "`bend write`"],
-  ["`bd show", "`bend show"],
-  ["`bd comments", "`bend comments"],
-];
-
-/**
- * An instruction with bend's commands in place of beads': for a repository
- * whose issues are not in beads (bead-bb-c9l.6).
- *
- * The beads text is written once, above, and this is made from it, so the
- * two ask the same of an agent and the beads text stays letter for letter
- * what it was. A test holds that nothing of beads is left in the result.
- *
- * @param text An instruction as written for beads.
- * @param id The issue's id, put where a command needs it.
- * @param keep Texts inside the instruction that are not Airbender's own
- *   wording (titles, the owner's note) and must come out as they went in,
- *   even where they happen to name a command of beads.
- */
-export function withBend(text: string, id: string, keep: readonly string[] = []): string {
-  // Each kept text is set aside behind a mark no text holds, and put back
-  // afterwards. Longest first, so that one inside another is not cut. The
-  // replacements are given as functions: a "$" in an id or a title must
-  // not be read as a pattern.
-  const kept = [...new Set(keep)]
-    .filter((own) => own !== "")
-    .sort((a, b) => b.length - a.length);
-  const mark = (index: number) => `\u0000${index}\u0000`;
-  const aside = kept.reduce((told, own, index) => told.replaceAll(own, () => mark(index)), text);
-  const replaced = BEND_FOR.reduce(
-    (told, [bd, bend]) => told.replaceAll(bd, () => bend.replaceAll("ID", () => id)),
-    aside,
-  );
-  return kept.reduce((told, own, index) => told.replaceAll(mark(index), () => own), replaced);
+  return text;
 }
 
 /** A size's label, for sentences; the id itself for one this file does not know. */
@@ -977,7 +908,7 @@ function resizeInstruction(
   to: string,
 ): string {
   const text = [
-    `The user changed the size of beads issue ${issue.id} (${JSON.stringify(issue.title)}) ${from === null ? "" : `from ${sizeLabel(from)} `}to ${sizeLabel(to)}. It is at the "${state.label}" step. Take the ${sizeLabel(to)} path from here.`,
+    `The user changed the size of issue ${issue.id} (${JSON.stringify(issue.title)}) ${from === null ? "" : `from ${sizeLabel(from)} `}to ${sizeLabel(to)}. It is at the "${state.label}" step. Take the ${sizeLabel(to)} path from here.`,
     "",
     "The paths:",
     ...SIZE_PATHS,
@@ -986,7 +917,7 @@ function resizeInstruction(
     "- A smaller size means the remaining reviews before the work are dropped: go on to the work.",
     `- Move the issue to the step the new path needs now with ${report(issue.id, "to:<step id>")}, saying why, and carry on from there. If it is already at the right step, say so to the user in one line and carry on.`,
   ].join("\n");
-  return issue.commands === "bend" ? withBend(text, issue.id, ownWords(issue)) : text;
+  return text;
 }
 
 function describeForAgents(): string {

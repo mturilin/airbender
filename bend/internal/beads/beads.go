@@ -862,6 +862,23 @@ func (beads *Tracker) Start(id string) error {
 	return err
 }
 
+// Stop puts an issue that is in progress back to open; one that is not in
+// progress is left alone. Refused for a closed issue.
+func (beads *Tracker) Stop(id string) error {
+	_, row, err := beads.needIn(id)
+	if err != nil {
+		return err
+	}
+	if row.Status == closed {
+		return tracker.Refused("%s is closed. Reopen it to work on it again.", id)
+	}
+	if row.Status != "in_progress" {
+		return nil
+	}
+	_, err = beads.bd([]string{"update", id, "--json", "--status", "open"}, nil)
+	return err
+}
+
 // Close closes an issue; reason may be "".
 func (beads *Tracker) Close(id, reason string) error {
 	if _, _, err := beads.needIn(id); err != nil {

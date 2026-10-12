@@ -186,8 +186,10 @@ From top to bottom the tab shows:
 5. **New issue field** (pinned at the bottom): type a title and press Enter;
    the chevron adds type, priority and description.
 
-The agent can set the thread's bead itself with the `beads_set_current` tool
-and move an issue's step with `beads_workflow_move`. Both are offered to
+The agent can set the thread's issue itself with the `airbender_set_current`
+tool and move an issue's step with `airbender_workflow_move` (each also
+still offered under its earlier name, `beads_…`, for conversations and
+repositories from before the change). Both are offered to
 every thread, in any folder: BB fixes a thread's tools when its session
 starts, so offering them only where beads was already set up left some
 agents without them. Where a tool does not apply (no beads in the folder,
@@ -462,9 +464,15 @@ and whether changes are queued for a hosted tracker) and follows that:
   window lists the changes GitHub refused (`bend refused`), and a list is
   never made to wait for GitHub;
 - the link picker offers the tracker's kinds;
-- an agent is told `bend`'s commands instead of `bd`'s
-  (`withBend` in `shared/standard-workflow.ts`), and `bend setup
-  instructions` writes the wording of the rules that names bend.
+- what an agent is told names `bend` in every repository, beads too
+  (bead-bb-c9l.10): the step messages (`shared/standard-workflow.ts`), the
+  tools' texts (`server/agent-tools.ts`) and the rules that `bend setup
+  instructions` writes (`bend/internal/instructions/rules.md`) exist once.
+  The rules carry a version. A block the owner changed by hand that is
+  from an earlier version is reported as "behind", and
+  `bend setup instructions --rules replace|keep` settles it: replace saves
+  the earlier text under the repository's git folder first, keep marks the
+  owner's block as compared with the current version.
 
 An epic's branch is kept with the issue as free-form data; on GitHub that
 is one hidden line at the end of the description

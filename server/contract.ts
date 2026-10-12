@@ -348,9 +348,17 @@ const setupStatusSchema = z.object({
     /**
      * Airbender's rules in AGENTS.md: "current"; "old", an earlier version
      * of ours, which is replaced; "edited", changed by the owner, which is
-     * left as it is; "none".
+     * left as it is; "behind", changed by the owner and from an earlier
+     * version than the current one, where the owner chooses between the
+     * current rules and their own (bead-bb-c9l.10); "none".
      */
-    rules: z.enum(["current", "old", "edited", "none"]),
+    rules: z.enum(["current", "old", "edited", "behind", "none"]),
+    /**
+     * The version the rules in AGENTS.md name (0 for none), and the
+     * version bend writes now.
+     */
+    rulesVersion: z.number(),
+    currentVersion: z.number(),
     /** The files that hold a block beads generated, e.g. "AGENTS.md". */
     beadsBlocks: z.array(z.string()),
     /** The coding agents beads' own hooks are installed for, by label. */

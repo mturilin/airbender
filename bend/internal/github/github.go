@@ -1086,6 +1086,29 @@ func (github *adapter) Start(id string) error {
 	return github.client.Update(issue.Number, update)
 }
 
+// Stop puts an issue that is in progress back to open: the label
+// in-progress is taken off. The assignee stays. An issue without the label
+// is left alone; refused for a closed issue.
+func (github *adapter) Stop(id string) error {
+	issue, err := github.need(id)
+	if err != nil {
+		return err
+	}
+	if issue.State == "closed" {
+		return tracker.Refused("%s is closed. Reopen it to work on it again.", id)
+	}
+	if !has(issue.Labels, inProgress) {
+		return nil
+	}
+	labels := []string{}
+	for _, label := range issue.Labels {
+		if label != inProgress {
+			labels = append(labels, label)
+		}
+	}
+	return github.client.Update(issue.Number, Changes{Labels: &labels})
+}
+
 // Close closes an issue. A reason, when not empty, is then added as a
 // comment that begins "Closed:".
 //

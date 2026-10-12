@@ -88,9 +88,12 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 import {
+  CURRENT_TOOL,
   CURRENT_TOOL_INSTRUCTIONS,
+  EARLIER_TOOL_NAMES,
   currentRefusal,
   moveToolInstructions,
+  renamedTo,
   switchNote,
   workflowLine,
 } from "./server/agent-tools.ts";
@@ -429,13 +432,24 @@ export default async function plugin(bb: BbPluginApi) {
   // tool rather than a `bb` command because agent sandboxes on Linux can block
   // the local connection a `bb` command needs, which would turn every update
   // into a permission prompt.
-  bb.agents.registerTool({
-    name: "beads_set_current",
+  //
+  // Each of the two tools is also offered under the name it had before, so
+  // that a conversation open at the change, and a repository whose rules
+  // still name the old one, go on working (see EARLIER_TOOL_NAMES).
+  /** The names a tool is registered under: its own, then an earlier one. */
+  const namesOf = (tool: string) => [
+    tool,
+    ...EARLIER_TOOL_NAMES.filter(([, now]) => now === tool).map(([earlier]) => earlier),
+  ];
+  for (const name of namesOf(CURRENT_TOOL)) bb.agents.registerTool({
+    name,
     description:
-      "Tell BB which issue this thread is working on, so the user sees it highlighted in the Airbender tab. Pass an empty id to clear it.",
-    instructions: CURRENT_TOOL_INSTRUCTIONS,
+      name === CURRENT_TOOL
+        ? "Tell BB which issue this thread is working on, so the user sees it highlighted in the Airbender tab. Pass an empty id to clear it."
+        : renamedTo(CURRENT_TOOL),
+    instructions: name === CURRENT_TOOL ? CURRENT_TOOL_INSTRUCTIONS : renamedTo(CURRENT_TOOL),
     presentation: {
-      label: { pending: "Setting current bead", completed: "Set current bead" },
+      label: { pending: "Setting current issue", completed: "Set current issue" },
     },
     parameters: z.object({
       id: z
@@ -475,11 +489,16 @@ export default async function plugin(bb: BbPluginApi) {
   // finished, skip one with a reason, or send its own review back. What it
   // may do is the workflow's decision; a refused move comes back with the
   // reason and what is allowed instead.
-  bb.agents.registerTool({
-    name: MOVE_TOOL,
+  for (const name of namesOf(MOVE_TOOL)) bb.agents.registerTool({
+    name,
     description:
-      "Move an issue to the next step of its workflow: report the step you were asked to do as finished, skip it with a reason, or send your own review back. The answer says what comes next.",
-    instructions: moveToolInstructions(standardWorkflow.describeForAgents()),
+      name === MOVE_TOOL
+        ? "Move an issue to the next step of its workflow: report the step you were asked to do as finished, skip it with a reason, or send your own review back. The answer says what comes next."
+        : renamedTo(MOVE_TOOL),
+    instructions:
+      name === MOVE_TOOL
+        ? moveToolInstructions(standardWorkflow.describeForAgents())
+        : renamedTo(MOVE_TOOL),
     presentation: {
       label: { pending: "Moving the issue on", completed: "Moved the issue on" },
     },
@@ -523,7 +542,7 @@ export default async function plugin(bb: BbPluginApi) {
     description:
       "Report the sizes chosen for the issues you were given to size. Call it once, with every issue.",
     instructions:
-      "You are a background sizing worker. Report every issue you were given in one call of beads_report_sizes; it writes the sizes onto the issues. Run no commands and change nothing yourself.",
+      `You are a background sizing worker. Report every issue you were given in one call of ${REPORT_TOOL}; it writes the sizes onto the issues. Run no commands and change nothing yourself.`,
     presentation: {
       label: { pending: "Reporting sizes", completed: "Reported sizes" },
     },
@@ -557,7 +576,7 @@ export default async function plugin(bb: BbPluginApi) {
   bb.agents.configure((context) => ({
     tools: sizing.isWorker(context.thread.title)
       ? [REPORT_TOOL]
-      : ["beads_set_current", MOVE_TOOL],
+      : [...namesOf(CURRENT_TOOL), ...namesOf(MOVE_TOOL)],
     skills: [],
   }));
 }

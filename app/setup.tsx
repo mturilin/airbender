@@ -59,6 +59,11 @@ export interface SetupStep {
   /** Not yet in place, and possible right now: offered on the card. */
   needed: boolean;
   /**
+   * The step updates something that was set up before, where nothing is
+   * missing: the card then says the folder is set up and has an update.
+   */
+  update?: boolean;
+  /**
    * Why it cannot be started, in a word or two ("done", "install beads
    * first"); null when it can. The menu greys the item and shows this.
    */
@@ -89,6 +94,24 @@ function Marked({ text }: { text: string }) {
 }
 
 /** Whether the instructions step has something of beads' to take out. */
+/**
+ * Whether the rules for agents in the folder were changed by hand and are
+ * from an earlier version than the current one: the owner then chooses
+ * between the current rules and their own (bead-bb-c9l.10).
+ */
+const rulesBehind = (status: SetupStatus | null): boolean =>
+  status?.instructions.rules === "behind";
+
+/**
+ * Whether the folder has Airbender's rules already and they are only not
+ * the current ones: an earlier version of ours, or the owner's own from an
+ * earlier version. The step is then an update, and is said as one: the
+ * owner set the folder up before, and "get this folder ready" read as if
+ * that had been lost (bead-bb-c9l.10).
+ */
+const rulesUpdate = (status: SetupStatus | null) =>
+  status?.instructions.rules === "old" || status?.instructions.rules === "behind";
+
 const replacesBeads = (status: SetupStatus | null) =>
   status !== null &&
   (status.instructions.beadsBlocks.length > 0 ||
@@ -240,10 +263,18 @@ function setupSteps(status: SetupStatus): SetupStep[] {
       // has beads' instructions to take out, a new one only gets ours.
       label: replacesBeads(status)
         ? "Replace beads' instructions with Airbender's"
-        : "Add Airbender's instructions for agents",
+        : rulesUpdate(status)
+          ? "Update Airbender's instructions for agents"
+          : "Add Airbender's instructions for agents",
+      // An update, not a first setup: said differently on the card.
+      update: !replacesBeads(status) && rulesUpdate(status),
       why: replacesBeads(status)
         ? "Beads wrote instructions of its own into this folder. They tell agents to close issues themselves, which is the opposite of how this tab works. This takes them out and leaves Airbender's."
-        : "The rules this tab's buttons rely on: agents take an issue one step at a time, leave closing to you, and commit when you accept it.",
+        : rulesBehind(status)
+          ? `The rules for agents in AGENTS.md were changed by hand here, and Airbender's own rules have changed since (${status.instructions.rulesVersion > 0 ? `yours are from version ${status.instructions.rulesVersion}` : "yours name no version"}, the current ones are version ${status.instructions.currentVersion}). Agents here work by the earlier rules until you choose.`
+          : status.instructions.rules === "old"
+            ? `Airbender's rules for agents have changed since this folder was set up: it has ${status.instructions.rulesVersion > 0 ? `version ${status.instructions.rulesVersion}` : "an earlier version"}, the current ones are version ${status.instructions.currentVersion}. Nothing is wrong here; this brings them up to date.`
+            : "The rules this tab's buttons rely on: agents take an issue one step at a time, leave closing to you, and commit when you accept it.",
       needed: status.folderReady && !status.rulesPresent,
       blocked: status.rulesPresent
         ? "done"
@@ -391,7 +422,11 @@ export function SetupCard({
     <div className="space-y-3 rounded-lg border border-border bg-card p-4">
       {offered.length === 0 ? null : (
         <div className="text-sm font-medium">
-          Get this folder ready for Airbender
+          {/* Nothing but updates to offer: the folder is ready, and is
+              said to be. */}
+          {offered.every((step) => step.update === true)
+            ? "This folder is set up. Airbender has an update for it"
+            : "Get this folder ready for Airbender"}
         </div>
       )}
       {status.running === null ? null : (
@@ -686,6 +721,15 @@ export function SetupDialog({
   const [methodId, setMethodId] = useState<string | null>(null);
   // The tracker step: beads unless the other is picked.
   const [trackerId, setTrackerId] = useState<"beads" | "github">("beads");
+  // The instructions step, where the rules were changed by hand and fell
+  // behind: nothing is chosen for the owner, since either answer changes
+  // or keeps their own text.
+  const [rulesChoice, setRulesChoice] = useState<"replace" | "keep" | null>(null);
+  // Asked afresh every time the window opens: a choice from an earlier
+  // opening, cancelled, must not be standing there already picked.
+  useEffect(() => {
+    setRulesChoice(null);
+  }, [step]);
   // For GitHub issues, the repository when the remote does not say it.
   const [repository, setRepository] = useState("");
   // The facts step: every saved fact is carried over unless unticked, so
@@ -709,7 +753,9 @@ export function SetupDialog({
             {step?.action === "tracker"
               ? "Says which tracker this repository uses. It writes one small file; nothing is run in a terminal."
               : step?.action === "rules"
-              ? "Makes Airbender's instructions the only ones about issues in this folder. It changes files in the repository; nothing is run in a terminal."
+              ? !replacesBeads(status) && rulesUpdate(status)
+                ? "Brings Airbender's instructions for agents in this folder up to the current version. It changes files in the repository; nothing is run in a terminal."
+                : "Makes Airbender's instructions the only ones about issues in this folder. It changes files in the repository; nothing is run in a terminal."
               : step?.action === "facts"
                 ? "Choose which saved facts agents should keep seeing."
                 : "Runs in a BB terminal, so you can watch it and answer anything it asks."}
@@ -862,7 +908,18 @@ export function SetupDialog({
           <div className="space-y-2 text-sm">
             <ul className="list-disc space-y-0.5 pl-5 text-muted-foreground">
               <li>
-                {found?.rules === "edited" ? (
+                {found?.rules === "behind" ? (
+                  <>
+                    Airbender's rules in{" "}
+                    <span className="font-mono">AGENTS.md</span> were changed
+                    by hand in this folder, and are from{" "}
+                    {found.rulesVersion > 0
+                      ? `version ${found.rulesVersion}`
+                      : "before versions were written"}
+                    ; the current rules are version {found.currentVersion}.
+                    Choose below.
+                  </>
+                ) : found?.rules === "edited" ? (
                   <>
                     Airbender's rules in{" "}
                     <span className="font-mono">AGENTS.md</span> were changed
@@ -929,6 +986,40 @@ export function SetupDialog({
                 so it cannot be told safely from your own text.
               </p>
             )}
+            {/* Rules of the owner's own that fell behind: which they want.
+                Nothing is picked for them; the button waits for a choice. */}
+            {found?.rules !== "behind" ? null : (
+              <div className="space-y-1.5">
+                {(
+                  [
+                    [
+                      "replace",
+                      "Replace with the current rules",
+                      "What is there now is saved first, outside your working files: in the repository's git folder, under bend/instructions.",
+                    ],
+                    [
+                      "keep",
+                      "Keep mine",
+                      `They stay as they are and are marked as compared with version ${found.currentVersion}, so this is asked again only when the rules change once more.`,
+                    ],
+                  ] as const
+                ).map(([id, label, hint]) => (
+                  <label key={id} className="flex cursor-pointer items-start gap-2">
+                    <input
+                      type="radio"
+                      name="rules-choice"
+                      className="mt-1"
+                      checked={rulesChoice === id}
+                      onChange={() => setRulesChoice(id)}
+                    />
+                    <span className="min-w-0">
+                      {label}
+                      <span className="block text-xs text-muted-foreground">{hint}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            )}
             <p className="text-muted-foreground">
               The rules tell agents to give every piece of work an issue,
               take it through its workflow one step at a time, record
@@ -942,14 +1033,19 @@ export function SetupDialog({
             Cancel
           </Button>
           <Button
-            disabled={step?.action === "install" && method === undefined}
+            disabled={
+              (step?.action === "install" && method === undefined) ||
+              (step?.action === "rules" && rulesBehind(status) && rulesChoice === null)
+            }
             onClick={() => {
               if (step === null) return;
               onRun(
                 step,
                 step.action === "install"
                   ? (method?.id ?? null)
-                  : step.action === "tracker"
+                  : step.action === "rules" && rulesBehind(status)
+                    ? rulesChoice
+                    : step.action === "tracker"
                     ? trackerId === "github" && repository.trim() !== ""
                       ? `github:${repository.trim()}`
                       : trackerId
@@ -964,9 +1060,15 @@ export function SetupDialog({
             }}
           >
             {step?.action === "rules"
-              ? replacesBeads(status)
-                ? "Replace"
-                : "Add"
+              ? rulesBehind(status)
+                ? rulesChoice === "keep"
+                  ? "Keep mine"
+                  : "Replace"
+                : replacesBeads(status)
+                  ? "Replace"
+                  : rulesUpdate(status)
+                    ? "Update"
+                    : "Add"
               : step?.action === "facts"
                 ? "Carry over"
                 : step?.action === "tracker"

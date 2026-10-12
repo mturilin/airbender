@@ -1004,3 +1004,75 @@ func TestASyncNamesTheIssuesItSentAndThoseThatCameInChanged(t *testing.T) {
 		t.Fatalf("got %+v", full)
 	}
 }
+
+func TestStoppingShowsAtOnceAndIsSentInItsTurn(t *testing.T) {
+	w := newWorld(t)
+	one := w.desk(t.TempDir())
+	_, err := one.tracker.Create(tracker.Draft{Title: "Set aside"})
+	must(t, err)
+	// Not in progress: nothing to do, and nothing waits.
+	must(t, one.tracker.Stop("1"))
+	if waiting := one.copy.Status().Waiting; waiting != 0 {
+		t.Fatalf("%d changes wait after stopping an issue that was not started", waiting)
+	}
+	must(t, one.tracker.Start("1"))
+	must(t, one.tracker.Stop("#1"))
+	if status := w.desk(one.dir).show("1").Status; status != "open" {
+		t.Fatalf("while it waits it shows %s", status)
+	}
+	if result := one.sync(); result.Sent != 2 || result.Refused != 0 {
+		t.Fatalf("got %+v", result)
+	}
+	if labels := w.github.LabelsOf(1); len(labels) != 0 {
+		t.Fatalf("GitHub holds %v", labels)
+	}
+	if status := w.desk(one.dir).show("1").Status; status != "open" {
+		t.Fatalf("once sent it shows %s", status)
+	}
+	// A closed issue is refused at once.
+	must(t, one.tracker.Close("1", ""))
+	if err := w.desk(one.dir).tracker.Stop("1"); err == nil {
+		t.Fatal("a closed issue was stopped")
+	}
+}
+
+func TestANoteIsAddedToWhatTheTrackerHoldsWhenItIsSent(t *testing.T) {
+	w := newWorld(t)
+	one, other := w.desk(t.TempDir()), w.desk(t.TempDir())
+	_, err := one.tracker.Create(tracker.Draft{Title: "Notes from two sides"})
+	must(t, err)
+	other.sync()
+	// Two notes here, not sent yet: both show at once.
+	must(t, one.copy.Note("1", "First."))
+	must(t, one.copy.Note("#1", "Second."))
+	if notes := w.desk(one.dir).show("1").Notes; notes != "First.\n\nSecond." {
+		t.Fatalf("while they wait the notes are %q", notes)
+	}
+	// Meanwhile a note is made elsewhere and reaches GitHub first.
+	must(t, other.copy.Note("1", "From elsewhere."))
+	other.sync()
+	if result := one.sync(); result.Sent != 2 || result.Refused != 0 {
+		t.Fatalf("got %+v", result)
+	}
+	// None is lost: the two are added after what GitHub held.
+	want := "From elsewhere.\n\nFirst.\n\nSecond."
+	if notes := w.desk(one.dir).show("1").Notes; notes != want {
+		t.Fatalf("once sent the notes are %q", notes)
+	}
+	if !strings.Contains(w.github.BodyOf(1), "From elsewhere.\n\nFirst.\n\nSecond.") {
+		t.Fatalf("GitHub holds:\n%s", w.github.BodyOf(1))
+	}
+	// Sent again after its answer was lost, a note is there once.
+	must(t, one.copy.Note("1", "Third."))
+	w.github.updatesFail = 1
+	one.sync()
+	w.github.updatesFail = 0
+	one.sync()
+	if got := strings.Count(w.desk(one.dir).show("1").Notes, "Third."); got != 1 {
+		t.Fatalf("the note is there %d times", got)
+	}
+	// An empty note is a wrong request; an unknown issue is refused.
+	if one.copy.Note("1", "  ") == nil || one.copy.Note("99", "x") == nil {
+		t.Fatal("an empty note, or one on no issue, was taken")
+	}
+}

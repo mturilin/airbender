@@ -84,12 +84,15 @@ const (
 	syncLogFile = "sync.log"
 )
 
-// The kinds of change the queue holds.
+// The kinds of change the queue holds. A kind added here is one an older
+// bend does not know: it refuses such a change when it sends the queue.
 const (
 	opEdit    = "edit"
 	opWrite   = "write"
 	opComment = "comment"
+	opNote    = "note"
 	opStart   = "start"
+	opStop    = "stop"
 	opClose   = "close"
 	opReopen  = "reopen"
 	opMove    = "move"
@@ -319,11 +322,18 @@ func lay(issues []tracker.Issue, one change, touch bool) {
 		}
 	case opComment:
 		issue.CommentCount++
+	case opNote:
+		issue.Notes = withNote(issue.Notes, one.Text)
 	case opStart:
 		// Whom it is assigned to is the tracker's to say (GitHub assigns the
 		// signed-in account, whoever is named as acting), so the assignee
 		// is left as it is until the tracker gives it.
 		issue.Status = "in_progress"
+	case opStop:
+		// Only one in progress: a closed issue stays closed.
+		if issue.Status == "in_progress" {
+			issue.Status = "open"
+		}
 	case opClose:
 		issue.Status, issue.CloseReason = closedStatus, strings.TrimSpace(one.Reason)
 	case opReopen:
@@ -391,10 +401,14 @@ func describe(one change) (what, text string) {
 	switch one.Kind {
 	case opComment:
 		return "a comment", one.Text
+	case opNote:
+		return "adding to its notes", one.Text
 	case opWrite:
 		return "writing its " + one.Part, one.Text
 	case opStart:
 		return "starting it", ""
+	case opStop:
+		return "putting it back to open", ""
 	case opClose:
 		return "closing it", one.Reason
 	case opReopen:
@@ -433,6 +447,37 @@ func describe(one change) (what, text string) {
 		parts = append(parts, "kept data")
 	}
 	return "a change of " + strings.Join(parts, ", "), text
+}
+
+// withNote gives an issue's notes with a paragraph added at the end.
+func withNote(notes, text string) string {
+	notes, text = strings.TrimSpace(notes), strings.TrimSpace(text)
+	if notes == "" {
+		return text
+	}
+	return notes + "\n\n" + text
+}
+
+// Note adds a paragraph to an issue's notes and keeps what is there.
+//
+// For a queued tracker it waits as a change of its own, "add this to the
+// notes", and is added to whatever the tracker holds when it is sent. It was
+// first queued as the whole notes written anew, which silently dropped a
+// note made elsewhere before the sync (bead-bb-c9l.10, found in review).
+// Written straight through, the notes are read and written back at once.
+func (kept *Tracker) Note(id, text string) error {
+	if strings.TrimSpace(text) == "" {
+		return tracker.Usage("The text is empty.")
+	}
+	id = kept.canon(id)
+	issue, err := kept.known(id)
+	if err != nil {
+		return err
+	}
+	if !kept.isQueued() {
+		return kept.changed(kept.inner.Write(id, "notes", withNote(issue.Notes, text)))
+	}
+	return kept.record(change{Kind: opNote, ID: id, Text: text})
 }
 
 // --- Reading.
@@ -759,8 +804,23 @@ func (kept *Tracker) send(one change) error {
 		return inner.Write(one.ID, one.Part, one.Text)
 	case opComment:
 		return inner.Comment(one.ID, one.Text)
+	case opNote:
+		// Added to the notes the tracker holds now, not to those the copy
+		// held when the note was made: a note written elsewhere meanwhile
+		// is kept. One already at the end is not added again, so that a
+		// change sent twice leaves one paragraph.
+		live, err := inner.Show(one.ID)
+		if err != nil {
+			return err
+		}
+		if strings.HasSuffix(strings.TrimSpace(live.Notes), strings.TrimSpace(one.Text)) {
+			return nil
+		}
+		return inner.Write(one.ID, "notes", withNote(live.Notes, one.Text))
 	case opStart:
 		return inner.Start(one.ID)
+	case opStop:
+		return inner.Stop(one.ID)
 	case opClose:
 		return inner.Close(one.ID, one.Reason)
 	case opReopen:

@@ -28,11 +28,13 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/mturilin/airbender/bend/internal/beads"
 	"github.com/mturilin/airbender/bend/internal/detect"
 	"github.com/mturilin/airbender/bend/internal/facts"
 	"github.com/mturilin/airbender/bend/internal/instructions"
+	"github.com/mturilin/airbender/bend/internal/localcopy"
 	"github.com/mturilin/airbender/bend/internal/tracker"
 )
 
@@ -69,6 +71,10 @@ type Answers struct {
 	Keep     []string
 	KeepAll  bool
 	KeepNone bool
+	// Rules says what to do with rules for agents that the owner changed
+	// by hand and that are behind the current version: "replace" them with
+	// the current rules, or "keep" them (--rules).
+	Rules string
 }
 
 // Outcome is what a step did.
@@ -339,8 +345,55 @@ func Instructions(dir string, terminal Terminal, answers Answers, options Option
 	if done != nil || err != nil {
 		return done, err
 	}
+	// Rules the owner changed by hand that are behind the current ones are
+	// theirs to decide about: never replaced without being asked, and never
+	// left behind without being asked either.
+	rules := ""
+	if state.Instructions.Rules == "behind" {
+		rules = strings.ToLower(strings.TrimSpace(answers.Rules))
+		if rules == "" {
+			if !terminal.Interactive {
+				return nil, missingAnswer("The rules for agents in AGENTS.md were changed by hand and are behind the current version: replace them with the current rules, or keep yours?", "--rules replace or --rules keep")
+			}
+			terminal.Say(behindWords(&state.Instructions))
+			terminal.Say("  1. replace: take the current rules; what is there now is saved first")
+			terminal.Say("  2. keep: leave yours as they are, and do not ask again until the rules change")
+			switch strings.ToLower(strings.TrimSpace(terminal.Ask("Which? [1/2] "))) {
+			case "1", "replace":
+				rules = "replace"
+			case "2", "keep":
+				rules = "keep"
+			}
+		}
+		if rules != "replace" && rules != "keep" {
+			return nil, tracker.Usage("Say what to do with the rules that were changed by hand: --rules replace or --rules keep.")
+		}
+	}
 	if err := confirm(terminal, answers, step); err != nil {
 		return nil, err
+	}
+	agentsPath := filepath.Join(state.Root, instructions.AgentsFile)
+	saved := ""
+	if rules == "replace" {
+		before := textOf(agentsPath)
+		// A block whose end marker is gone runs, as far as anyone can
+		// tell, to the end of the file: replacing it would take the
+		// owner's own text below it too.
+		if !instructions.RulesEnd(before) {
+			return nil, tracker.Refused("The rules block in AGENTS.md has no end marker, so nothing says where it stops and your own text begins. Put the line %s where the rules end and run this again, or keep your rules (--rules keep). Nothing was changed.", "<!-- airbender:rules:end -->")
+		}
+		// What the owner wrote is kept before anything is changed, outside
+		// the working files: in the repository's git folder, or with the
+		// user's data where there is no repository.
+		_, was := instructions.ReplaceRules(before)
+		folder := localcopy.FolderFor(state.Root, "instructions")
+		saved = filepath.Join(folder, "rules-replaced-"+time.Now().UTC().Format("20060102-150405.000")+".md")
+		if err := os.MkdirAll(folder, 0o755); err != nil {
+			return nil, tracker.Refused("The rules that were there could not be saved before replacing them (%s). Nothing was changed.", folder)
+		}
+		if err := os.WriteFile(saved, []byte(was+"\n"), 0o644); err != nil {
+			return nil, tracker.Refused("The rules that were there could not be saved before replacing them (%s). Nothing was changed.", saved)
+		}
 	}
 	// Facts an earlier version kept in a section of AGENTS.md go to the
 	// facts file first, so that the file is rewritten once more below with
@@ -348,12 +401,18 @@ func Instructions(dir string, terminal Terminal, answers Answers, options Option
 	if _, err := facts.MoveOld(state.Root); err != nil {
 		return nil, err
 	}
-	agentsPath := filepath.Join(state.Root, instructions.AgentsFile)
 	existing := textOf(agentsPath)
 	// Beads' marked blocks out, then Airbender's rules in: added at the
 	// end, or an earlier version of ours replaced where it stands. A rules
 	// block the owner edited is left as it is.
-	if next := instructions.AgentsFileWith(instructions.WithoutBeadsBlocks(existing), trackerOf(state)); next != existing {
+	next := instructions.AgentsFileWith(instructions.WithoutBeadsBlocks(existing))
+	switch rules {
+	case "replace":
+		next, _ = instructions.ReplaceRules(next)
+	case "keep":
+		next = instructions.KeepRules(next)
+	}
+	if next != existing {
 		if err := writeFile(agentsPath, next); err != nil {
 			return nil, err
 		}
@@ -390,6 +449,12 @@ func Instructions(dir string, terminal Terminal, answers Answers, options Option
 		}
 	}
 	message := "Airbender's instructions are in place."
+	switch rules {
+	case "replace":
+		message = "The rules for agents in AGENTS.md were replaced by the current ones. What was there is saved in " + saved + "."
+	case "keep":
+		message = "Your rules for agents in AGENTS.md were kept as they are, and marked as compared with version " + strconv.Itoa(instructions.CurrentVersion) + "."
+	}
 	if len(state.Instructions.Leftovers) > 0 {
 		message += " Beads' sections without markers were left in AGENTS.md for you to remove by hand: " +
 			strings.Join(state.Instructions.Leftovers, ", ") + "."
@@ -580,13 +645,4 @@ func (method Method) MarshalJSON() ([]byte, error) {
 		Label   string `json:"label"`
 		Command string `json:"command"`
 	}{method.ID, method.Label, method.Command})
-}
-
-// trackerOf gives the name of the tracker a repository uses, "" when
-// none is chosen yet: what decides which wording of the rules it gets.
-func trackerOf(state *State) string {
-	if state.Tracker == nil {
-		return ""
-	}
-	return *state.Tracker
 }

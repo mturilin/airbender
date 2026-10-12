@@ -44,6 +44,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -119,8 +120,13 @@ var installMethods = []Method{
 // InstructionsState is what the instructions step would find.
 type InstructionsState struct {
 	// Rules is which of Airbender's rules AGENTS.md holds: current, old,
-	// edited or none.
+	// edited, behind or none (see instructions.RulesIn).
 	Rules string `json:"rules"`
+	// RulesVersion is the version the rules in AGENTS.md name, 0 for none;
+	// CurrentVersion the version this bend writes. They differ where the
+	// rules are behind.
+	RulesVersion   int `json:"rulesVersion"`
+	CurrentVersion int `json:"currentVersion"`
 	// BeadsBlocks are the files that hold a block beads generated.
 	BeadsBlocks []string `json:"beadsBlocks"`
 	// BeadsHooks are the coding agents beads' hooks are installed for in
@@ -566,7 +572,8 @@ func (state *State) instructionsStep(chosen string, issuesReady bool) Step {
 	claudeText, claudeThere := textOf(claudePath), exists(claudePath)
 	state.hooks = beadsHooksIn(state.home)
 	found := &state.Instructions
-	found.Rules = instructions.RulesIn(agentsText, chosen)
+	found.Rules = instructions.RulesIn(agentsText)
+	found.RulesVersion, found.CurrentVersion = instructions.VersionIn(agentsText), instructions.CurrentVersion
 	if instructions.HasBeadsBlocks(agentsText) {
 		found.BeadsBlocks = append(found.BeadsBlocks, instructions.AgentsFile)
 	}
@@ -608,9 +615,35 @@ func (state *State) instructionsStep(chosen string, issuesReady bool) Step {
 		case "none":
 			step.Explain = append(step.Explain, "Adds Airbender's rules at the end of `AGENTS.md` (the file is created if there is none).")
 		case "old":
-			step.Explain = append(step.Explain, "Replaces the earlier version of Airbender's rules in `AGENTS.md` where it stands.")
+			// Said as what it is, an update: the repository was set up
+			// rightly, and the rules have changed since. Worded as "set
+			// this up" it read as if something had been lost
+			// (bead-bb-c9l.10, the owner: "It gives impressions that
+			// something is unreliable").
+			if !replaces {
+				from := "an earlier version"
+				if found.RulesVersion > 0 {
+					from = "version " + strconv.Itoa(found.RulesVersion)
+				}
+				step.Title = "Update Airbender's instructions for agents"
+				step.Why = "Airbender's rules for agents have changed since this repository was set up: it has " + from + ", the current ones are version " + strconv.Itoa(found.CurrentVersion) + ". Nothing is wrong here; this brings them up to date."
+			}
+			step.Explain = append(step.Explain, "Replaces the earlier version of Airbender's rules in `AGENTS.md` where it stands. Nothing else in the file changes.")
 		case "edited":
 			step.Explain = append(step.Explain, "Leaves the rules block in `AGENTS.md` as it is: it was changed by hand and is yours.")
+		case "behind":
+			// The step's own reason, when nothing of beads' is in the way:
+			// the rules drifted from the current ones.
+			behind := behindWords(found)
+			if !replaces {
+				step.Title, step.Why = "Update Airbender's instructions for agents", behind
+			} else {
+				step.Explain = append(step.Explain, behind)
+			}
+			step.Command = "bend setup instructions --rules replace   (or: --rules keep)"
+			step.Explain = append(step.Explain,
+				"You choose. Replace: the rules block is replaced by the current rules, and what was there is saved outside your working files first.",
+				"Keep: your rules stay as they are and are marked as compared with version "+strconv.Itoa(found.CurrentVersion)+", so you are asked again only when the rules change once more.")
 		}
 		for _, file := range found.BeadsBlocks {
 			step.Explain = append(step.Explain, "Takes beads' generated block out of `"+file+"`; nothing else in the file changes.")
@@ -627,6 +660,17 @@ func (state *State) instructionsStep(chosen string, issuesReady bool) Step {
 		}
 	}
 	return step
+}
+
+// behindWords says that the rules for agents were changed by hand and are
+// from an earlier version than the current one: what the owner is told
+// before being asked which they want.
+func behindWords(found *InstructionsState) string {
+	from := "an earlier version"
+	if found.RulesVersion > 0 {
+		from = "version " + strconv.Itoa(found.RulesVersion)
+	}
+	return "The rules for agents in `AGENTS.md` were changed by hand, and Airbender's own rules have changed since: yours are from " + from + ", the current ones are version " + strconv.Itoa(found.CurrentVersion) + ". Agents here go on working by the earlier rules until you choose."
 }
 
 // factsStep is the step that carries facts saved in beads over to the

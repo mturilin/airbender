@@ -754,17 +754,6 @@ export function createStore({
   }
 
   /**
-   * Which program an agent in a folder is told to read and write issues
-   * with: beads' own (`bd`) where the issues are in beads, as agents there
-   * always were, and `bend` on any other tracker (bead-bb-c9l.6). A folder
-   * whose tracker is not known yet counts as beads.
-   */
-  const commandsIn = (path: string): "bd" | "bend" => {
-    const tracker = trackers.aboutOf(path)?.tracker;
-    return tracker === undefined || tracker === "beads" ? "bd" : "bend";
-  };
-
-  /**
    * The changes a folder's tracker refused for good, oldest first.
    *
    * @returns An empty list where changes are written straight through
@@ -891,7 +880,6 @@ export function createStore({
     setBranch,
     refusedIn,
     settleRefused,
-    commandsIn,
     addComment,
     changed,
     stale,

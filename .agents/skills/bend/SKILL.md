@@ -62,6 +62,8 @@ bend write <id> done "What done means"
 bend write <id> plan --text-file plan.md      # the agreed plan
 bend decide <id> "Chose X, because Y (the owner's decision)"
 bend comment <id> "Tried Z; it did not work because …"
+bend note <id> "Where I got to, for whoever resumes"  # added to the notes
+bend stop <id>                                # set aside: back to open
 bend create "Follow-up title" --from <id>     # work discovered on the way
 bend link <id> <other-id> --kind blocked-by   # <id> waits for <other-id>
 ```

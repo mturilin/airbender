@@ -458,6 +458,23 @@ func TestAnIDIsGitHubsNumberAnythingElseIsRefusedBeforeGitHubIsAsked(t *testing.
 	same(t, ids(all), []string{id})
 }
 
+func TestStoppingTakesInProgressOffAndLeavesTheAssignee(t *testing.T) {
+	github, adapter := fresh("")
+	id := create(t, adapter, tracker.Draft{Title: "Set aside"})
+	must(t, adapter.Edit(id, tracker.Changes{AddLabels: []string{"ui"}}))
+	must(t, adapter.Start(id))
+	must(t, adapter.Stop(id))
+	shown := show(t, adapter, id)
+	same(t, []string{shown.Status, text(shown.Assignee)}, []string{"open", "octo"})
+	same(t, github.LabelsOf(1), []string{"ui"})
+	// One that is not in progress is left alone: nothing is sent.
+	before := github.Requests()
+	must(t, adapter.Stop(id))
+	same(t, github.Requests(), before+1)
+	must(t, adapter.Close(id, ""))
+	wantRefused(t, adapter.Stop(id), `is closed`)
+}
+
 func TestKeptDataIsAHiddenLineAtTheEndOfTheDescription(t *testing.T) {
 	github, adapter := fresh("")
 	id := create(t, adapter, tracker.Draft{Title: "Epic", Description: tracker.Ptr("What is wanted.")})

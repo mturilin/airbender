@@ -223,7 +223,7 @@ func oneOf(typed string, allowed []string, what string) (string, error) {
 // first and says so plainly when the bend it found is older than it needs,
 // instead of failing on an option that bend does not know. Raise it with
 // every such change.
-const Version = 5
+const Version = 6
 
 // statusWithCopy is what `bend status --json` prints: what the tracker
 // supports, and how the copy on this machine stands; null where the tracker
@@ -342,6 +342,7 @@ func setUp(parsed *Parsed, surroundings Surroundings) (answer, error) {
 		Keep:       parsed.Lists["keep"],
 		KeepAll:    parsed.Flags["keep-all"],
 		KeepNone:   parsed.Flags["keep-none"],
+		Rules:      orEmpty(parsed.value("rules")),
 	}
 	step := parsed.Positionals[0]
 	if step == "all" {
@@ -719,6 +720,57 @@ func carryOut(command *Command, parsed *Parsed, surroundings Surroundings) (answ
 			return answer{}, err
 		}
 		return did(id+" is in progress.", field{"id", id}), nil
+
+	case "stop":
+		id, err := need(parsed, 0, "the issue id")
+		if err != nil {
+			return answer{}, err
+		}
+		// Looked at first, to say truly what happened: an issue that is
+		// not in progress is left as it is.
+		before, err := issues.Show(id)
+		if err != nil {
+			return answer{}, err
+		}
+		if err := issues.Stop(id); err != nil {
+			return answer{}, err
+		}
+		if before.Status != "in_progress" {
+			return did(id+" was not in progress ("+before.Status+"); nothing changed.", field{"id", id}, field{"changed", false}), nil
+		}
+		return did(id+" is open again: nobody is working on it.", field{"id", id}, field{"changed", true}), nil
+
+	case "note":
+		id, err := need(parsed, 0, "the issue id")
+		if err != nil {
+			return answer{}, err
+		}
+		text, err := textOf(parsed, 1, surroundings, false)
+		if err != nil {
+			return answer{}, err
+		}
+		// The copy adds it: where changes are queued it waits as "add this
+		// to the notes" and is added to what the tracker holds when sent.
+		// Without the copy (the tracker asked directly) the notes are read,
+		// added to and written back.
+		if adds, ok := issues.(interface{ Note(id, text string) error }); ok {
+			if err := adds.Note(id, text); err != nil {
+				return answer{}, err
+			}
+			return did("Added to the notes of "+id+".", field{"id", id}), nil
+		}
+		shown, err := issues.Show(id)
+		if err != nil {
+			return answer{}, err
+		}
+		notes := strings.TrimSpace(text)
+		if had := strings.TrimSpace(shown.Notes); had != "" {
+			notes = had + "\n\n" + notes
+		}
+		if err := issues.Write(id, "notes", notes); err != nil {
+			return answer{}, err
+		}
+		return did("Added to the notes of "+id+".", field{"id", id}), nil
 
 	case "close":
 		id, err := need(parsed, 0, "the issue id")
