@@ -43,7 +43,6 @@ import (
 
 	"github.com/mturilin/airbender/bend/internal/detect"
 	"github.com/mturilin/airbender/bend/internal/facts"
-	"github.com/mturilin/airbender/bend/internal/github"
 	"github.com/mturilin/airbender/bend/internal/kept"
 	"github.com/mturilin/airbender/bend/internal/setup"
 	"github.com/mturilin/airbender/bend/internal/tracker"
@@ -485,35 +484,27 @@ func carryOut(command *Command, parsed *Parsed, surroundings Surroundings) (answ
 	}
 	issues := found.Tracker
 	value := parsed.value
-	// The copy on this machine the tracker is worked from; nil for a
-	// tracker that needs none (beads) or is asked directly.
-	var held *github.Copy
-	if with, ok := issues.(interface{ LocalCopy() *github.Copy }); ok {
-		held = with.LocalCopy()
-	}
-	// The copy a tracker on this machine is answered from; nil otherwise.
+	// The copy on this machine the tracker is answered from; nil when the
+	// tracker is asked directly.
 	local, _ := issues.(*kept.Tracker)
-	// copyNow says how whichever copy there is stands; nil for none.
+	// Whether its changes wait in a queue to be sent (a tracker reached
+	// over the network) or go straight to the tracker.
+	queued := local != nil && issues.About().Writes == tracker.WritesQueued
+	// copyNow says how the copy stands; nil for none.
 	copyNow := func() *kept.Status {
-		switch {
-		case local != nil:
-			status := local.Status()
-			return &status
-		case held != nil:
-			status := held.Status()
-			return &kept.Status{Folder: status.Folder, LastSync: status.LastSync, Waiting: status.Waiting, Refused: status.Refused}
+		if local == nil {
+			return nil
 		}
-		return nil
+		status := local.Status()
+		return &status
 	}
 	// unsent fills in how many changes of each issue still wait to be sent.
 	unsent := func(listed []tracker.Issue) []tracker.Issue {
-		if held == nil {
+		if !queued {
 			return listed
 		}
 		for index := range listed {
-			if number, err := strconv.Atoi(listed[index].ID); err == nil {
-				listed[index].Unsent = held.Unsent(number)
-			}
+			listed[index].Unsent = local.Unsent(listed[index].ID)
 		}
 		return listed
 	}
@@ -528,17 +519,11 @@ func carryOut(command *Command, parsed *Parsed, surroundings Surroundings) (answ
 
 	switch command.Name {
 	case "refresh":
-		switch {
-		case local != nil:
-			if err := local.Reread(); err != nil {
-				return answer{}, err
-			}
-		case held != nil:
-			if _, err := held.WaitAndSync(false); err != nil {
-				return answer{}, err
-			}
-		default:
+		if local == nil {
 			return did("There is no local copy here: the tracker is asked directly."), nil
+		}
+		if err := local.Reread(); err != nil {
+			return answer{}, err
 		}
 		return did("The local copy of the issues is fresh."), nil
 
@@ -882,15 +867,15 @@ func carryOut(command *Command, parsed *Parsed, surroundings Surroundings) (answ
 		return answer{FormatStatus(capabilities) + FormatCopy(reported.Copy), reported}, nil
 
 	case "sync":
-		if held == nil {
+		if !queued {
 			return did("Nothing to sync: this repository's issues are not worked from a copy of a hosted tracker."), nil
 		}
 		// Where another process is syncing (one started in the background
 		// a moment ago, say), it is waited for, so that this sync sends
 		// what that one did not see.
-		sync := held.WaitAndSync
+		sync := local.WaitAndSync
 		if parsed.Flags["no-wait"] {
-			sync = held.Sync
+			sync = local.Sync
 		}
 		result, err := sync(parsed.Flags["all"])
 		if err != nil {
@@ -902,15 +887,15 @@ func carryOut(command *Command, parsed *Parsed, surroundings Surroundings) (answ
 		if value("dismiss") != nil && value("again") != nil {
 			return answer{}, tracker.Usage("Give --dismiss or --again, not both.")
 		}
-		if held == nil {
-			return answer{"No refused changes.", []github.RefusedChange{}}, nil
+		if !queued {
+			return answer{"No refused changes.", []kept.RefusedChange{}}, nil
 		}
 		which, again := value("dismiss"), false
 		if value("again") != nil {
 			which, again = value("again"), true
 		}
 		if which == nil {
-			refused := held.RefusedChanges()
+			refused := local.RefusedChanges()
 			return answer{FormatRefused(refused), refused}, nil
 		}
 		seq := 0
@@ -919,7 +904,7 @@ func carryOut(command *Command, parsed *Parsed, surroundings Surroundings) (answ
 				return answer{}, tracker.Usage("Say which refused change: its number, or all.")
 			}
 		}
-		taken, err := held.Dismiss(seq, again)
+		taken, err := local.Dismiss(seq, again)
 		if err != nil {
 			return answer{}, err
 		}
@@ -1036,7 +1021,6 @@ func Run(argv []string, surroundings Surroundings) int {
 	// Whatever the command did: a copy of a hosted tracker that it changed,
 	// or found a few minutes old, is synced now, in a process of its own
 	// that this one does not wait for.
-	github.AfterCommand()
 	kept.AfterCommand()
 	if err == nil {
 		return status

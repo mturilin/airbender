@@ -1389,6 +1389,24 @@ breaking a requirement above.
   answer. The panel keeps its own confirmation windows and hands bend the
   answers; it keeps bend's answer about a folder for a short while, and
   "everything is in place" until something is run. `[c9l.9]`
+- bend has one copy for every tracker; a tracker reached over the network
+  has its changes queued on it. There, what depends on other issues (links
+  seen from the other end, sub-issues, what blocks what) is put together
+  when an issue is read. A change the copy can see is wrong is refused at
+  once (an issue that is not there, a loop of sub-issues, a link of an
+  issue to itself, a closed issue started); one only the tracker's own
+  rules refuse shows on the list of refused changes after it was sent. A
+  waiting "start" shows who it is assigned to only once sent. A change is
+  sent as whoever made it. A change that takes the tracker several steps
+  and is sent again after stopping half-way finishes what is missing: on
+  GitHub the issue is closed first and the reason's comment added after,
+  and a link kept on both issues is completed or taken off on whichever
+  side still lacks or holds it. An id may be written as the tracker shows
+  it or as it accepts it ("12" or "#12"). Only the step and size labels of
+  a change go ahead of the queue; its other labels wait in turn. A copy
+  left by an earlier version is put aside with a warning and made anew; so
+  is a damaged file of issues.
+  `[c9l.15]`
 - bend's copy of a hosted tracker: comments are kept per issue from the
   first time they are asked for, and asked for again when the issue has
   changed. Search searches the copy. Labels from two sides add up. The

@@ -49,6 +49,7 @@
 package kept
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -89,6 +90,13 @@ type state struct {
 	// it moved since it began was overtaken by a change, and must not call
 	// what it read fresh.
 	Changes int
+	// For a queued tracker: Format numbers the way the copy's files are
+	// written; FullAt is when everything was last reread; Cursor is the
+	// latest "last changed" the tracker has given for any issue, from which
+	// "what changed since" is asked, by the tracker's own clock.
+	Format int    `json:",omitempty"`
+	FullAt string `json:",omitempty"`
+	Cursor string `json:",omitempty"`
 }
 
 // keptReady is the ids the tracker called ready, with the reread they
@@ -113,9 +121,17 @@ type Tracker struct {
 	now   func() time.Time
 	warn  func(text string)
 
+	// actor is who is acting, kept with a change that waits so that it is
+	// sent as theirs.
+	actor string
+
 	loaded bool
-	issues []tracker.Issue
-	state  state
+	// issues are the issues as they are to be read. For a queued tracker,
+	// held is what the tracker gave and waiting the changes not yet sent.
+	issues  []tracker.Issue
+	held    []tracker.Issue
+	waiting []change
+	state   state
 	// wantsReread says that a reread should follow this command.
 	wantsReread bool
 }
@@ -127,17 +143,17 @@ type Options struct {
 	// Warn is told what is worth knowing and is not a failure; nothing is
 	// said when nil.
 	Warn func(text string)
+	// Actor is who is acting, "" for nobody named.
+	Actor string
 }
 
 // Open gives the tracker that answers for inner from the copy in dir.
 //
-// Pre-condition: inner's changes are written straight through (see the
-// package comment).
 // Side effects: none until a method is called. The first read loads the
 // copy, and rereads it through inner where there is none, where inner's
 // sign says it is behind, or where it is more than a day old.
 func Open(inner tracker.Tracker, dir string, options Options) *Tracker {
-	made := &Tracker{inner: inner, store: localcopy.Store{Dir: dir}, now: options.Now, warn: options.Warn}
+	made := &Tracker{inner: inner, store: localcopy.Store{Dir: dir}, now: options.Now, warn: options.Warn, actor: options.Actor}
 	if made.now == nil {
 		made.now = time.Now
 	}
@@ -170,6 +186,12 @@ func unreadable(name string) error {
 // Side effects: one read of the tracker (for beads, one run of bd); the
 // copy's files.
 func (kept *Tracker) Reread() error {
+	if kept.isQueued() {
+		// For a queued tracker a reread is a sync: what waits is sent, and
+		// what changed is brought in.
+		_, err := kept.WaitAndSync(false)
+		return err
+	}
 	// Before the list: a change made between the two leaves the copy
 	// looking behind, which costs a reread; the other order would leave an
 	// old list looking fresh.
@@ -219,6 +241,9 @@ func (kept *Tracker) load() error {
 	if kept.loaded {
 		return nil
 	}
+	if kept.isQueued() {
+		return kept.loadQueued()
+	}
 	var held state
 	var issues []tracker.Issue
 	there := false
@@ -259,6 +284,49 @@ func (kept *Tracker) load() error {
 		issues[index] = issues[index].Tidy()
 	}
 	kept.issues, kept.state, kept.loaded = issues, held, true
+	return nil
+}
+
+// loadQueued is load for a queued tracker: there is no sign to go by, only
+// the copy's age, and the waiting changes are laid on what it holds.
+func (kept *Tracker) loadQueued() error {
+	read := func() (held state, issues []tracker.Issue, waiting []change, usable bool) {
+		kept.store.Changing(func() error {
+			there, err := kept.store.Read(stateFile, &held)
+			found, issuesErr := kept.store.Read(issuesFile, &issues)
+			var queueErr error
+			waiting, queueErr = kept.readQueue()
+			usable = there && err == nil && held.Format == format && found && issuesErr == nil && queueErr == nil
+			return nil
+		})
+		return
+	}
+	held, issues, waiting, usable := read()
+	at, known := time.Parse(time.RFC3339Nano, held.RereadAt)
+	age := kept.now().Sub(at)
+	switch {
+	case !usable || known != nil:
+		// No copy, or one this version cannot read: there is nothing to
+		// answer from.
+		if _, err := kept.WaitAndSync(true); err != nil {
+			return err
+		}
+		held, issues, waiting, _ = read()
+	case age > trustedFor:
+		if _, err := kept.WaitAndSync(false); err != nil {
+			kept.warn("The local copy of the issues is more than a day old and could not be refreshed: " + err.Error())
+		}
+		held, issues, waiting, _ = read()
+	case age > freshFor || age < 0:
+		kept.wantsReread = true
+	}
+	for index := range issues {
+		issues[index] = issues[index].Tidy()
+	}
+	wants := kept.wantsReread
+	kept.held, kept.waiting, kept.state = issues, waiting, held
+	kept.issues = kept.seen(issues, waiting)
+	kept.loaded, kept.wantsReread = true, wants
 	return nil
 }
 
@@ -310,8 +378,20 @@ func (kept *Tracker) find(id string) (tracker.Issue, error) {
 	return tracker.Issue{}, tracker.Refused("There is no issue with id %s.", id)
 }
 
+// canon gives an id in the one form the tracker itself gives it in, where
+// the tracker takes several ("#12" and "12" on GitHub). The copy finds
+// issues by their id as the tracker gave it, so every id that comes in from
+// a command passes through here first; without it "#12" is asked of the
+// tracker, found, and then recorded under a name no read looks for.
+func (kept *Tracker) canon(id string) string {
+	if with, ok := kept.inner.(interface{ CanonicalID(id string) string }); ok {
+		return with.CanonicalID(id)
+	}
+	return id
+}
+
 // Show gives one issue in full, from the copy.
-func (kept *Tracker) Show(id string) (tracker.Issue, error) { return kept.find(id) }
+func (kept *Tracker) Show(id string) (tracker.Issue, error) { return kept.known(kept.canon(id)) }
 
 // byIDs gives the issues with these ids, in that order; one that is not in
 // the copy is left out.
@@ -334,6 +414,9 @@ func (kept *Tracker) Ready() ([]tracker.Issue, error) {
 	if err := kept.load(); err != nil {
 		return nil, err
 	}
+	if kept.isQueued() {
+		return kept.readyFromCopy(), nil
+	}
 	var held keptReady
 	if there, err := kept.store.Read(readyFile, &held); err == nil && there && held.For == kept.state.RereadAt {
 		return kept.byIDs(held.IDs), nil
@@ -354,7 +437,15 @@ func (kept *Tracker) Ready() ([]tracker.Issue, error) {
 // Search finds issues by the tracker's own search, which is not worked out
 // here: what it matches and in what order is the tracker's to say. It asks
 // the tracker.
-func (kept *Tracker) Search(text string) ([]tracker.Issue, error) { return kept.inner.Search(text) }
+func (kept *Tracker) Search(text string) ([]tracker.Issue, error) {
+	if !kept.isQueued() {
+		return kept.inner.Search(text)
+	}
+	if err := kept.load(); err != nil {
+		return nil, err
+	}
+	return kept.searchCopy(text), nil
+}
 
 // commentsName is the file an issue's comments are kept in. An id is made
 // safe for a file name: it may hold a dot, never a slash.
@@ -368,9 +459,27 @@ func commentsName(id string) string {
 // Side effects: one read of the tracker the first time an issue's comments
 // are asked for, and after the issue changed.
 func (kept *Tracker) Comments(id string) ([]tracker.Comment, error) {
-	issue, err := kept.find(id)
+	id = kept.canon(id)
+	issue, err := kept.known(id)
 	if err != nil {
 		return nil, err
+	}
+	// The comments made here that still wait to be sent come after the
+	// ones the tracker holds.
+	pending := []tracker.Comment{}
+	if kept.isQueued() {
+		for _, one := range kept.waiting {
+			if one.Kind == opComment && one.ID == id {
+				pending = append(pending, tracker.Comment{ID: "waiting-" + strconv.Itoa(one.Seq), Author: one.Actor, CreatedAt: one.At, Text: one.Text})
+			}
+		}
+		// The issue as the tracker gave it, without what waits: that is
+		// what the kept comments belong to.
+		for _, had := range kept.held {
+			if had.ID == id {
+				issue = had
+			}
+		}
 	}
 	// The issue as it stood when the comments were kept: its last change
 	// and how many comments it had. Either differing means "ask again".
@@ -380,10 +489,19 @@ func (kept *Tracker) Comments(id string) ([]tracker.Comment, error) {
 	}
 	var held keptComments
 	if there, err := kept.store.Read(commentsName(id), &held); err == nil && there && held.For == key {
-		if held.Comments == nil {
-			return []tracker.Comment{}, nil
+		return append(slices.Clone(held.Comments), pending...), nil
+	} else if there && err == nil && kept.isQueued() {
+		// Kept, but the issue changed since. If the tracker cannot be asked
+		// now, the kept ones are the best there is, and said to be old.
+		fresh, askErr := kept.inner.Comments(id)
+		if askErr != nil {
+			kept.warn("The comments could not be refreshed and may be out of date: " + askErr.Error())
+			return append(slices.Clone(held.Comments), pending...), nil
 		}
-		return held.Comments, nil
+		kept.store.Changing(func() error {
+			return kept.store.Write(commentsName(id), keptComments{For: key, Comments: fresh})
+		})
+		return append(fresh, pending...), nil
 	}
 	comments, err := kept.inner.Comments(id)
 	if err != nil {
@@ -392,7 +510,7 @@ func (kept *Tracker) Comments(id string) ([]tracker.Comment, error) {
 	kept.store.Changing(func() error {
 		return kept.store.Write(commentsName(id), keptComments{For: key, Comments: comments})
 	})
-	return comments, nil
+	return append(comments, pending...), nil
 }
 
 // changed is called after every change handed to the tracker: whether it
@@ -403,51 +521,139 @@ func (kept *Tracker) changed(err error) error {
 	return err
 }
 
-// Create makes a new issue and returns its id.
+// Create makes a new issue and returns its id. For a queued tracker too it
+// goes to the tracker at once: only the tracker gives the id.
 func (kept *Tracker) Create(draft tracker.Draft) (string, error) {
+	if kept.isQueued() {
+		return kept.createQueued(draft)
+	}
 	id, err := kept.inner.Create(draft)
 	return id, kept.changed(err)
 }
 
 // Edit changes an issue's fields, labels and kept data.
 func (kept *Tracker) Edit(id string, changes tracker.Changes) error {
+	if kept.isQueued() {
+		return kept.editQueued(kept.canon(id), changes)
+	}
 	return kept.changed(kept.inner.Edit(id, changes))
 }
 
 // Write replaces one written part of an issue.
 func (kept *Tracker) Write(id, part, text string) error {
-	return kept.changed(kept.inner.Write(id, part, text))
+	if !kept.isQueued() {
+		return kept.changed(kept.inner.Write(id, part, text))
+	}
+	id = kept.canon(id)
+	if !slices.Contains(tracker.Parts, part) {
+		return tracker.Usage("\"%s\" is not a written part of an issue. There are: %s.", part, strings.Join(tracker.Parts, ", "))
+	}
+	if _, err := kept.known(id); err != nil {
+		return err
+	}
+	return kept.record(change{Kind: opWrite, ID: id, Part: part, Text: text})
 }
 
 // Comment adds a comment to an issue.
 func (kept *Tracker) Comment(id, text string) error {
-	return kept.changed(kept.inner.Comment(id, text))
+	if !kept.isQueued() {
+		return kept.changed(kept.inner.Comment(id, text))
+	}
+	id = kept.canon(id)
+	if _, err := kept.known(id); err != nil {
+		return err
+	}
+	return kept.record(change{Kind: opComment, ID: id, Text: text})
 }
 
 // Start marks an issue as being worked on.
-func (kept *Tracker) Start(id string) error { return kept.changed(kept.inner.Start(id)) }
+func (kept *Tracker) Start(id string) error {
+	if !kept.isQueued() {
+		return kept.changed(kept.inner.Start(id))
+	}
+	id = kept.canon(id)
+	issue, err := kept.known(id)
+	if err != nil {
+		return err
+	}
+	if issue.Status == closedStatus {
+		return tracker.Refused("%s is closed. Reopen it before starting work on it.", id)
+	}
+	return kept.record(change{Kind: opStart, ID: id})
+}
 
 // Close closes an issue; reason may be "".
 func (kept *Tracker) Close(id, reason string) error {
-	return kept.changed(kept.inner.Close(id, reason))
+	if !kept.isQueued() {
+		return kept.changed(kept.inner.Close(id, reason))
+	}
+	id = kept.canon(id)
+	if _, err := kept.known(id); err != nil {
+		return err
+	}
+	return kept.record(change{Kind: opClose, ID: id, Reason: reason})
 }
 
 // Reopen reopens a closed issue.
-func (kept *Tracker) Reopen(id string) error { return kept.changed(kept.inner.Reopen(id)) }
+func (kept *Tracker) Reopen(id string) error {
+	if !kept.isQueued() {
+		return kept.changed(kept.inner.Reopen(id))
+	}
+	id = kept.canon(id)
+	if _, err := kept.known(id); err != nil {
+		return err
+	}
+	return kept.record(change{Kind: opReopen, ID: id})
+}
 
 // Move puts an issue under a parent, or with nil back at the top level.
 func (kept *Tracker) Move(id string, parentID *string) error {
+	if kept.isQueued() {
+		if parentID != nil {
+			parentID = tracker.Ptr(kept.canon(*parentID))
+		}
+		return kept.moveQueued(kept.canon(id), parentID)
+	}
 	return kept.changed(kept.inner.Move(id, parentID))
+}
+
+// both makes sure two issues are there, for a link or an unlink that waits.
+func (kept *Tracker) both(id, otherID string) error {
+	if _, err := kept.known(id); err != nil {
+		return err
+	}
+	_, err := kept.known(otherID)
+	return err
 }
 
 // Link records "id <kind> otherID".
 func (kept *Tracker) Link(id, otherID, kind string) error {
-	return kept.changed(kept.inner.Link(id, otherID, kind))
+	if !kept.isQueued() {
+		return kept.changed(kept.inner.Link(id, otherID, kind))
+	}
+	id, otherID = kept.canon(id), kept.canon(otherID)
+	if !slices.Contains(kept.inner.About().LinkKinds, kind) {
+		return tracker.Unsupported("This repository's tracker has no \"%s\" link. It has: %s.", kind, strings.Join(kept.inner.About().LinkKinds, ", "))
+	}
+	if err := kept.both(id, otherID); err != nil {
+		return err
+	}
+	if id == otherID {
+		return tracker.Refused("An issue cannot be linked to itself.")
+	}
+	return kept.record(change{Kind: opLink, ID: id, Other: otherID, LinkKind: kind})
 }
 
 // Unlink removes the link between two issues.
 func (kept *Tracker) Unlink(id, otherID string, options tracker.UnlinkOptions) error {
-	return kept.changed(kept.inner.Unlink(id, otherID, options))
+	if !kept.isQueued() {
+		return kept.changed(kept.inner.Unlink(id, otherID, options))
+	}
+	id, otherID = kept.canon(id), kept.canon(otherID)
+	if err := kept.both(id, otherID); err != nil {
+		return err
+	}
+	return kept.record(change{Kind: opUnlink, ID: id, Other: otherID, LinkKind: options.Kind, OnlyFrom: options.OnlyFrom})
 }
 
 // Status says how the copy stands.
@@ -480,7 +686,13 @@ func (kept *Tracker) SignFile() string {
 func (kept *Tracker) Status() Status {
 	var held state
 	kept.store.Read(stateFile, &held)
-	status := Status{Folder: kept.store.Dir, Straight: true}
+	status := Status{Folder: kept.store.Dir, Straight: !kept.isQueued()}
+	if !status.Straight {
+		if waiting, err := kept.readQueue(); err == nil {
+			status.Waiting = len(waiting)
+		}
+		status.Refused = len(kept.RefusedChanges())
+	}
 	if at, err := time.Parse(time.RFC3339Nano, held.RereadAt); err == nil {
 		// To the second: the finer time is only for telling rereads apart.
 		status.LastSync = tracker.Ptr(at.UTC().Format(time.RFC3339))

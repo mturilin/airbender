@@ -494,6 +494,7 @@ func TestStatusNamesTheRepositoryTheAccountAndWhatIsKeptAnotherWay(t *testing.T)
 		Tracker:    "github",
 		Repository: tracker.Ptr("someone/scratch"),
 		LinkKinds:  []string{"blocked-by", "discovered-from", "related"},
+		Writes:     tracker.WritesQueued,
 	})
 	same(t, github.Requests(), before)
 }

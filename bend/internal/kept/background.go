@@ -75,7 +75,13 @@ func AfterCommand() {
 		if err != nil {
 			continue
 		}
+		// A queued tracker's copy is synced (what waits is sent); if a sync
+		// is running this one leaves, and that one goes round again. A
+		// straight one's is reread.
 		command := exec.Command(program, "-C", one.dir, "refresh")
+		if one.made.isQueued() {
+			command = exec.Command(program, "-C", one.dir, "sync", "--no-wait")
+		}
 		// Its own session: it is not ended with the terminal or the caller.
 		command.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 		if os.MkdirAll(one.made.store.Dir, 0o755) == nil {

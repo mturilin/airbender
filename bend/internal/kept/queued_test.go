@@ -1,87 +1,100 @@
-// copy_test.go — the copy on this machine, against a stand-in for GitHub.
+// queued_test.go — the queued way of writing, with the GitHub adapter
+// under the copy and a stand-in for GitHub under that.
 //
-// What: runs the adapter over a Copy whose "GitHub" is the in-memory
-// stand-in, wrapped so that it can be cut off, made to refuse, and
-// counted, and checks the owner's rules for the copy: reads ask nothing,
-// changes show at once and are sent by a sync in order, the two kinds of
-// failure, changes from two sides adding up, and the two things that ask
-// GitHub first.
+// What: runs the copy over the real GitHub adapter, whose "GitHub" is the
+// in-memory stand-in, wrapped so that it can be cut off, made to refuse,
+// and counted; and checks the owner's rules for a tracker reached over the
+// network: reads ask nothing, changes show at once and are sent by a sync
+// in order, the two kinds of failure, changes from two sides adding up,
+// and the two things that ask the tracker first.
 //
 // Why: these rules are what make a hosted tracker usable at all, and what
-// keep a change from being lost or silently replaced (bead-bb-c9l.5).
+// keep a change from being lost or silently replaced. They were first
+// tested with the copy inside the GitHub adapter (bead-bb-c9l.5); these are
+// those tests on the new seat (bead-bb-c9l.15), so that nothing was lost in
+// the move.
 //
 // Gotchas:
 //   - Nothing here starts a background sync: the tests sync when they mean
 //     to. Time is a clock the tests move.
+//   - This test knows the GitHub adapter; the copy itself imports none.
 
-package github
+package kept
 
 import (
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/mturilin/airbender/bend/internal/github"
 	"github.com/mturilin/airbender/bend/internal/tracker"
 )
 
 // line is a "GitHub" that can be cut off or made to refuse.
 type line struct {
-	*Fake
+	*github.Fake
 	// down makes every request fail as "not now".
 	down bool
 	// refuse makes changes to the issue with this number fail as "never".
 	refuse int
-	// readsFail makes reading one issue fail, in words that do not say
-	// whether trying again helps (a limit reported in an unusual way, say).
+	// readsFail makes reading one issue fail as a limit would: "not now".
 	readsFail bool
 	// listsFail makes asking for what changed fail as "not now".
 	listsFail bool
+	// updatesFail makes changes to the issue with this number fail as "not
+	// now", and commentsFail every new comment: a request lost half-way
+	// through an operation that takes several.
+	updatesFail  int
+	commentsFail bool
 }
 
-// offline is the failure of a request that could not be sent.
-func offline() error {
+// cutOff is the failure of a request that could not be sent.
+func cutOff() error {
 	failure := tracker.Refused("GitHub could not be reached. Check the network connection and try again.")
 	failure.Later = true
 	return failure
 }
 
-func (l *line) Issue(number int) (*Issue, error) {
+func (l *line) Issue(number int) (*github.Issue, error) {
 	if l.down {
-		return nil, offline()
+		return nil, cutOff()
 	}
 	if l.readsFail {
-		return nil, tracker.Refused("GitHub refused: something went wrong.")
+		limited := tracker.Refused("GitHub's hourly limit on requests is used up. Try again within the hour.")
+		limited.Later = true
+		return nil, limited
 	}
 	return l.Fake.Issue(number)
 }
 
-func (l *line) Issues(options ListOptions) ([]Issue, error) {
+func (l *line) Issues(options github.ListOptions) ([]github.Issue, error) {
 	if l.down || l.listsFail {
-		return nil, offline()
+		return nil, cutOff()
 	}
 	return l.Fake.Issues(options)
 }
 
-func (l *line) Comments(number int) ([]Comment, error) {
+func (l *line) Comments(number int) ([]github.Comment, error) {
 	if l.down {
-		return nil, offline()
+		return nil, cutOff()
 	}
 	return l.Fake.Comments(number)
 }
 
-func (l *line) Create(draft NewIssue) (Created, error) {
+func (l *line) Create(draft github.NewIssue) (github.Created, error) {
 	if l.down {
-		return Created{}, offline()
+		return github.Created{}, cutOff()
 	}
 	return l.Fake.Create(draft)
 }
 
-func (l *line) Update(number int, changes Changes) error {
+func (l *line) Update(number int, changes github.Changes) error {
 	switch {
-	case l.down:
-		return offline()
+	case l.down || l.updatesFail == number:
+		return cutOff()
 	case l.refuse == number:
 		return tracker.Refused("GitHub refused: the issue is locked.")
 	}
@@ -90,8 +103,8 @@ func (l *line) Update(number int, changes Changes) error {
 
 func (l *line) AddComment(number int, body string) error {
 	switch {
-	case l.down:
-		return offline()
+	case l.down || l.commentsFail:
+		return cutOff()
 	case l.refuse == number:
 		return tracker.Refused("GitHub refused: the issue is locked.")
 	}
@@ -101,7 +114,7 @@ func (l *line) AddComment(number int, body string) error {
 // desk is one machine's copy of the repository, with the adapter over it.
 type desk struct {
 	t       *testing.T
-	copy    *Copy
+	copy    *Tracker
 	tracker tracker.Tracker
 	dir     string
 }
@@ -115,7 +128,7 @@ type world struct {
 
 // newWorld makes a "GitHub" with nothing on it.
 func newWorld(t *testing.T) *world {
-	made := &world{t: t, github: &line{Fake: NewFake(FakeOptions{})}, clock: time.Date(2026, 3, 1, 9, 0, 0, 0, time.UTC)}
+	made := &world{t: t, github: &line{Fake: github.NewFake(github.FakeOptions{})}, clock: time.Date(2026, 3, 1, 9, 0, 0, 0, time.UTC)}
 	made.pass(0)
 	return made
 }
@@ -123,14 +136,14 @@ func newWorld(t *testing.T) *world {
 // pass moves the clock, the stand-in's too.
 func (w *world) pass(by time.Duration) {
 	w.clock = w.clock.Add(by)
-	w.github.SetClock(stamp(w.clock))
+	w.github.SetClock(seconds(w.clock))
 }
 
 // desk opens a copy in dir, as a new bend process would: nothing is kept
 // in memory from before.
 func (w *world) desk(dir string) *desk {
-	held := OpenCopy(w.github, dir, CopyOptions{Now: func() time.Time { return w.clock }})
-	return &desk{t: w.t, copy: held, tracker: New(held, ""), dir: dir}
+	held := Open(github.New(w.github, ""), dir, Options{Now: func() time.Time { return w.clock }})
+	return &desk{t: w.t, copy: held, tracker: held, dir: dir}
 }
 
 // sync syncs, failing the test when GitHub could not be asked.
@@ -141,6 +154,14 @@ func (d *desk) sync() SyncResult {
 		d.t.Fatalf("sync: %v", err)
 	}
 	return result
+}
+
+// must fails the test when an operation that should work did not.
+func must(t *testing.T, err error) {
+	t.Helper()
+	if err != nil {
+		t.Fatalf("unexpected failure: %v", err)
+	}
 }
 
 // show gives one issue, failing the test when it cannot be read.
@@ -188,8 +209,8 @@ func TestReadsAskNothingAndChangesShowAtOnce(t *testing.T) {
 	if shown.Title != "Checkout flow" || shown.Plan != "Step one." || shown.CommentCount != 1 {
 		t.Fatalf("got %+v", shown)
 	}
-	if second.copy.Unsent(1) != 3 || second.copy.Status().Waiting != 3 {
-		t.Fatalf("got %d unsent", second.copy.Unsent(1))
+	if second.copy.Unsent("1") != 3 || second.copy.Status().Waiting != 3 {
+		t.Fatalf("got %d unsent", second.copy.Unsent("1"))
 	}
 	comments, err := second.tracker.Comments("1")
 	must(t, err)
@@ -207,7 +228,7 @@ func TestReadsAskNothingAndChangesShowAtOnce(t *testing.T) {
 		t.Fatalf("GitHub holds %q", w.github.BodyOf(1))
 	}
 	after := third.show("1")
-	if after.Title != "Checkout flow" || after.Plan != "Step one." || after.CommentCount != 1 || third.copy.Unsent(1) != 0 {
+	if after.Title != "Checkout flow" || after.Plan != "Step one." || after.CommentCount != 1 || third.copy.Unsent("1") != 0 {
 		t.Fatalf("got %+v", after)
 	}
 }
@@ -371,16 +392,16 @@ func TestWhatOthersChangedComesInAndAStaleCopyAsksForASync(t *testing.T) {
 	// Changed on GitHub behind bend's back.
 	w.pass(time.Minute)
 	title := "Changed on github.com"
-	w.github.Fake.Update(1, Changes{Title: &title})
+	w.github.Fake.Update(1, github.Changes{Title: &title})
 	w.github.Fake.AddComment(1, "From the website.")
 	fresh := w.desk(dir)
-	if fresh.show("1").Title != "Seen" || fresh.copy.wantsSync {
+	if fresh.show("1").Title != "Seen" || fresh.copy.wantsReread {
 		t.Fatal("a fresh copy was not answered from as it is")
 	}
 	w.pass(5 * time.Minute)
 	stale := w.desk(dir)
 	before := w.github.Requests()
-	if stale.show("1").Title != "Seen" || !stale.copy.wantsSync || w.github.Requests() != before {
+	if stale.show("1").Title != "Seen" || !stale.copy.wantsReread || w.github.Requests() != before {
 		t.Fatal("a copy a few minutes old must answer at once and ask for a sync")
 	}
 	stale.sync()
@@ -397,7 +418,7 @@ func TestWhatOthersChangedComesInAndAStaleCopyAsksForASync(t *testing.T) {
 	// More than a day old: reread before the read answers.
 	w.pass(25 * time.Hour)
 	title = "Changed again"
-	w.github.Fake.Update(1, Changes{Title: &title})
+	w.github.Fake.Update(1, github.Changes{Title: &title})
 	if old := w.desk(dir); old.show("1").Title != "Changed again" {
 		t.Fatal("a copy more than a day old answered without being reread")
 	}
@@ -405,8 +426,8 @@ func TestWhatOthersChangedComesInAndAStaleCopyAsksForASync(t *testing.T) {
 	w.pass(25 * time.Hour)
 	w.github.down = true
 	warned := ""
-	cut := OpenCopy(w.github, dir, CopyOptions{Now: func() time.Time { return w.clock }, Warn: func(text string) { warned = text }})
-	if _, err := New(cut, "").Show("1"); err != nil || !strings.Contains(warned, "could not be refreshed") {
+	cut := Open(github.New(w.github, ""), dir, Options{Now: func() time.Time { return w.clock }, Warn: func(text string) { warned = text }})
+	if _, err := cut.Show("1"); err != nil || !strings.Contains(warned, "could not be refreshed") {
 		t.Fatalf("got %v, warned %q", err, warned)
 	}
 	// With no copy at all there is nothing to answer from.
@@ -422,7 +443,7 @@ func TestAFullRereadDropsWhatIsGone(t *testing.T) {
 	one.tracker.Create(tracker.Draft{Title: "Stays"})
 	one.sync()
 	// An issue in the copy that GitHub no longer has.
-	gone := Issue{Ref: Ref{Number: 7, Title: "Deleted on GitHub", State: "open"}, ID: 1007}
+	gone := tracker.Issue{ID: "7", Title: "Deleted on GitHub", Status: "open"}.Tidy()
 	must(t, one.copy.keep(gone))
 	if listed, _ := w.desk(dir).tracker.List(tracker.ListFilter{}); len(listed) != 2 {
 		t.Fatalf("got %d issues", len(listed))
@@ -519,7 +540,7 @@ func TestMakingAnIssueDoesNotHideWhatChangedBeforeIt(t *testing.T) {
 	// A colleague edits it; later an issue is made here, and a step moved.
 	w.pass(10 * time.Minute)
 	title := "Edited on github.com"
-	w.github.Fake.Update(1, Changes{Title: &title})
+	w.github.Fake.Update(1, github.Changes{Title: &title})
 	w.pass(10 * time.Minute)
 	two := w.desk(dir)
 	_, err := two.tracker.Create(tracker.Draft{Title: "Made later"})
@@ -567,14 +588,14 @@ func TestASentChangeStaysVisibleWhenNothingCanBeBroughtIn(t *testing.T) {
 		t.Fatalf("got %+v, %v", result, err)
 	}
 	two := w.desk(dir)
-	if shown := two.show("1"); shown.Title != "New" || shown.CommentCount != 1 || two.copy.Unsent(1) != 0 {
+	if shown := two.show("1"); shown.Title != "New" || shown.CommentCount != 1 || two.copy.Unsent("1") != 0 {
 		t.Fatalf("the sent changes do not show: %+v", shown)
 	}
 	// And what GitHub gives next replaces what was laid on.
 	w.github.listsFail = false
 	w.pass(time.Minute)
 	title := "Newer, on GitHub"
-	w.github.Fake.Update(1, Changes{Title: &title})
+	w.github.Fake.Update(1, github.Changes{Title: &title})
 	two.sync()
 	if got := w.desk(dir).show("1").Title; got != "Newer, on GitHub" {
 		t.Fatalf("got %q", got)
@@ -586,7 +607,7 @@ func TestASentChangeStaysVisibleWhenNothingCanBeBroughtIn(t *testing.T) {
 	}
 }
 
-func TestAFailedReadBeforeSendingIsNotARefusal(t *testing.T) {
+func TestALimitWhileSendingKeepsTheChangeWaiting(t *testing.T) {
 	w := newWorld(t)
 	dir := t.TempDir()
 	one := w.desk(dir)
@@ -612,11 +633,11 @@ func TestBringingInNeverPutsAnOlderVersionOverANewerOne(t *testing.T) {
 	one.sync()
 	// What another process put in while a list was on its way: newer than
 	// anything that list can hold.
-	newer := Issue{Ref: Ref{Number: 1, Title: "Put in meanwhile", State: "open"}, ID: 1001,
-		UpdatedAt: stamp(w.clock.Add(time.Hour)), CreatedAt: stamp(w.clock)}
+	newer := tracker.Issue{ID: "1", Title: "Put in meanwhile", Status: "open",
+		UpdatedAt: tracker.Ptr(seconds(w.clock.Add(time.Hour))), CreatedAt: tracker.Ptr(seconds(w.clock))}.Tidy()
 	must(t, one.copy.keep(newer))
-	made := Issue{Ref: Ref{Number: 9, Title: "Made meanwhile", State: "open"}, ID: 1009,
-		UpdatedAt: stamp(w.clock), CreatedAt: stamp(w.clock)}
+	made := tracker.Issue{ID: "9", Title: "Made meanwhile", Status: "open",
+		UpdatedAt: tracker.Ptr(seconds(w.clock)), CreatedAt: tracker.Ptr(seconds(w.clock))}.Tidy()
 	must(t, one.copy.keep(made))
 	if _, err := w.desk(dir).copy.Sync(true); err != nil {
 		t.Fatal(err)
@@ -638,14 +659,7 @@ func TestACopyThatCannotBeReadIsMadeAnewByAFullSync(t *testing.T) {
 	one.tracker.Create(tracker.Draft{Title: "Survives on GitHub"})
 	one.sync()
 	os.WriteFile(filepath.Join(dir, issuesFile), []byte("{half"), 0o644)
-	if _, err := w.desk(dir).tracker.List(tracker.ListFilter{}); err == nil || !strings.Contains(err.Error(), "bend sync --all") {
-		t.Fatalf("got %v", err)
-	}
-	warned := ""
-	mended := OpenCopy(w.github, dir, CopyOptions{Now: func() time.Time { return w.clock }, Warn: func(text string) { warned = text }})
-	if _, err := mended.Sync(true); err != nil || !strings.Contains(warned, issuesFile+".unreadable") {
-		t.Fatalf("got %v, warned %q", err, warned)
-	}
+	// The next read makes it anew, by itself.
 	if listed, err := w.desk(dir).tracker.List(tracker.ListFilter{}); err != nil || len(listed) != 1 {
 		t.Fatalf("got %v, %v", listed, err)
 	}
@@ -661,7 +675,262 @@ func TestAClockSetBackIsNoticed(t *testing.T) {
 	w.pass(-24 * time.Hour)
 	back := w.desk(dir)
 	back.show("1")
-	if !back.copy.wantsSync {
+	if !back.copy.wantsReread {
 		t.Fatal("a copy synced in the future was taken for fresh")
+	}
+}
+
+func TestWhatTheCopySeesIsRefusedAtOnceAndTheRestWhenSent(t *testing.T) {
+	w := newWorld(t)
+	one := w.desk(t.TempDir())
+	first, _ := one.tracker.Create(tracker.Draft{Title: "First"})
+	second, _ := one.tracker.Create(tracker.Draft{Title: "Second"})
+	before := one.copy.Status().Waiting
+
+	// What the copy can see itself: refused in the command's own answer,
+	// with nothing recorded.
+	for what, err := range map[string]error{
+		"an issue that is not there":  one.tracker.Comment("99", "To nobody."),
+		"a link to itself":            one.tracker.Link(first, first, "related"),
+		"a kind of link GitHub lacks": one.tracker.Link(first, second, "supersedes"),
+		"a part that is not one":      one.tracker.Write(first, "summary", "No."),
+	} {
+		if err == nil {
+			t.Fatalf("%s was accepted", what)
+		}
+	}
+	must(t, one.tracker.Move(second, &first))
+	if err := one.tracker.Move(first, &second); err == nil {
+		t.Fatal("a loop of sub-issues was accepted")
+	}
+	must(t, one.tracker.Close(second, ""))
+	if err := one.tracker.Start(second); err == nil {
+		t.Fatal("a closed issue was started")
+	}
+	if waiting := one.copy.Status().Waiting; waiting != before+2 {
+		t.Fatalf("%d changes wait; only the move and the close should", waiting-before)
+	}
+	one.sync()
+
+	// What only the adapter knows: accepted here, refused when it is sent,
+	// and then on the list with the reason.
+	must(t, one.tracker.Link(first, second, "related"))
+	must(t, one.tracker.Link(first, second, "related"))
+	result := one.sync()
+	if result.Sent != 1 || result.Refused != 1 {
+		t.Fatalf("got %+v", result)
+	}
+	refused := one.copy.RefusedChanges()
+	if len(refused) != 1 || refused[0].Issue != first || !strings.Contains(refused[0].What, "linking it to issue "+second) || refused[0].Reason == "" {
+		t.Fatalf("got %+v", refused)
+	}
+	// The link that was sent shows once, from both ends.
+	if links := w.desk(one.dir).show(second).Links; len(links) != 1 || links[0].Kind != "related" {
+		t.Fatalf("got the links %v", links)
+	}
+}
+
+func TestAChangeIsSentAsWhoeverMadeIt(t *testing.T) {
+	w := newWorld(t)
+	dir := t.TempDir()
+	w.desk(dir).tracker.Create(tracker.Draft{Title: "Whose"})
+	// Made as someone, by one process...
+	named := Open(github.New(w.github, "agent-7"), dir, Options{Now: func() time.Time { return w.clock }, Actor: "agent-7"})
+	must(t, named.Start("1"))
+	must(t, named.Comment("1", "Mine."))
+	// Whom it is assigned to is GitHub's to say (the signed-in account), so
+	// nobody is shown until GitHub has it.
+	if shown, _ := named.Show("1"); shown.Status != "in_progress" || shown.Assignee != nil {
+		t.Fatalf("got %+v", shown)
+	}
+	// ...and sent by another, which names nobody.
+	if result := w.desk(dir).sync(); result.Sent != 2 {
+		t.Fatalf("got %+v", result)
+	}
+	comments, _ := w.github.Fake.Comments(1)
+	if len(comments) != 1 || !strings.Contains(comments[0].Body, "agent-7") {
+		t.Fatalf("the comment was not sent as agent-7: %+v", comments)
+	}
+	viewer, _ := w.github.Fake.Viewer()
+	if shown := w.desk(dir).show("1"); shown.Assignee == nil || *shown.Assignee != viewer {
+		t.Fatalf("got %+v, want it assigned to %s", shown, viewer)
+	}
+}
+
+// A change that takes GitHub several requests, sent again after it stopped
+// half-way, must not repeat the half that was done nor be refused for it.
+func TestAChangeSentAgainDoesNotRepeatWhatWasDone(t *testing.T) {
+	w := newWorld(t)
+	one := w.desk(t.TempDir())
+	for _, title := range []string{"Closed late", "Closed, comment late", "Linked", "To"} {
+		_, err := one.tracker.Create(tracker.Draft{Title: title})
+		must(t, err)
+	}
+	closingComments := func(number int) int {
+		comments, _ := w.github.Fake.Comments(number)
+		return len(comments)
+	}
+	// The closing does not get through, twice; then it does.
+	must(t, one.tracker.Close("1", "Done with it."))
+	w.github.updatesFail = 1
+	one.sync()
+	one.sync()
+	w.github.updatesFail = 0
+	if result := one.sync(); result.Sent != 1 || closingComments(1) != 1 || one.show("1").Status != "closed" {
+		t.Fatalf("got %+v, %d comments", result, closingComments(1))
+	}
+	// The closing gets through and its comment does not.
+	must(t, one.tracker.Close("2", "Done too."))
+	w.github.commentsFail = true
+	if result := one.sync(); result.Sent != 0 || result.Waiting != 1 {
+		t.Fatalf("got %+v", result)
+	}
+	w.github.commentsFail = false
+	if result := one.sync(); result.Sent != 1 || closingComments(2) != 1 {
+		t.Fatalf("got %+v, %d comments", result, closingComments(2))
+	}
+	// A link kept on both issues: the second line does not get through.
+	must(t, one.tracker.Link("3", "4", "related"))
+	w.github.updatesFail = 4
+	one.sync()
+	w.github.updatesFail = 0
+	if result := one.sync(); result.Sent != 1 || result.Refused != 0 {
+		t.Fatalf("got %+v", result)
+	}
+	if !strings.Contains(w.github.BodyOf(3), "4") || !strings.Contains(w.github.BodyOf(4), "3") {
+		t.Fatalf("the link is on one issue only:\n%s\n---\n%s", w.github.BodyOf(3), w.github.BodyOf(4))
+	}
+	// And taking it off again, the same way.
+	must(t, one.tracker.Unlink("3", "4", tracker.UnlinkOptions{}))
+	w.github.updatesFail = 4
+	one.sync()
+	w.github.updatesFail = 0
+	if result := one.sync(); result.Sent != 1 || result.Refused != 0 {
+		t.Fatalf("got %+v", result)
+	}
+	if links := one.show("4").Links; len(links) != 0 {
+		t.Fatalf("issue 4 still shows %v", links)
+	}
+}
+
+func TestAnIdWrittenWithItsSignIsTheSameIssue(t *testing.T) {
+	w := newWorld(t)
+	one := w.desk(t.TempDir())
+	for _, title := range []string{"Parent", "Child"} {
+		_, err := one.tracker.Create(tracker.Draft{Title: title})
+		must(t, err)
+	}
+	asked := w.github.Requests()
+	must(t, one.tracker.Comment("#1", "Said."))
+	must(t, one.tracker.Move("2", tracker.Ptr("#1")))
+	if w.github.Requests() != asked {
+		t.Fatal("GitHub was asked for an issue the copy holds")
+	}
+	one = w.desk(one.dir)
+	parent := one.show("#1")
+	if parent.CommentCount != 1 || len(parent.SubIssues) != 1 || one.copy.Unsent("#1") != 1 {
+		t.Fatalf("got %+v, %d unsent", parent, one.copy.Unsent("#1"))
+	}
+	// The loop is seen at once, however the ids are written.
+	if err := one.tracker.Move("#1", tracker.Ptr("#2")); err == nil {
+		t.Fatal("an issue was moved inside its own sub-issue")
+	}
+}
+
+func TestReopeningAnIssueInProgressLeavesItInProgress(t *testing.T) {
+	w := newWorld(t)
+	one := w.desk(t.TempDir())
+	_, err := one.tracker.Create(tracker.Draft{Title: "Being worked on"})
+	must(t, err)
+	must(t, one.tracker.Start("1"))
+	one.sync()
+	must(t, one.tracker.Reopen("1"))
+	if status := w.desk(one.dir).show("1").Status; status != "in_progress" {
+		t.Fatalf("while it waits it shows %s", status)
+	}
+	one.sync()
+	if status := w.desk(one.dir).show("1").Status; status != "in_progress" {
+		t.Fatalf("once sent it shows %s", status)
+	}
+}
+
+func TestAStepChangeDoesNotTakeOtherLabelsAheadOfTheQueue(t *testing.T) {
+	w := newWorld(t)
+	one := w.desk(t.TempDir())
+	_, err := one.tracker.Create(tracker.Draft{Title: "Labelled"})
+	must(t, err)
+	must(t, one.tracker.Edit("1", tracker.Changes{AddLabels: []string{"foo"}}))
+	one.sync()
+	must(t, one.tracker.Edit("1", tracker.Changes{RemoveLabels: []string{"foo"}}))
+	// The last word on "foo" is that it is there.
+	must(t, one.tracker.Edit("1", tracker.Changes{AddLabels: []string{"foo", "step:plan"}}))
+	one.sync()
+	labels := w.github.LabelsOf(1)
+	sort.Strings(labels)
+	if strings.Join(labels, " ") != "foo step:plan" {
+		t.Fatalf("GitHub holds %v", labels)
+	}
+}
+
+func TestADamagedFileOfIssuesDoesNotSendAChangeTwice(t *testing.T) {
+	w := newWorld(t)
+	one := w.desk(t.TempDir())
+	_, err := one.tracker.Create(tracker.Draft{Title: "Commented"})
+	must(t, err)
+	must(t, one.tracker.Comment("1", "Once."))
+	os.WriteFile(filepath.Join(one.dir, issuesFile), []byte("{ not what it was"), 0o644)
+	for range 3 {
+		w.desk(one.dir).copy.Sync(false)
+	}
+	comments, _ := w.github.Fake.Comments(1)
+	if len(comments) != 1 {
+		t.Fatalf("the comment is on GitHub %d times", len(comments))
+	}
+	// And the copy is whole again.
+	if shown := w.desk(one.dir).show("1"); shown.Title != "Commented" || shown.CommentCount != 1 {
+		t.Fatalf("got %+v", shown)
+	}
+}
+
+func TestUnlinkingOnlyTheFirstIssuesLinkLeavesTheOtherIssuesOwn(t *testing.T) {
+	w := newWorld(t)
+	one := w.desk(t.TempDir())
+	for _, title := range []string{"Source", "Found while there"} {
+		_, err := one.tracker.Create(tracker.Draft{Title: title})
+		must(t, err)
+	}
+	must(t, one.tracker.Link("2", "1", "discovered-from"))
+	one.sync()
+	// Issue 1 has no link of its own to issue 2: nothing is hidden meanwhile.
+	must(t, one.tracker.Unlink("1", "2", tracker.UnlinkOptions{OnlyFrom: true}))
+	if links := w.desk(one.dir).show("2").Links; len(links) != 1 {
+		t.Fatalf("while it waits issue 2 shows %v", links)
+	}
+}
+
+func TestACopyMadeByAnotherVersionIsPutAsideAndSaidSo(t *testing.T) {
+	w := newWorld(t)
+	w.desk(t.TempDir()).tracker.Create(tracker.Draft{Title: "On GitHub"})
+	// As the copy inside the GitHub adapter left it: other files, another
+	// shape, and a change still waiting.
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, stateFile), []byte(`{"Login": "octo", "LastSync": "2026-03-01T08:00:00Z", "Cursor": "2026-03-01T08:00:00Z"}`), 0o644)
+	os.WriteFile(filepath.Join(dir, issuesFile), []byte(`[{"Number": 1, "ID": 1001, "Title": "Old shape", "State": "open"}]`), 0o644)
+	os.WriteFile(filepath.Join(dir, "queue.json"), []byte(`{"Next": 2, "Changes": [{"Seq": 1, "Kind": "comment", "Number": 1, "Text": "Never sent."}]}`), 0o644)
+	warned := ""
+	held := Open(github.New(w.github, ""), dir, Options{Now: func() time.Time { return w.clock }, Warn: func(text string) { warned = text }})
+	listed, err := held.List(tracker.ListFilter{})
+	if err != nil || len(listed) != 1 || listed[0].Title != "On GitHub" {
+		t.Fatalf("got %v, %v", listed, err)
+	}
+	if !strings.Contains(warned, "another version") || !strings.Contains(warned, "1 changes were waiting") || !strings.Contains(warned, "NOT sent") {
+		t.Fatalf("warned %q", warned)
+	}
+	// Kept for a person to look at, not sent, not laid on the new copy.
+	if kept, _ := os.ReadFile(filepath.Join(dir, "queue.json.unreadable")); !strings.Contains(string(kept), "Never sent.") {
+		t.Fatal("the old waiting change was not kept")
+	}
+	if comments, _ := w.github.Fake.Comments(1); len(comments) != 0 || held.Status().Waiting != 0 {
+		t.Fatal("an old-style change was sent or still waits")
 	}
 }

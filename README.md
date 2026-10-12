@@ -364,8 +364,8 @@ database and waits behind a running sync:
 The code is `bend/internal/kept` (the copy, which knows no tracker) over
 `bend/internal/localcopy` (its files and locks). An adapter says how its
 changes are written (beads: straight through) and may give a cheap sign
-that its data changed. GitHub still has a copy of its own inside its
-adapter; moving it onto this one is bead-bb-c9l.15.
+that its data changed. GitHub issues are answered from the same copy, with
+changes queued; see below.
 
 ### GitHub issues from a copy on this computer
 
@@ -397,9 +397,28 @@ sending it and taking it off its list, or if GitHub got the request but its
 answer was lost. For a comment that means the comment appears twice.
 
 `BEND_LIVE=1` makes bend ask GitHub directly for every command, as it used
-to; `BEND_NO_BACKGROUND=1` stops it starting a sync by itself. The code is
-`bend/internal/github/copy.go` (the copy), `background.go` (the sync after
-a command) and `bend/internal/localcopy` (its files and locks).
+to; `BEND_NO_BACKGROUND=1` stops it starting a sync by itself.
+
+It is the same copy that answers for beads (`bend/internal/kept`), with
+the queued way of writing switched on: the GitHub adapter says its changes
+are queued, and sits under the copy, where it is used to bring issues in
+and to carry out one change at a time. A waiting change is kept as what was
+asked ("write the plan of issue 12"), and sending it is that same operation
+on the adapter, which is why parts and labels from two sides add up.
+
+Two things follow from the copy sitting above the adapter:
+
+- **Links and "what blocks what" are put together by the copy when read**
+  (`kept/derive.go`), from each issue's own facts. GitHub reports a closed
+  blocker as changed, not the issue that waited for it, so answers cannot
+  be kept as GitHub gave them. A test holds the copy's rule to the
+  adapter's.
+- **Some refusals come a few seconds late.** The copy refuses at once what
+  it can see itself: an issue that is not there, a loop of sub-issues, a
+  link of an issue to itself, a closed issue started. What only GitHub's
+  rules can refuse (linking two issues already linked, say) shows on `bend
+  refused` after the change was sent. After a batch of changes, look at
+  `bend status`.
 
 For a program that runs bend (the tab does, `server/bend.ts`): `--json`
 prints JSON, and a failure as `{"ok": false, "status", "kind", "error"}`

@@ -201,17 +201,18 @@ func Tracker(dir string, options Options) (Found, error) {
 		if options.GitHubClient != nil {
 			return Found{Root: root, Tracker: github.New(options.GitHubClient(repository), options.Actor)}
 		}
-		var client github.Client = github.NewClient(repository, github.ClientOptions{})
-		// From a copy on this machine, synced with GitHub (bead-bb-c9l.5),
-		// unless the caller wants every command to ask GitHub itself.
-		if os.Getenv(LiveVariable) == "" {
-			held := github.OpenCopy(client, localcopy.FolderFor(root, repository), github.CopyOptions{Warn: options.Warn})
-			// Synced from where the command ran, so that the same setting
-			// file and the same repository are found again.
-			github.Opened(held, start)
-			client = held
+		adapter := github.New(github.NewClient(repository, github.ClientOptions{}), options.Actor)
+		// Asked directly for every command only when the caller wants it.
+		if os.Getenv(LiveVariable) != "" {
+			return Found{Root: root, Tracker: adapter}
 		}
-		return Found{Root: root, Tracker: github.New(client, options.Actor)}
+		// From the copy on this machine, synced with GitHub
+		// (bead-bb-c9l.15): changes wait there and are sent afterwards.
+		// Synced from where the command ran, so that the same setting file
+		// and the same repository are found again.
+		held := kept.Open(adapter, localcopy.FolderFor(root, repository), kept.Options{Warn: options.Warn, Actor: options.Actor})
+		kept.Opened(held, start)
+		return Found{Root: root, Tracker: held}
 	}
 	// A setting file may name the repository without naming the tracker:
 	// "the remote is not where the issues are". The nearest one is kept for

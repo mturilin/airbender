@@ -34,7 +34,11 @@ things to know. What someone else changed shows after a sync, so run `bend
 sync` before relying on an issue you have not looked at for a while. And if
 a change to an issue's step is refused because "it was changed on GitHub",
 read the issue again before doing anything else: someone moved it. `bend
-status` says how many changes still wait to be sent.
+status` says how many changes still wait to be sent, and how many GitHub
+refused: a change can be accepted by `bend` and refused by GitHub a few
+seconds later (linking two issues that are already linked, say), so look
+at `bend status` after a batch of changes, and at `bend refused` if it
+names any.
 
 ## Getting a repository ready
 

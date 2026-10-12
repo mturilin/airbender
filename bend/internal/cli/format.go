@@ -22,7 +22,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/mturilin/airbender/bend/internal/facts"
-	"github.com/mturilin/airbender/bend/internal/github"
 	"github.com/mturilin/airbender/bend/internal/kept"
 	"github.com/mturilin/airbender/bend/internal/setup"
 	"github.com/mturilin/airbender/bend/internal/tracker"
@@ -319,7 +318,7 @@ func FormatCopy(status *kept.Status) string {
 }
 
 // FormatSync gives what `bend sync` prints.
-func FormatSync(result github.SyncResult) string {
+func FormatSync(result kept.SyncResult) string {
 	if result.Busy {
 		return "Another sync is running; nothing to do."
 	}
@@ -338,7 +337,7 @@ func FormatSync(result github.SyncResult) string {
 }
 
 // FormatRefused gives what `bend refused` prints.
-func FormatRefused(refused []github.RefusedChange) string {
+func FormatRefused(refused []kept.RefusedChange) string {
 	if len(refused) == 0 {
 		return "No refused changes."
 	}

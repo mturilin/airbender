@@ -374,6 +374,16 @@ func numberOf(id string) (int, error) {
 	return number, nil
 }
 
+// CanonicalID gives an id in the form this adapter itself gives ids in: the
+// number alone, so "#12" becomes "12". One that is no issue number is given
+// back as it came, to be refused where it is used.
+func (github *adapter) CanonicalID(id string) string {
+	if number, err := numberOf(id); err == nil {
+		return strconv.Itoa(number)
+	}
+	return id
+}
+
 // sameLink says whether two text links are the same line.
 func sameLink(left, right tracker.TextLink) bool {
 	return left.Kind == right.Kind && left.Direction == right.Direction && left.ID == right.ID
@@ -523,14 +533,6 @@ func (github *adapter) rewrite(issue *Issue, change func(bodyParts) bodyParts) e
 	return github.client.Update(issue.Number, Changes{Body: &body})
 }
 
-// LocalCopy gives the copy on this machine that the adapter works from,
-// for a caller that shows or looks after it (the sync, what waits, what
-// was refused); nil when the adapter talks to GitHub directly.
-func (github *adapter) LocalCopy() *Copy {
-	held, _ := github.client.(*Copy)
-	return held
-}
-
 // About says what is known without asking GitHub anything: the tracker's
 // name, the repository, and the kinds of link accepted.
 func (github *adapter) About() tracker.About {
@@ -538,7 +540,18 @@ func (github *adapter) About() tracker.About {
 		Tracker:    "github",
 		Repository: tracker.Ptr(github.client.Repository()),
 		LinkKinds:  append([]string{}, tracker.LinkKinds...),
+		// Reached over the network: a change is recorded on this machine
+		// and sent afterwards (bend/internal/kept).
+		Writes: tracker.WritesQueued,
 	}
+}
+
+// As gives the same tracker acting as someone else, for a change that was
+// made as one person and is sent later by a process that names nobody.
+func (github *adapter) As(actor string) tracker.Tracker {
+	other := *github
+	other.actor = actor
+	return &other
 }
 
 // Capabilities reports what GitHub holds as a field of its own, what is kept
@@ -989,21 +1002,31 @@ func (github *adapter) Start(id string) error {
 	return github.client.Update(issue.Number, update)
 }
 
-// Close closes an issue. A reason, when not empty, is added first as a
+// Close closes an issue. A reason, when not empty, is then added as a
 // comment that begins "Closed:".
+//
+// The issue is closed first and the comment added after. Asked again after
+// it stopped half-way (the local copy sends a change again when GitHub
+// could not be reached), an issue already closed is not closed again, and
+// the comment is added once: the other order added the comment anew at
+// every attempt until the closing went through (bead-bb-c9l.15).
 func (github *adapter) Close(id, reason string) error {
 	issue, err := github.need(id)
 	if err != nil {
 		return err
 	}
-	if reason = strings.TrimSpace(reason); reason != "" {
-		body, err := github.signed("Closed: " + reason)
-		if err != nil {
+	reason = strings.TrimSpace(reason)
+	body := ""
+	if reason != "" {
+		if body, err = github.signed("Closed: " + reason); err != nil {
 			return err
 		}
-		if err := github.client.AddComment(issue.Number, body); err != nil {
-			return err
+	}
+	if issue.State == "closed" && !has(issue.Labels, inProgress) {
+		if body == "" {
+			return nil
 		}
+		return github.client.AddComment(issue.Number, body)
 	}
 	update := Changes{State: "closed", StateReason: "completed"}
 	// A closed issue is not being worked on; without this it would come
@@ -1017,7 +1040,13 @@ func (github *adapter) Close(id, reason string) error {
 		}
 		update.Labels = &labels
 	}
-	return github.client.Update(issue.Number, update)
+	if err := github.client.Update(issue.Number, update); err != nil {
+		return err
+	}
+	if body == "" {
+		return nil
+	}
+	return github.client.AddComment(issue.Number, body)
 }
 
 // Reopen opens a closed issue again; one already open is left alone.
@@ -1095,16 +1124,31 @@ func (github *adapter) Link(id, otherID, kind string) error {
 		}
 		return github.client.AddBlockedBy(issue.Number, other.ID)
 	}
+	// The link is two lines, one on each issue, written one after the
+	// other. Each is written only where it is missing, so that a link left
+	// half made (the second write did not reach GitHub) is finished when
+	// asked again, not refused as "already linked" (bead-bb-c9l.15).
 	link := tracker.TextLink{Kind: kind, Direction: "out", ID: strconv.Itoa(other.Number)}
+	back := mirror(link, strconv.Itoa(issue.Number))
+	mine, theirs := false, false
 	for _, had := range splitBody(issue.Body).Links {
-		if had.Kind == link.Kind && had.ID == link.ID {
-			return already(kind)
+		mine = mine || (had.Kind == link.Kind && had.ID == link.ID)
+	}
+	for _, had := range splitBody(other.Body).Links {
+		theirs = theirs || sameLink(had, back)
+	}
+	if mine && theirs {
+		return already(kind)
+	}
+	if !mine {
+		if err := github.rewrite(issue, withLink(link)); err != nil {
+			return err
 		}
 	}
-	if err := github.rewrite(issue, withLink(link)); err != nil {
-		return err
+	if theirs {
+		return nil
 	}
-	return github.rewrite(other, withLink(mirror(link, strconv.Itoa(issue.Number))))
+	return github.rewrite(other, withLink(back))
 }
 
 // Unlink removes whatever link there is between two issues, in either
@@ -1157,10 +1201,29 @@ func (github *adapter) Unlink(id, otherID string, options tracker.UnlinkOptions)
 			theirs = append(theirs, mirror(link, strconv.Itoa(issue.Number)))
 		}
 	}
+	// A line left on the other issue alone, by an unlink that stopped
+	// half-way, is taken off as well: found from that side, by the line this
+	// issue would carry for it.
+	for _, link := range splitBody(other.Body).Links {
+		here := mirror(link, strconv.Itoa(other.Number))
+		if link.ID != strconv.Itoa(issue.Number) || !wanted(link.Kind) || (options.OnlyFrom && here.Direction == "in") {
+			continue
+		}
+		listed := false
+		for _, had := range theirs {
+			listed = listed || sameLink(had, link)
+		}
+		if !listed {
+			theirs = append(theirs, link)
+		}
+	}
 	if len(mine) > 0 {
 		if err := github.rewrite(issue, withoutLinks(mine)); err != nil {
 			return err
 		}
+		removed = true
+	}
+	if len(theirs) > 0 {
 		if err := github.rewrite(other, withoutLinks(theirs)); err != nil {
 			return err
 		}
