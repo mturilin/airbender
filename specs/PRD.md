@@ -285,7 +285,9 @@ Opening a row shows:
 
 - The tab supports the tracker's **own kinds of link between issues, and
   nothing additional**: blocked by, discovered from, related, tracks, until,
-  caused by, validates, supersedes. `[zty.4]`
+  caused by, validates, supersedes. `[zty.4]` Where the issues are GitHub
+  issues, only the kinds GitHub issues have are offered: blocked by,
+  discovered from, related. `[c9l.6]`
 - An opened issue has a **Link** button. It opens a small search box, like
   "Move to", with a dropdown of the kinds, starting on "blocked by".
   `[zty.4]`
@@ -792,6 +794,8 @@ panel. `[bwr]`
     notes.
   - As a marked "Links" section of the description: "discovered from" and
     "related", which GitHub does not have.
+  - As one hidden line at the end of the description: free-form data kept
+    with an issue (an epic's branch). `[c9l.6]`
 - **`bend` answers reads from a copy of the issues kept on the computer,
   for every tracker**, so that the agent in a terminal, the panel and the
   sync see one and the same thing, and a read does not start the tracker's
@@ -820,8 +824,25 @@ panel. `[bwr]`
   - **The copy is kept in the repository's git folder**, shared by all its
     work trees, never committed. It holds issue texts, never the login.
   - **No background service for now**; a sync can be asked for at any time.
-- **The panel itself works with beads only.** A repository whose issues
-  are on GitHub is used through `bend`, not through the panel. `[c9l.1]`
+- **The panel works on a repository whose issues are GitHub issues** as it
+  does on a beads one: the owner sees them, changes them and starts agents
+  on them. It does so through `bend`'s copy, so it answers at once.
+  `[c9l.6]`
+  - **It does not ask for the beads program where beads is not used.**
+  - **Its timed sync runs `bend`'s sync** there, and the "Issue sync" row
+    and the sync log say what each sync sent and brought in.
+  - **It shows what waits and what was refused**: an issue with changes
+    not yet sent says so, and the changes GitHub refused are listed with
+    their issue, what they were, their text and the reason.
+  - **On screen it says "issue" everywhere**, on every tracker; "beads" is
+    only the name of one tracker.
+  - **What an agent is told there names `bend`, not `bd`**: the message
+    for each step, the rules in the repository's instruction file, the
+    agent tools' texts and the background sizing.
+  - **An epic's branch can be kept on a GitHub issue**, so starting an
+    epic "in a branch" or "in a work tree" works there.
+  - **Background sizing there is the same as with beads**: it follows the
+    existing setting.
 - **It does not depend on the app the panel runs in**, so it can be used, or
   moved, on its own.
 - **It is one self-contained program**, built from source in this
@@ -1407,6 +1428,42 @@ breaking a requirement above.
   left by an earlier version is put aside with a warning and made anew; so
   is a damaged file of issues.
   `[c9l.15]`
+- The panel on GitHub issues: the toolbar says "GitHub issues" beside the
+  folder, with the repository in its tooltip; on a beads repository it says
+  nothing more than before. An issue with unsent changes carries a small
+  "not sent yet" mark. The refused changes are at the top of the sync log
+  window, each with "Send again" and "Dismiss", and the "Issue sync" row
+  says when there are any. "Sync with GitHub…", which mirrors beads issues
+  to GitHub, is not offered there. A folder with no tracker says so
+  whether or not the beads program is installed. A missing GitHub login is
+  said in `bend`'s words, with the setup card and its sign-in step. A sync
+  that left changes waiting, or could not ask GitHub, counts as failed and
+  is tried again; one in which GitHub refused a change for good counts as
+  done, with a line saying how many were refused. A list is never made to
+  wait for GitHub: the refresh button asks for a sync instead. A sync and
+  a list may take up to five minutes before they are given up on. A
+  tracker chosen or changed outside the panel (in a terminal, or by a
+  pull) is noticed at the next read. In what an agent is told, the
+  owner's own words (titles, the note an issue is sent back with) are
+  left as written. `[c9l.6]`
+- The epic's branch on GitHub: the hidden line reads
+  `<!-- bend:data {"branch":"…"} -->` and counts only as the very last
+  line of the description, so that a description which quotes such a line
+  is not mistaken for data. Someone who edits the issue's text on
+  github.com can delete it, or type under it; the epic then reads as
+  having no branch. A line broken by hand is left where it is and counts
+  as no data. `[c9l.6]`
+- What agents are told on GitHub issues is made from the beads wording by
+  replacing each command with `bend`'s (`bend show`, `bend comments`,
+  `bend write <id> description|done|plan`, `bend start`), so the two ask
+  the same. The rules in the instruction file exist in the two wordings;
+  setup writes the one for the repository's tracker and replaces the
+  other in place. The texts that come with the two agent tools are one
+  text for every repository and were reworded to fit both; their names
+  still begin "beads_". `[c9l.6]`
+- `bend sync` names, for a program, the issues whose changes it sent and
+  those that came in new or changed; `bend status --quick` says whether
+  changes are queued for a hosted tracker. `[c9l.6]`
 - bend's copy of a hosted tracker: comments are kept per issue from the
   first time they are asked for, and asked for again when the issue has
   changed. Search searches the copy. Labels from two sides add up. The

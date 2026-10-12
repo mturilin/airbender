@@ -256,7 +256,7 @@ test("links of every kind, what blocks what, and moving", async (t) => {
   );
   assert.notEqual((await link(a, a, "blocks")).message, null);
   assert.notEqual((await link(a, "t-nope", "blocks")).message, null);
-  assert.match((await link(a, "--force", "blocks")).message ?? "", /not a beads issue id/u);
+  assert.match((await link(a, "--force", "blocks")).message ?? "", /not an issue id/u);
 
   // A link the other way round is a second link; removing one leaves it.
   assert.equal((await link(b, a, "discovered-from")).message, null);
@@ -358,7 +358,7 @@ test("a folder without beads and a machine without bd are told apart", async (t)
   if (skip) return t.skip(skip);
   const none = await storeIn(empty).listIssues(here);
   assert.equal(none.state, "no-beads");
-  assert.match(none.message ?? "", /does not use beads yet/u);
+  assert.match(none.message ?? "", /has no issue tracker set up yet/u);
   const noProgram = await storeIn(root, null).listIssues(here);
   assert.deepEqual([noProgram.state, noProgram.message], ["no-bd", "no bd here"]);
   // Found by name, gone when run: the same answer, not a raw error. Asked

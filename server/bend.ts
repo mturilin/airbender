@@ -17,13 +17,14 @@
 // - bend reports a failure with --json as `{ok: false, kind, error}`; the
 //   kind is what decides the tab's state, never the words.
 // - The tab is told the beads program it found (BEND_BD), so the plugin's
-//   "bd command" setting keeps working, and accepts beads only
-//   (BEND_ACCEPT): it reads the whole list on every reload, which a hosted
-//   tracker is too slow for until issues are kept in a local copy
-//   (bead-bb-c9l.6).
-// - The beads program is looked for before bend and before the folder, so
-//   that a machine without beads is told so ("no-bd") even in a folder that
-//   has no issues yet. The setup screen offers a different step for each.
+//   "bd command" setting keeps working. It takes whatever tracker bend
+//   finds for the folder (bead-bb-c9l.6): bend answers reads from its copy,
+//   so a hosted tracker is as quick as beads.
+// - bend is asked what the folder has first; the beads program is needed
+//   only where the tracker is beads, so a repository on GitHub issues opens
+//   on a machine that has no beads. A folder with no tracker says so
+//   whether or not beads is installed: choosing the tracker comes first in
+//   setup, and installing beads only after beads was chosen.
 // - bend answers reads from a copy of the issues it keeps on this machine
 //   (bead-bb-c9l.14), so asking for the list is cheap and nothing is kept
 //   here. `list(true)` has bend reread that copy first.
@@ -43,12 +44,22 @@
 //   system; callers check the folder first (folders.folderFor).
 
 import { execFile } from "node:child_process";
+import { existsSync, statSync } from "node:fs";
+import { join } from "node:path";
 
 /** The bend this plugin needs at least; see `Version` in bend's cli. */
-export const NEEDED_VERSION = 4;
+export const NEEDED_VERSION = 5;
 
 /** How long one run of bend may take. */
 const BEND_TIMEOUT_MS = 60_000;
+/**
+ * How long a run that may read a whole repository from a hosted tracker
+ * may take: a sync, and a list, whose first read fills bend's copy. Cut off
+ * at a minute, a large repository would never get its first list.
+ */
+const BEND_LONG_TIMEOUT_MS = 5 * 60_000;
+/** The commands that get the longer time. */
+const LONG_COMMANDS = ["sync", "list"];
 /** Upper bound on bend's output we are willing to buffer (64 MiB). */
 const BEND_MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
 
@@ -92,6 +103,49 @@ export interface TrackerIssue {
   externalRef: string | null;
   /** The description and the requirements as one text. */
   body: string;
+  /**
+   * How many changes to this issue made here are not on the tracker yet;
+   * always 0 where changes are written straight through (beads).
+   */
+  unsent: number;
+}
+
+/** What is known about a folder's tracker without asking it anything. */
+export interface About {
+  /** "beads" or "github". */
+  tracker: string;
+  /** "owner/name" for GitHub issues; null where there is none. */
+  repository: string | null;
+  /** The kinds of link the tracker has. */
+  linkKinds: string[];
+  /**
+   * Whether changes are queued in bend's copy and sent to the tracker
+   * afterwards (a hosted tracker), not written straight through (beads).
+   */
+  queued: boolean;
+}
+
+/** What one `bend sync` did; see SyncResult in bend/internal/kept. */
+export interface BendSync {
+  busy: boolean;
+  sent: number;
+  refused: number;
+  waiting: number;
+  broughtIn: number;
+  full: boolean;
+  problem: string;
+  sentIssues: string[];
+  broughtInIssues: string[];
+}
+
+/** A change the tracker refused for good, as `bend refused` gives it. */
+export interface RefusedChange {
+  seq: number;
+  at: string;
+  issue: string;
+  what: string;
+  text: string;
+  reason: string;
 }
 
 /** One comment as bend prints it. */
@@ -179,7 +233,9 @@ export function createRun(
         command,
         ["-C", path, "--json", ...args],
         {
-          timeout: BEND_TIMEOUT_MS,
+          timeout: LONG_COMMANDS.includes(args[0] ?? "")
+            ? BEND_LONG_TIMEOUT_MS
+            : BEND_TIMEOUT_MS,
           maxBuffer: BEND_MAX_OUTPUT_BYTES,
           env: { ...process.env, ...env },
         },
@@ -249,8 +305,20 @@ export interface Tracker {
    *
    * @param onlyFrom Only the link recorded on `id`, leaving one recorded
    *   the other way round.
+   * @param kind Only the link of this kind. GitHub can hold two links
+   *   between the same two issues (a "blocked by" and one kept in the
+   *   text); without the kind, removing one would remove both.
    */
-  unlink(id: string, otherId: string, onlyFrom?: boolean): Promise<void>;
+  unlink(id: string, otherId: string, onlyFrom?: boolean, kind?: string): Promise<void>;
+  /**
+   * Sends the waiting changes to a hosted tracker and brings in what
+   * changed there. Never asked of a tracker that queues nothing.
+   */
+  sync(): Promise<BendSync>;
+  /** The changes the tracker refused for good, oldest first. */
+  refused(): Promise<RefusedChange[]>;
+  /** Takes a refused change off the list, or puts it back to be sent again. */
+  settleRefused(seq: number, again: boolean): Promise<void>;
 }
 
 /**
@@ -331,8 +399,24 @@ export function trackerOver(run: Run): Tracker {
     async link(id, otherId, kind) {
       await run(["link", "--kind", kind, "--", id, otherId]);
     },
-    async unlink(id, otherId, onlyFrom = false) {
-      await run(["unlink", ...(onlyFrom ? ["--from-first"] : []), "--", id, otherId]);
+    async unlink(id, otherId, onlyFrom = false, kind) {
+      await run([
+        "unlink",
+        ...(onlyFrom ? ["--from-first"] : []),
+        ...option("kind", kind),
+        "--",
+        id,
+        otherId,
+      ]);
+    },
+    async sync() {
+      return (await run(["sync"])) as BendSync;
+    },
+    async refused() {
+      return (await run(["refused"])) as RefusedChange[];
+    },
+    async settleRefused(seq, again) {
+      await run(["refused", again ? "--again" : "--dismiss", `${seq}`]);
     },
   };
 }
@@ -359,18 +443,20 @@ export interface Fact {
 /** Why a folder's issues cannot be read or changed. */
 export interface Problem {
   /**
-   * no-bd: the beads program is not on this machine. no-bend: the bend
-   * program is not, or is too old. no-beads: the folder has no issues set
-   * up. error: anything else; the message says what.
+   * no-bd: the beads program is not on this machine, and the folder's
+   * tracker is beads. no-bend: the bend program is not, or is too old.
+   * no-beads: the folder has no tracker chosen or set up. no-login: the
+   * tracker needs a sign-in there is none of (GitHub). error: anything
+   * else; the message says what.
    */
-  state: "no-bd" | "no-bend" | "no-beads" | "error";
+  state: "no-bd" | "no-bend" | "no-beads" | "no-login" | "error";
   /** The reason in plain words, for the tab to show. */
   message: string;
 }
 
 /** What the tab says about a folder that has no tracker in it. */
 const NOT_SET_UP_MESSAGE =
-  "This folder does not use beads yet. Set it up to start tracking issues here.";
+  "This folder has no issue tracker set up yet. Set it up to start tracking issues here.";
 
 /** What the tab says when bend's answer could not be read. */
 const NOT_UNDERSTOOD_MESSAGE =
@@ -434,8 +520,29 @@ export function createTrackers({
   /** What was found for a folder: its tracker, and how to run bend there. */
   const known = new Map<
     string,
-    { tracker: Tracker; run: Run; watch: Watched }
+    { tracker: Tracker; run: Run; watch: Watched; about: About; root: string; chosen: string }
   >();
+
+  /**
+   * What decides a repository's tracker, as it stands on disk now: when
+   * its setting file was last written, and whether it has a beads folder.
+   * A tracker remembered for a folder is believed only while this is the
+   * same, so that a tracker chosen or changed outside the tab (`bend setup
+   * tracker` in a terminal, a pull that brings a setting file) is noticed
+   * at the next read and not only after the plugin is reloaded.
+   *
+   * @param root The repository's top folder, as bend named it.
+   * Side effects: two looks at the file system, no process.
+   */
+  const chosenIn = (root: string): string => {
+    let written = "none";
+    try {
+      written = `${statSync(join(root, ".bend.json")).mtimeMs}`;
+    } catch {
+      // No setting file.
+    }
+    return `${written} ${existsSync(join(root, ".beads"))}`;
+  };
 
   /**
    * Turns a failed run into the tab's outcome.
@@ -458,6 +565,10 @@ export function createTrackers({
         case "not-set-up":
           known.delete(path);
           return { state: "no-beads", message: NOT_SET_UP_MESSAGE };
+        case "not-signed-in":
+          // bend's own words: they say how to sign in.
+          known.delete(path);
+          return { state: "no-login", message: cause.message };
         case "not-understood":
           break;
         default:
@@ -494,12 +605,7 @@ export function createTrackers({
     }
     // Looked for here unless the caller already has.
     const bd = foundBd === undefined ? await findBd(path) : foundBd;
-    return {
-      run: createRun(bend, path, {
-        BEND_ACCEPT: "beads",
-        ...(bd === null ? {} : { BEND_BD: bd }),
-      }),
-    };
+    return { run: createRun(bend, path, bd === null ? {} : { BEND_BD: bd }) };
   }
 
   /**
@@ -516,27 +622,60 @@ export function createTrackers({
     path: string,
   ): Promise<{ tracker: Tracker } | Problem> {
     const ready = known.get(path);
-    if (ready !== undefined) return { tracker: ready.tracker };
+    if (ready !== undefined) {
+      if (ready.chosen === chosenIn(ready.root)) return { tracker: ready.tracker };
+      known.delete(path);
+    }
     const bd = await findBd(path);
-    if (bd === null) return { state: "no-bd", message: notFoundMessage };
     const bend = await bendIn(path, bd);
     if ("state" in bend) return bend;
     let watch: Watched = { copy: null, sign: null };
+    let about: About;
+    let root = path;
     try {
-      // The quick form asks the tracker nothing: it only says whether the
-      // folder has one.
-      const about = (await bend.run(["status", "--quick"])) as {
+      // The quick form asks the tracker nothing: it says which tracker the
+      // folder has, or fails saying that it has none.
+      const said = (await bend.run(["status", "--quick"])) as {
+        tracker?: unknown;
+        repository?: unknown;
+        linkKinds?: unknown;
+        queued?: unknown;
+        root?: unknown;
         copy?: unknown;
         watch?: unknown;
       };
+      root = typeof said.root === "string" ? said.root : path;
+      if (typeof said.tracker !== "string") {
+        throw new BendFailure("not-understood", "bend did not say which tracker the folder has.");
+      }
+      about = {
+        tracker: said.tracker,
+        repository: typeof said.repository === "string" ? said.repository : null,
+        linkKinds: Array.isArray(said.linkKinds)
+          ? said.linkKinds.filter((kind): kind is string => typeof kind === "string")
+          : [],
+        queued: said.queued === true,
+      };
       watch = {
-        copy: typeof about.copy === "string" ? about.copy : null,
-        sign: typeof about.watch === "string" ? about.watch : null,
+        copy: typeof said.copy === "string" ? said.copy : null,
+        sign: typeof said.watch === "string" ? said.watch : null,
       };
     } catch (cause) {
       return problem(path, cause);
     }
-    const found = { tracker: trackerOver(bend.run), run: bend.run, watch };
+    // Only beads needs its program; bend says so itself when it runs it,
+    // and this says so before anything is asked.
+    if (about.tracker === "beads" && bd === null) {
+      return { state: "no-bd", message: notFoundMessage };
+    }
+    const found = {
+      tracker: trackerOver(bend.run),
+      run: bend.run,
+      watch,
+      about,
+      root,
+      chosen: chosenIn(root),
+    };
     known.set(path, found);
     return { tracker: found.tracker };
   }
@@ -548,7 +687,21 @@ export function createTrackers({
   const watchOf = (path: string): Watched =>
     known.get(path)?.watch ?? { copy: null, sign: null };
 
-  return { trackerFor, bendIn, problem, watchOf };
+  /**
+   * What is known about a folder's tracker; null until `trackerFor` has
+   * found it.
+   */
+  const aboutOf = (path: string): About | null => known.get(path)?.about ?? null;
+
+  /**
+   * Forgets what was found for a folder, so that it is looked for again:
+   * after its tracker was chosen or changed.
+   */
+  const forget = (path: string): void => {
+    known.delete(path);
+  };
+
+  return { trackerFor, bendIn, problem, watchOf, aboutOf, forget };
 }
 
 /** What createTrackers returns; handed to the store and to setup. */

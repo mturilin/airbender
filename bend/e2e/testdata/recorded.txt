@@ -651,12 +651,12 @@ Options for every command:
 
 $ bend version
 [exit 0]
-bend 4
+bend 5
 
 $ bend version --json
 [exit 0]
 {
-  "version": 4
+  "version": 5
 }
 
 $ bend status
@@ -788,6 +788,7 @@ $ bend status --quick --json
     "validates",
     "supersedes"
   ],
+  "queued": false,
   "root": "<root>",
   "copy": "<root>/.git/bend/beads",
   "watch": "<root>/.beads/last-touched"

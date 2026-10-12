@@ -286,9 +286,13 @@ export async function createSyncService({
     (await sources.get(key)?.remote().catch(() => null)) != null;
 
   return {
-    /** Makes a repository and its source known; safe to call every time. */
+    /**
+     * Makes a repository and its source known; safe to call every time.
+     * Another source replaces the one known: the repository's issues
+     * moved to another tracker, or to another repository on it.
+     */
     use(key: string, source: SyncSource): void {
-      if (!sources.has(key)) sources.set(key, source);
+      if (sources.get(key) !== source) sources.set(key, source);
     },
 
     /** How a repository's sync stands. */

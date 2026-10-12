@@ -25,7 +25,7 @@ import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import type { Issue } from "../server/contract.ts";
-import { CLOSED_STATUS, LINK_KINDS } from "../shared/constants.ts";
+import { CLOSED_STATUS } from "../shared/constants.ts";
 import type { LinkKind } from "../shared/constants.ts";
 import { TAG_SELECT_CLASS } from "./bits.tsx";
 import {
@@ -215,7 +215,7 @@ export function MoveToPicker({
 
 /**
  * The box behind the "Link" button: links this issue with another, using
- * beads' own link kinds.
+ * the kinds of link the folder's tracker has.
  *
  * It reads as a sentence, so what will be saved is in front of the user
  * before Enter: "This issue [blocked by] <the issue searched for>". The swap
@@ -226,23 +226,28 @@ export function MoveToPicker({
  * kind (twice the list, with reverse names beads does not have). A two-way
  * kind ("related") has nothing to swap.
  *
+ * @param kinds The kinds offered: those the folder's tracker has (GitHub
+ *   issues have three of beads' eight). Never empty.
  * @param targets Issues this one may be linked with (already excludes itself).
  * @param onPick Called with the link to add: the issue it is stored on, the
  *   issue it points at, and its kind.
  */
 export function LinkPicker({
   issue,
+  kinds,
   targets,
   onPick,
   onCancel,
 }: {
   issue: Issue;
+  kinds: readonly LinkKind[];
   targets: Issue[];
   onPick: (fromId: string, toId: string, kind: LinkKind) => void;
   onCancel: () => void;
 }) {
-  // Starts on "blocks", as beads does when no kind is given.
-  const [kind, setKind] = useState<LinkKind>("blocks");
+  // Starts on "blocks", as beads does when no kind is given; every tracker
+  // has it, and it is first in the list.
+  const [kind, setKind] = useState<LinkKind>(kinds[0] ?? "blocks");
   const [swapped, setSwapped] = useState(false);
   const twoWay = TWO_WAY_KINDS.includes(kind);
   const reversed = swapped && !twoWay;
@@ -256,7 +261,7 @@ export function LinkPicker({
         onChange={(event) => setKind(event.target.value as LinkKind)}
         className={cn(TAG_SELECT_CLASS, "text-foreground")}
       >
-        {LINK_KINDS.map((choice) => (
+        {kinds.map((choice) => (
           <option key={choice} value={choice}>
             {linkWords(choice)}
           </option>

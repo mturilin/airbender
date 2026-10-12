@@ -149,6 +149,7 @@ export function createWork({
     setBranch,
     addComment,
     changed,
+    commandsIn,
   } = store;
 
   /**
@@ -207,11 +208,15 @@ export function createWork({
 
   /** What the workflow may say about an issue: itself and its open sub-issues. */
   const describe = (
+    path: string,
     issue: Issue,
     issues: Issue[],
     threadId: string | null = null,
     workflow: Workflow | null = null,
   ) => ({
+    // The program the agent is told to read and write the issue with: the
+    // tracker's own in a beads repository, bend everywhere else.
+    commands: commandsIn(path),
     id: issue.id,
     title: issue.title,
     size: issue.size,
@@ -294,7 +299,7 @@ export function createWork({
       await currentBead.write(threadId, beadId);
       const told = workflow.instruction(
         state,
-        describe(found.issue, found.issues, threadId, workflow),
+        describe(found.path, found.issue, found.issues, threadId, workflow),
       );
       await deliver(
         threadId,
@@ -506,7 +511,7 @@ export function createWork({
 
     if (forEpic !== null) {
       const holding = stateOf(workflow, forEpic.to);
-      const about = describe(issue, issues);
+      const about = describe(path, issue, issues);
       const text = forEpic.opening(about).join("\n");
       let openThreadId: string | undefined;
       if (checked.ownConversation === true) {
@@ -575,7 +580,7 @@ export function createWork({
     // is sent to the conversation the move was asked from.
     if (checked.ownConversation === true) {
       const told = workflow.instruction(to, {
-        ...describe(issue, issues),
+        ...describe(path, issue, issues),
         workTree: true,
       });
       const started = await workTrees.open({
@@ -584,7 +589,7 @@ export function createWork({
         beadId,
         title: issue.title,
         prompt: [
-          ...(checked.opening?.(describe(issue, issues)) ?? []),
+          ...(checked.opening?.(describe(path, issue, issues)) ?? []),
           told,
         ].join("\n"),
       });
@@ -623,7 +628,7 @@ export function createWork({
       to.actor === "agent"
         ? workflow.instruction(
             to,
-            describe(sized, issues, threadId, workflow),
+            describe(path, sized, issues, threadId, workflow),
             // A note is passed on only with a move back; a move that sets
             // the size is the agent's own and its note is for the record.
             order(to) < order(from) && checked.size === undefined
@@ -636,7 +641,7 @@ export function createWork({
     const text =
       told === null || checked.opening === undefined
         ? told
-        : [...checked.opening(describe(sized, issues)), told].join("\n");
+        : [...checked.opening(describe(path, sized, issues)), told].join("\n");
     let message: string | null = null;
     if (text !== null && by === "user" && threadId !== null) {
       try {
@@ -760,7 +765,7 @@ export function createWork({
     const started = state.id !== workflow.initial;
     const text = workflow.resizeInstruction?.(
       state,
-      describe({ ...issue, size }, issues),
+      describe(path, { ...issue, size }, issues),
       issue.size,
       size,
     );

@@ -873,7 +873,7 @@ function instruction(
     note === undefined || note.trim() === ""
       ? []
       : ["", `It was sent back to this step with this note: ${note.trim()}`];
-  return [
+  const text = [
     `Work on beads issue ${issue.id}: ${JSON.stringify(issue.title)}. It is at the "${state.label}" step. Start with \`bd show ${issue.id}\` and \`bd comments ${issue.id}\`.`,
     ...epic,
     ...inEpic,
@@ -882,6 +882,76 @@ function instruction(
     "",
     ...stepText(state.id, issue.id, issue.size, issue.workTree === true),
   ].join("\n");
+  return issue.commands === "bend" ? withBend(text, issue.id, ownWords(issue, note)) : text;
+}
+
+/**
+ * The texts in an instruction that are the owner's own, as they stand in
+ * it: the titles and the note it was sent back with. They are not
+ * Airbender's wording and are left as written when the commands are
+ * replaced.
+ */
+function ownWords(issue: WorkflowIssue, note?: string): string[] {
+  return [
+    JSON.stringify(issue.title),
+    ...issue.openSubIssues.map((sub) => JSON.stringify(sub.title)),
+    ...(issue.epic === undefined ? [] : [JSON.stringify(issue.epic.title), issue.epic.branch]),
+    ...(note === undefined || note.trim() === "" ? [] : [note.trim()]),
+  ];
+}
+
+/**
+ * The commands of beads that the instructions name, each with what bend
+ * calls the same thing. `ID` stands for the issue's id.
+ *
+ * In this order: a longer phrase before a shorter one it contains.
+ */
+const BEND_FOR: readonly (readonly [string, string])[] = [
+  ["beads issue ", "issue "],
+  ["the issue's design field (`bd update --design`)", "the issue's plan (`bend write ID plan`)"],
+  ["`bd update --status in_progress`", "`bend start ID`"],
+  [
+    "with `bd update`: a description",
+    "with `bend write ID description` and `bend write ID done`: a description",
+  ],
+  [
+    "onto it with `bd update`",
+    "onto it with `bend write ID description` and `bend write ID done`",
+  ],
+  ["`bd update`", "`bend write`"],
+  ["`bd show", "`bend show"],
+  ["`bd comments", "`bend comments"],
+];
+
+/**
+ * An instruction with bend's commands in place of beads': for a repository
+ * whose issues are not in beads (bead-bb-c9l.6).
+ *
+ * The beads text is written once, above, and this is made from it, so the
+ * two ask the same of an agent and the beads text stays letter for letter
+ * what it was. A test holds that nothing of beads is left in the result.
+ *
+ * @param text An instruction as written for beads.
+ * @param id The issue's id, put where a command needs it.
+ * @param keep Texts inside the instruction that are not Airbender's own
+ *   wording (titles, the owner's note) and must come out as they went in,
+ *   even where they happen to name a command of beads.
+ */
+export function withBend(text: string, id: string, keep: readonly string[] = []): string {
+  // Each kept text is set aside behind a mark no text holds, and put back
+  // afterwards. Longest first, so that one inside another is not cut. The
+  // replacements are given as functions: a "$" in an id or a title must
+  // not be read as a pattern.
+  const kept = [...new Set(keep)]
+    .filter((own) => own !== "")
+    .sort((a, b) => b.length - a.length);
+  const mark = (index: number) => `\u0000${index}\u0000`;
+  const aside = kept.reduce((told, own, index) => told.replaceAll(own, () => mark(index)), text);
+  const replaced = BEND_FOR.reduce(
+    (told, [bd, bend]) => told.replaceAll(bd, () => bend.replaceAll("ID", () => id)),
+    aside,
+  );
+  return kept.reduce((told, own, index) => told.replaceAll(mark(index), () => own), replaced);
 }
 
 /** A size's label, for sentences; the id itself for one this file does not know. */
@@ -906,7 +976,7 @@ function resizeInstruction(
   from: string | null,
   to: string,
 ): string {
-  return [
+  const text = [
     `The user changed the size of beads issue ${issue.id} (${JSON.stringify(issue.title)}) ${from === null ? "" : `from ${sizeLabel(from)} `}to ${sizeLabel(to)}. It is at the "${state.label}" step. Take the ${sizeLabel(to)} path from here.`,
     "",
     "The paths:",
@@ -916,6 +986,7 @@ function resizeInstruction(
     "- A smaller size means the remaining reviews before the work are dropped: go on to the work.",
     `- Move the issue to the step the new path needs now with ${report(issue.id, "to:<step id>")}, saying why, and carry on from there. If it is already at the right step, say so to the user in one line and carry on.`,
   ].join("\n");
+  return issue.commands === "bend" ? withBend(text, issue.id, ownWords(issue)) : text;
 }
 
 function describeForAgents(): string {
@@ -940,7 +1011,7 @@ function describeForAgents(): string {
     )
     .join("; ");
   return [
-    `Every beads issue in this repository goes through these steps before it is closed: ${steps}.`,
+    `Every issue in this repository goes through these steps before it is closed: ${steps}.`,
     "You are told which step an issue is at when you are started on it. Do that step.",
     `Not every issue takes every step. Issues have a size, S, M or L, which you choose when you are started on one that has none, with the move \`size:s\`, \`size:m\` or \`size:l\` at ${states[1]!.label}: S is done in one go and reaches the user once, at the end; M has one review at the front, of definition and plan together; L takes every step. In doubt, take the larger. The user can set or change the size; you are told when they do.`,
     "When you create an issue yourself you may give it a size: add the label `size:s`, `size:m` or `size:l`.",
@@ -952,7 +1023,7 @@ function describeForAgents(): string {
     // Kept short: BB limits a tool's instructions to 4096 characters, and
     // the step's own instruction says the rest when it applies.
     "An epic may hold a branch for all its issues (step On its branch [on-branch]): do not work on the epic itself; its issues are only committed on that branch, never merged alone.",
-    "Do not commit before the user has accepted an issue; an issue is closed by reporting its last step, never with bd close.",
+    "Do not commit before the user has accepted an issue; an issue is closed by reporting its last step, never by hand.",
   ].join(" ");
 }
 

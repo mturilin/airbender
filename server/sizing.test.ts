@@ -40,6 +40,7 @@ const issue = (id: string, over: Partial<Issue> = {}) =>
     externalRef: null,
     status: "open",
     commentCount: 0,
+    unsent: 0,
     priority: 2,
     category: null,
     ...over,

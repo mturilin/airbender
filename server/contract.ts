@@ -131,6 +131,12 @@ const issueSchema = z.object({
    * as the narrower "what is in the way right now" used for grouping.
    */
   links: z.array(issueLinkSchema),
+  /**
+   * How many changes to this issue made on this machine are not on the
+   * tracker yet. Always 0 where changes are written straight through
+   * (beads); on a hosted tracker they are sent by the sync.
+   */
+  unsent: z.number(),
 });
 
 export type Issue = z.infer<typeof issueSchema>;
@@ -155,9 +161,11 @@ const issuesResultSchema = z.object({
    *   with, is not on this machine or is too old. Setup offers to build it.
    * no-bd — the beads program is not on this machine. Its own state, apart
    *   from "error", so the tab can offer to install it (bead-bb-80e).
-   * error — bd failed; `message` says why.
+   * no-login — the folder's tracker needs a sign-in there is none of
+   *   (GitHub issues). Setup offers to sign in.
+   * error — the tracker failed; `message` says why.
    */
-  state: z.enum(["ok", "no-beads", "no-bd", "no-bend", "unavailable", "error"]),
+  state: z.enum(["ok", "no-beads", "no-bd", "no-bend", "no-login", "unavailable", "error"]),
   /** Folder bd ran in; null when none could be resolved. */
   path: z.string().nullable(),
   /**
@@ -168,6 +176,23 @@ const issuesResultSchema = z.object({
   /** Plain-language explanation for every state except "ok". */
   message: z.string().nullable(),
   issues: z.array(issueSchema),
+  /**
+   * The tracker that holds the folder's issues, "beads" or "github"; null
+   * when the state is not "ok".
+   */
+  tracker: z.string().nullable(),
+  /** For GitHub issues, the repository as "owner/name"; else null. */
+  trackerRepository: z.string().nullable(),
+  /**
+   * The kinds of link the folder's tracker has, in the tab's names and in
+   * the order of LINK_KINDS; empty when the state is not "ok".
+   */
+  linkKinds: z.array(z.string()),
+  /**
+   * Whether changes made here wait in a copy and are sent to the tracker
+   * by the sync (a hosted tracker); false for beads.
+   */
+  queued: z.boolean(),
   /**
    * Id of the issue this thread is working on, or null when none was chosen
    * (always null without a thread). Never names a closed issue: closing an
@@ -248,6 +273,23 @@ const syncEntrySchema = z.object({
   /** Issues this run brought in; null when not known. */
   broughtIn: z.array(z.string()).nullable(),
 });
+
+/** A change the tracker refused for good; see `bend refused`. */
+const refusedChangeSchema = z.object({
+  /** Its number, by which it is dismissed or sent again. */
+  seq: z.number(),
+  /** When the tracker refused it (ISO). */
+  at: z.string(),
+  /** The issue it was a change to. */
+  issue: z.string(),
+  /** What the change was, in a few words, and the text it carried. */
+  what: z.string(),
+  text: z.string(),
+  /** What the tracker said. */
+  reason: z.string(),
+});
+
+export type RefusedChange = z.infer<typeof refusedChangeSchema>;
 
 const setupStatusSchema = z.object({
   /** The folder, or null when there is none on this machine. */
@@ -709,7 +751,24 @@ export const rpcContract = defineRpcContract({
       last: syncEntrySchema.nullable(),
       /** When the last sync that worked ended; null when none did. */
       syncedAt: z.number().nullable(),
+      /**
+       * The changes made here that the tracker refused for good, oldest
+       * first, for the owner to dismiss or send again. Always empty where
+       * changes are written straight through (beads).
+       */
+      refused: z.array(refusedChangeSchema),
     }),
+  },
+  sync_refused_settle: {
+    // Takes a refused change off the list (`again` false), or puts it back
+    // to be sent once more.
+    input: z.object({
+      threadId: z.string().nullable(),
+      projectId: z.string().nullable(),
+      seq: z.number().int().positive(),
+      again: z.boolean(),
+    }),
+    output: z.object({ message: z.string().nullable() }),
   },
   sync_log: {
     // The syncs run from here for the folder's repository, newest first.

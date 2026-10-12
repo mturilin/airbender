@@ -41,6 +41,28 @@ const TAB_KIND: Record<string, string> = {
   related: RELATES_TO,
 };
 
+/**
+ * The tracker's name for a kind of link as the tab names it: the opposite
+ * of TAB_KIND. A kind the two name alike is given back as it came.
+ */
+export function trackerKind(tabKind: string): string {
+  if (tabKind === "blocks") return "blocked-by";
+  if (tabKind === RELATES_TO) return "related";
+  return tabKind;
+}
+
+/**
+ * A tracker's kinds of link as the tab's picker offers them: the tab's
+ * names, only those the tab knows, in the tab's order.
+ *
+ * @param kinds The tracker's own names (`bend status --quick`).
+ * @param offered The tab's kinds, in its order (LINK_KINDS).
+ */
+export function pickerKinds(kinds: string[], offered: readonly string[]): string[] {
+  const named = kinds.map((kind) => (kind === "blocked-by" ? "blocks" : kind));
+  return offered.filter((kind) => named.includes(kind));
+}
+
 /** The core's name for the link that makes one issue wait for another. */
 const BLOCKED_BY = "blocked-by";
 
@@ -216,6 +238,8 @@ export function toIssues(found: TrackerIssue[]): Issue[] {
     notes: issue.notes,
     closeReason: issue.closeReason,
     commentCount: issue.commentCount,
+    // An older bend says nothing of it: nothing waits.
+    unsent: typeof issue.unsent === "number" ? issue.unsent : 0,
     parentId: issue.parentId,
     step: believedStep(
       stepOf(issue.labels),

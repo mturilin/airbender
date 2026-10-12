@@ -203,7 +203,7 @@ export function sizingPrompt(
   sizeIds: readonly string[],
 ): string {
   return [
-    "You are sizing issues in the background, so that the person who owns them sees how big each one is before work starts. Nobody is reading this conversation and nobody can answer a prompt: do not ask questions, do not do any of the work the issues describe, and do not run any commands (no bd, no git, no shell). You may read files in this folder where that is needed to judge an issue; keep it quick, and read nothing outside it.",
+    "You are sizing issues in the background, so that the person who owns them sees how big each one is before work starts. Nobody is reading this conversation and nobody can answer a prompt: do not ask questions, do not do any of the work the issues describe, and do not run any commands (no issue tracker, no git, no shell). You may read files in this folder where that is needed to judge an issue; keep it quick, and read nothing outside it.",
     "",
     "The sizes:",
     guide,

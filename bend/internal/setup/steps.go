@@ -353,7 +353,7 @@ func Instructions(dir string, terminal Terminal, answers Answers, options Option
 	// Beads' marked blocks out, then Airbender's rules in: added at the
 	// end, or an earlier version of ours replaced where it stands. A rules
 	// block the owner edited is left as it is.
-	if next := instructions.AgentsFileWith(instructions.WithoutBeadsBlocks(existing)); next != existing {
+	if next := instructions.AgentsFileWith(instructions.WithoutBeadsBlocks(existing), trackerOf(state)); next != existing {
 		if err := writeFile(agentsPath, next); err != nil {
 			return nil, err
 		}
@@ -580,4 +580,13 @@ func (method Method) MarshalJSON() ([]byte, error) {
 		Label   string `json:"label"`
 		Command string `json:"command"`
 	}{method.ID, method.Label, method.Command})
+}
+
+// trackerOf gives the name of the tracker a repository uses, "" when
+// none is chosen yet: what decides which wording of the rules it gets.
+func trackerOf(state *State) string {
+	if state.Tracker == nil {
+		return ""
+	}
+	return *state.Tracker
 }

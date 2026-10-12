@@ -43,6 +43,7 @@ function issue(id: string, over: Partial<Issue> = {}): Issue {
     notes: "",
     closeReason: "",
     commentCount: 0,
+    unsent: 0,
     parentId: null,
     step: null,
     size: null,

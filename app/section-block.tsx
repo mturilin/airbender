@@ -160,7 +160,7 @@ export function CurrentSection({
         section={{
           id: "current",
           title: "Current",
-          hint: "The bead this thread is working on.",
+          hint: "The issue this thread is working on.",
           issues: [issue],
         }}
         // Pinned, so an opened long description scrolls inside itself
@@ -200,7 +200,7 @@ export function CurrentSection({
         <div className="min-w-0 flex-1">
           <h3 className="text-sm font-medium">Current</h3>
           <p className="text-xs text-muted-foreground">
-            The bead this thread is working on.
+            The issue this thread is working on.
           </p>
         </div>
         {currentBeadId === null ? null : clear}

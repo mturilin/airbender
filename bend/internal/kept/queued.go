@@ -50,6 +50,7 @@
 package kept
 
 import (
+	"encoding/json"
 	"fmt"
 	"slices"
 	"sort"
@@ -175,6 +176,13 @@ type SyncResult struct {
 	// that everything was reread.
 	BroughtIn int  `json:"broughtIn"`
 	Full      bool `json:"full"`
+	// SentIssues and BroughtInIssues name the issues: those whose changes
+	// reached the tracker, and those that came from it new or changed (not
+	// every issue read: BroughtIn counts those), each once, in the order
+	// met. For a caller that keeps a log of syncs (the Airbender tab);
+	// never nil.
+	SentIssues      []string `json:"sentIssues"`
+	BroughtInIssues []string `json:"broughtInIssues"`
 	// Problem is why changes still wait, or why nothing could be brought
 	// in; "" when all went well.
 	Problem string `json:"problem"`
@@ -278,6 +286,23 @@ func lay(issues []tracker.Issue, one change, touch bool) {
 			issue.Assignee = one.Assignee
 		}
 		issue.Labels = withLabels(issue.Labels, one.AddLabels, one.RemoveLabels)
+		if len(one.Metadata) > 0 {
+			// The kept data is one JSON object; a key is set to a text or
+			// taken out, and the object written anew (never changed in
+			// place: the issue given may share it with the copy).
+			data := map[string]json.RawMessage{}
+			json.Unmarshal(issue.Metadata, &data)
+			for _, kept := range one.Metadata {
+				if kept.Value == nil {
+					delete(data, kept.Key)
+				} else if text, err := json.Marshal(*kept.Value); err == nil {
+					data[kept.Key] = text
+				}
+			}
+			if written, err := json.Marshal(data); err == nil {
+				issue.Metadata = written
+			}
+		}
 	case opWrite:
 		text := strings.TrimSpace(one.Text)
 		switch one.Part {
@@ -765,7 +790,7 @@ func (kept *Tracker) Sync(full bool) (SyncResult, error) {
 		if err := kept.Reread(); err != nil {
 			return SyncResult{}, err
 		}
-		return SyncResult{BroughtIn: len(kept.issues), Full: true}, nil
+		return SyncResult{BroughtIn: len(kept.issues), Full: true, SentIssues: []string{}, BroughtInIssues: []string{}}, nil
 	}
 	result, err := kept.syncOnce(full)
 	// A change recorded while the sync ran found the lock held, so nothing
@@ -778,9 +803,21 @@ func (kept *Tracker) Sync(full bool) (SyncResult, error) {
 		result.Refused += more.Refused
 		result.Waiting, result.Problem = more.Waiting, more.Problem
 		result.BroughtIn += more.BroughtIn
+		result.SentIssues = withIDs(result.SentIssues, more.SentIssues...)
+		result.BroughtInIssues = withIDs(result.BroughtInIssues, more.BroughtInIssues...)
 	}
 	kept.loaded, kept.wantsReread = false, false
 	return result, err
+}
+
+// withIDs adds ids to a list, each once, in the order met.
+func withIDs(list []string, ids ...string) []string {
+	for _, id := range ids {
+		if !slices.Contains(list, id) {
+			list = append(list, id)
+		}
+	}
+	return list
 }
 
 // WaitAndSync is Sync for a caller that wants its result: where another
@@ -823,7 +860,7 @@ func (kept *Tracker) putAside() {
 
 // syncOnce is one round of Sync: send what waits, then bring in.
 func (kept *Tracker) syncOnce(full bool) (SyncResult, error) {
-	result := SyncResult{}
+	result := SyncResult{SentIssues: []string{}, BroughtInIssues: []string{}}
 	done, free, err := kept.store.Syncing()
 	if err != nil {
 		return result, tracker.Refused("The local copy of the issues cannot be written (%s).", kept.store.Dir)
@@ -908,6 +945,7 @@ func (kept *Tracker) syncOnce(full bool) (SyncResult, error) {
 			result.Refused++
 		} else {
 			result.Sent++
+			result.SentIssues = withIDs(result.SentIssues, one.ID)
 		}
 	}
 	// --- Bring in. The moment is taken before asking.
@@ -955,6 +993,12 @@ func (kept *Tracker) syncOnce(full bool) (SyncResult, error) {
 				case brought && !newer(old, fresh):
 					// Never an older version over a newer one.
 					next = append(next, fresh)
+					// Named as brought in only when it differs: asking
+					// "changed since" a little before the last sync gives
+					// the same issues again, and a full reread gives all.
+					if old.UpdatedAt == nil || fresh.UpdatedAt == nil || *old.UpdatedAt != *fresh.UpdatedAt {
+						result.BroughtInIssues = withIDs(result.BroughtInIssues, fresh.ID)
+					}
 				case brought:
 					next = append(next, old)
 				case full && !(old.CreatedAt != nil && moment(*old.CreatedAt).After(started.Add(-overlap))):
@@ -970,6 +1014,7 @@ func (kept *Tracker) syncOnce(full bool) (SyncResult, error) {
 			for _, issue := range issues {
 				if !seen[issue.ID] {
 					next = append(next, issue)
+					result.BroughtInIssues = withIDs(result.BroughtInIssues, issue.ID)
 				}
 			}
 			// In the tracker's own order of ids: a number by its value.

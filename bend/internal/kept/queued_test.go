@@ -22,6 +22,8 @@
 package kept
 
 import (
+	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"sort"
@@ -932,5 +934,73 @@ func TestACopyMadeByAnotherVersionIsPutAsideAndSaidSo(t *testing.T) {
 	}
 	if comments, _ := w.github.Fake.Comments(1); len(comments) != 0 || held.Status().Waiting != 0 {
 		t.Fatal("an old-style change was sent or still waits")
+	}
+}
+
+func TestKeptDataShowsWhileItWaitsAndReachesGitHub(t *testing.T) {
+	w := newWorld(t)
+	one := w.desk(t.TempDir())
+	_, err := one.tracker.Create(tracker.Draft{Title: "Epic"})
+	must(t, err)
+	set := func(key string, value *string) {
+		must(t, one.tracker.Edit("1", tracker.Changes{Metadata: []tracker.MetadataChange{{Key: key, Value: value}}}))
+	}
+	// As one line: the copy's file is written spread over several.
+	data := func() string {
+		var flat bytes.Buffer
+		json.Compact(&flat, w.desk(one.dir).show("1").Metadata)
+		return flat.String()
+	}
+	set("branch", tracker.Ptr("epic/one"))
+	set("other", tracker.Ptr("kept"))
+	if data := data(); data != `{"branch":"epic/one","other":"kept"}` {
+		t.Fatalf("while it waits the data is %s", data)
+	}
+	one.sync()
+	if !strings.Contains(w.github.BodyOf(1), `"branch":"epic/one"`) {
+		t.Fatalf("GitHub holds:\n%s", w.github.BodyOf(1))
+	}
+	set("branch", nil)
+	if data := data(); data != `{"other":"kept"}` {
+		t.Fatalf("after taking one out the data is %s", data)
+	}
+	one.sync()
+	if data := data(); data != `{"other":"kept"}` {
+		t.Fatalf("once sent the data is %s", data)
+	}
+}
+
+func TestASyncNamesTheIssuesItSentAndThoseThatCameInChanged(t *testing.T) {
+	w := newWorld(t)
+	one, other := w.desk(t.TempDir()), w.desk(t.TempDir())
+	for _, title := range []string{"Mine", "Theirs", "Untouched"} {
+		_, err := one.tracker.Create(tracker.Draft{Title: title})
+		must(t, err)
+	}
+	one.sync()
+	other.sync()
+	w.pass(time.Minute)
+	must(t, other.tracker.Edit("2", tracker.Changes{Title: tracker.Ptr("Theirs, renamed")}))
+	other.sync()
+	w.pass(time.Minute)
+	must(t, one.tracker.Comment("1", "Sent."))
+	must(t, one.tracker.Edit("1", tracker.Changes{Title: tracker.Ptr("Mine, renamed")}))
+	result := one.sync()
+	if strings.Join(result.SentIssues, ",") != "1" {
+		t.Fatalf("sent: %v", result.SentIssues)
+	}
+	// Issue 1 comes back changed by what was just sent; issue 2 by the other
+	// desk; issue 3 was read at most, and is not named.
+	sort.Strings(result.BroughtInIssues)
+	if strings.Join(result.BroughtInIssues, ",") != "1,2" {
+		t.Fatalf("brought in: %v", result.BroughtInIssues)
+	}
+	// With nothing new, nothing is named, though issues are read again.
+	if again := one.sync(); len(again.SentIssues) != 0 || len(again.BroughtInIssues) != 0 || again.BroughtIn == 0 {
+		t.Fatalf("got %+v", again)
+	}
+	// A full reread reads everything and names nothing that is the same.
+	if full, _ := one.copy.Sync(true); !full.Full || len(full.BroughtInIssues) != 0 {
+		t.Fatalf("got %+v", full)
 	}
 }

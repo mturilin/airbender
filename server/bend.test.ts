@@ -99,13 +99,23 @@ test("an answer that is not bend's is a sentence for the user and its real text 
   assert.match(log[1]!, /rows\.map is not a function/u);
 });
 
-test("no bd, no bend and no tracker are told apart, in that order", async () => {
+test("no bend, no tracker and no bd are told apart, in that order", async () => {
+  // bend first: without it nothing can say what the folder has.
   for (const folder of [withBeads, without]) {
     assert.deepEqual(await build(null, "missing").trackerFor(folder), {
-      state: "no-bd",
-      message: "no bd here",
+      state: "no-bend",
+      message: "no bend here",
     });
   }
+  // The beads program is asked for only where the tracker is beads: a
+  // folder with no tracker says that, whether or not beads is installed
+  // (choosing the tracker comes first in setup, bead-bb-c9l.6).
+  assert.deepEqual(await build(null).trackerFor(withBeads), {
+    state: "no-bd",
+    message: "no bd here",
+  });
+  const neither = await build(null).trackerFor(without);
+  assert.ok("state" in neither && neither.state === "no-beads");
   assert.deepEqual(await build("bd", "missing").trackerFor(withBeads), {
     state: "no-bend",
     message: "no bend here",
@@ -120,6 +130,65 @@ test("no bd, no bend and no tracker are told apart, in that order", async () => 
   const run = await build().bendIn(without);
   assert.ok("run" in run);
   assert.deepEqual(await run.run(["facts", "--ensure"]), { ok: true, created: true });
+});
+
+test("GitHub issues are taken where the setting says so, with no beads program", async () => {
+  const onGitHub = join(base, "github");
+  mkdirSync(onGitHub);
+  writeFileSync(join(onGitHub, ".bend.json"), '{"tracker": "github", "repository": "a/b"}');
+  // No beads program on the machine: nothing of beads is asked for.
+  const { trackerFor, aboutOf, watchOf, problem, forget } = build(null);
+  assert.equal(aboutOf(onGitHub), null);
+  const found = await trackerFor(onGitHub);
+  assert.ok("tracker" in found, JSON.stringify(found));
+  assert.deepEqual(aboutOf(onGitHub), {
+    tracker: "github",
+    repository: "a/b",
+    linkKinds: ["blocked-by", "discovered-from", "related"],
+    queued: true,
+  });
+  // Its copy is what changes; there is no file of the tracker's to watch.
+  assert.equal(watchOf(onGitHub).sign, null);
+  // A beads folder says the other thing about its changes.
+  const beads = build();
+  assert.ok("tracker" in (await beads.trackerFor(withBeads)));
+  assert.equal(beads.aboutOf(withBeads)?.tracker, "beads");
+  assert.equal(beads.aboutOf(withBeads)?.queued, false);
+  // Not signed in is a state of its own, in bend's words, and the folder
+  // is looked at again afterwards.
+  assert.deepEqual(
+    problem(onGitHub, new BendFailure("not-signed-in", "Not signed in to GitHub. Sign in.")),
+    { state: "no-login", message: "Not signed in to GitHub. Sign in." },
+  );
+  assert.equal(aboutOf(onGitHub), null);
+  assert.ok("tracker" in (await trackerFor(onGitHub)));
+  forget(onGitHub);
+  assert.equal(aboutOf(onGitHub), null);
+});
+
+test("a tracker changed outside the tab is noticed at the next look", async () => {
+  const moving = join(base, "moving");
+  mkdirSync(join(moving, ".beads"), { recursive: true });
+  const { trackerFor, aboutOf } = build();
+  const first = await trackerFor(moving);
+  assert.ok("tracker" in first);
+  assert.equal(aboutOf(moving)?.tracker, "beads");
+  // Unchanged: the same tracker, without asking bend again.
+  const again = await trackerFor(moving);
+  assert.ok("tracker" in again && again.tracker === first.tracker);
+  // The setting file now says GitHub issues, as `bend setup tracker` in a
+  // terminal would write it.
+  writeFileSync(join(moving, ".bend.json"), '{"tracker": "github", "repository": "a/b"}');
+  const moved = await trackerFor(moving);
+  assert.ok("tracker" in moved && moved.tracker !== first.tracker);
+  assert.deepEqual(
+    [aboutOf(moving)?.tracker, aboutOf(moving)?.queued, aboutOf(moving)?.repository],
+    ["github", true, "a/b"],
+  );
+  // And back.
+  rmSync(join(moving, ".bend.json"));
+  assert.ok("tracker" in (await trackerFor(moving)));
+  assert.equal(aboutOf(moving)?.tracker, "beads");
 });
 
 test("a folder's tracker is kept, and looked for again once a program has gone", async () => {

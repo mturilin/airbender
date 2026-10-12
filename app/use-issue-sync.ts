@@ -18,12 +18,12 @@
 
 import { useRealtime, useRpc } from "@get-bb/plugin-sdk/app";
 import { useCallback, useEffect, useState } from "react";
-import type { rpcContract } from "../server/contract.ts";
+import type { RefusedChange, rpcContract } from "../server/contract.ts";
 import { CHANGED_CHANNEL } from "../shared/constants.ts";
 import type { SyncEntry } from "../sync/types.ts";
 import type { Scope } from "./use-issues.ts";
 
-export type { SyncEntry };
+export type { RefusedChange, SyncEntry };
 
 /** The answer of `sync_status` (server/contract.ts). */
 export interface SyncStatus {
@@ -34,6 +34,8 @@ export interface SyncStatus {
   halted: boolean;
   last: SyncEntry | null;
   syncedAt: number | null;
+  /** The changes the tracker refused for good, oldest first. */
+  refused: RefusedChange[];
 }
 
 /** "3 minutes ago", for a moment in the past. */
@@ -71,7 +73,7 @@ export function syncDid(entry: SyncEntry, withIds = true): string {
     case "failed":
       return "failed";
     case "busy":
-      return "gave way to changes being made; nothing sent";
+      return "gave way; nothing sent";
     case "conflict":
       return "stopped: changes here and elsewhere cannot be merged";
     case "stuck":
@@ -116,7 +118,18 @@ export function syncState(
   if (status.running) return { state: "syncing…", message: null };
   const { last } = status;
   if (last === null) return { state: "not yet synced from here", message: null };
-  if (last.end === "synced") return { state: `synced ${ago(last.at, now)}`, message: null };
+  if (last.end === "synced") {
+    const count = status.refused.length;
+    return {
+      state: `synced ${ago(last.at, now)}`,
+      // Nothing failed, but something the owner did was not taken: said
+      // under the row until they have dealt with it.
+      message:
+        count === 0
+          ? null
+          : `${count} ${count === 1 ? "change was" : "changes were"} refused and not sent. See the sync log.`,
+    };
+  }
   const lastGood =
     status.syncedAt === null ? "" : ` Last synced ${ago(status.syncedAt, now)}.`;
   const said = last.message === "" ? "" : `\n${last.message}`;
@@ -201,8 +214,8 @@ export function refreshTip(status: SyncStatus | null, now: number): string {
  * The sync status of the tab's folder.
  *
  * @returns `status` (null until the first answer), `reload`, `syncNow`,
- *   which resolves to a message when the sync could not be started, and
- *   `loadLog`, the runs newest first.
+ *   which resolves to a message when the sync could not be started,
+ *   `loadLog`, the runs newest first, and `settleRefused`.
  */
 export function useIssueSync(scope: Scope, active: boolean) {
   const rpc = useRpc<typeof rpcContract>();
@@ -228,5 +241,16 @@ export function useIssueSync(scope: Scope, active: boolean) {
       rpc.call("sync_log", { threadId, projectId }).then((answer) => answer.entries),
     [rpc, threadId, projectId],
   );
-  return { status, reload, syncNow, loadLog };
+  /** Dismisses a refused change, or has it sent again; a message when it could not. */
+  const settleRefused = useCallback(
+    (seq: number, again: boolean) =>
+      rpc
+        .call("sync_refused_settle", { threadId, projectId, seq, again })
+        .then((outcome) => {
+          reload();
+          return outcome.message;
+        }),
+    [rpc, threadId, projectId, reload],
+  );
+  return { status, reload, syncNow, loadLog, settleRefused };
 }

@@ -271,7 +271,7 @@ export default async function plugin(bb: BbPluginApi) {
   workEvents.closed = autopilot.advance;
   workEvents.stuck = autopilot.stuck;
   workEvents.ownerCurrent = autopilot.ownerSteppedIn;
-  const issueSync = await createSync({ bb, folders, store, repositoryKey });
+  const issueSync = await createSync({ bb, folders, store, trackers, repositoryKey });
   issuesChanged = issueSync.changed;
   const { setupStatus, runSetup } = createSetup({
     bb,
@@ -341,9 +341,21 @@ export default async function plugin(bb: BbPluginApi) {
     sync_status: async (input) => {
       const folder = await folders.folderFor(input);
       return "message" in folder
-        ? { source: null, remote: null, running: false, halted: false, last: null, syncedAt: null }
-        : issueSync.state(folder.path);
+        ? {
+            source: null,
+            remote: null,
+            running: false,
+            halted: false,
+            last: null,
+            syncedAt: null,
+            refused: [],
+          }
+        : {
+            ...(await issueSync.state(folder.path)),
+            refused: await store.refusedIn(folder.path),
+          };
     },
+    sync_refused_settle: (input) => store.settleRefused(input),
     sync_log: async (input) => {
       const folder = await folders.folderFor(input);
       return { entries: "message" in folder ? [] : await issueSync.log(folder.path) };
@@ -420,7 +432,7 @@ export default async function plugin(bb: BbPluginApi) {
   bb.agents.registerTool({
     name: "beads_set_current",
     description:
-      "Tell BB which beads issue this thread is working on, so the user sees it highlighted in the Airbender tab. Pass an empty id to clear it.",
+      "Tell BB which issue this thread is working on, so the user sees it highlighted in the Airbender tab. Pass an empty id to clear it.",
     instructions: CURRENT_TOOL_INSTRUCTIONS,
     presentation: {
       label: { pending: "Setting current bead", completed: "Set current bead" },
@@ -428,17 +440,17 @@ export default async function plugin(bb: BbPluginApi) {
     parameters: z.object({
       id: z
         .string()
-        .describe("Beads issue id, e.g. proj-a1b. Empty string clears it."),
+        .describe("Issue id, e.g. proj-a1b. Empty string clears it."),
     }),
     async execute({ id }, { threadId }) {
       const beadId = id.trim();
       if (beadId === "") {
         await currentBead.write(threadId, null);
-        return "Cleared this thread's current bead.";
+        return "Cleared this thread's current issue.";
       }
       if (!BEAD_ID_PATTERN.test(beadId)) {
         return {
-          content: [{ type: "text", text: `"${beadId}" is not a beads issue id.` }],
+          content: [{ type: "text", text: `"${beadId}" is not an issue id.` }],
           isError: true,
         };
       }
@@ -455,7 +467,7 @@ export default async function plugin(bb: BbPluginApi) {
       // workflow applies and where the issue stands (see agent-tools.ts).
       const step =
         listed.issues.find((issue) => issue.id === beadId)?.step ?? null;
-      return `This thread's current bead is now ${beadId}. ${workflowLine(workflowFor(listed.workflow), step)}`;
+      return `This thread's current issue is now ${beadId}. ${workflowLine(workflowFor(listed.workflow), step)}`;
     },
   });
 
@@ -466,13 +478,13 @@ export default async function plugin(bb: BbPluginApi) {
   bb.agents.registerTool({
     name: MOVE_TOOL,
     description:
-      "Move a beads issue to the next step of its workflow: report the step you were asked to do as finished, skip it with a reason, or send your own review back. The answer says what comes next.",
+      "Move an issue to the next step of its workflow: report the step you were asked to do as finished, skip it with a reason, or send your own review back. The answer says what comes next.",
     instructions: moveToolInstructions(standardWorkflow.describeForAgents()),
     presentation: {
       label: { pending: "Moving the issue on", completed: "Moved the issue on" },
     },
     parameters: z.object({
-      id: z.string().describe("Beads issue id, e.g. proj-a1b."),
+      id: z.string().describe("Issue id, e.g. proj-a1b."),
       move: z
         .string()
         .describe(

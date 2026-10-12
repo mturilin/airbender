@@ -205,3 +205,27 @@ func TestGitHubCopyIsSharedByWorkTreesAndUnseenByGit(t *testing.T) {
 	other.ok("sync")
 	same(t, repo.waiting(), 0, "changes waiting, after the work tree synced")
 }
+
+func TestGitHubCopyKeptDataIsAHiddenLineAndASyncNamesItsIssues(t *testing.T) {
+	repo := newCopyScratch(t)
+	id := repo.create("Copy: an epic with a branch", "--description", "Wanted.")
+	branch := "epic-with-a-branch-name-far-longer-than-the-fifty-characters-of-a-label"
+	repo.ok("edit", id, "--set-data", "branch="+branch)
+	// Shown at once, from the copy, while it waits.
+	same(t, repo.show(id).Metadata["branch"], any(branch), "the branch, here")
+	// The sync says which issue it sent.
+	synced := repo.ok("sync", "--json")
+	if !strings.Contains(synced, `"sentIssues": [`) || !strings.Contains(synced, `"`+id+`"`) {
+		t.Fatalf("the sync does not name the issue it sent:\n%s", synced)
+	}
+	// On GitHub: read back directly, with the description as it was.
+	live := repo.live("show", id, "--json")
+	if !strings.Contains(live, branch) || !strings.Contains(live, `"description": "Wanted."`) {
+		t.Fatalf("GitHub lacks the branch, or the description changed:\n%s", live)
+	}
+	repo.ok("edit", id, "--unset-data", "branch")
+	repo.ok("sync")
+	if strings.Contains(repo.live("show", id, "--json"), branch) {
+		t.Fatal("the branch is still on GitHub after it was taken out")
+	}
+}

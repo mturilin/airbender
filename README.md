@@ -38,8 +38,10 @@ panel, beside a thread or on the New thread screen.
   what every sync source offers (`SyncSource`) and reports; `service.ts`
   runs any source one at a time per repository, decides when, and keeps
   the log; `beads.ts` is the first source (`bd sync`, beads' events
-  journal for what was sent). Another tracker adds a source here and
-  changes one function, `sourceFor` in `server/sync.ts`.
+  journal for what was sent); `bend.ts` is the second, for a hosted
+  tracker whose changes bend queues (GitHub issues): it runs `bend sync`.
+  Which one a folder gets is decided in one function, `sourceFor` in
+  `server/sync.ts`.
 - `shared/` — what both halves use: `constants.ts` (the values they must
   agree on), `tree.ts` (walking sub-issues), and the workflow:
   `workflow.ts` says what a workflow is, `standard-workflow.ts` is the
@@ -219,8 +221,9 @@ Every step but "Build bend" is a step of `bend setup` (see "bend" below):
 the tab asks bend what is in place, asks you to confirm, and runs the same
 step a terminal would, so the two never disagree. First of all, where
 nothing says it yet, **Choose where the issues are kept**: beads or GitHub
-issues, recorded in `.bend.json`. (The tab can list only beads issues so
-far; with GitHub issues agents work them with bend.)
+issues, recorded in `.bend.json`. The tab lists and changes the issues of
+either; with GitHub issues the beads steps below are not needed, and
+"Prepare the issues" is signing in to GitHub.
 
 1. **Install beads** — pick a method (install script, mise, Homebrew, npm).
    **Build bend** comes with it: the tab reads and changes issues with the
@@ -428,8 +431,9 @@ tracker) and `not-signed-in`; `bend version` gives a number that goes up
 when the commands or the JSON change; `status --quick` asks the tracker
 nothing; `--with-body` adds each issue's description and requirements as
 one text, which `write <id> body` takes back; `edit` adds and removes
-labels and kept data; `BEND_BD` names the beads program and `BEND_ACCEPT`
-the trackers the caller can work with.
+labels and kept data; `sync --json` names the issues it sent and those that
+came in changed; `BEND_BD` names the beads program and `BEND_ACCEPT` the
+trackers the caller can work with.
 
 Tests: `cd bend && go test ./...`. They are skipped where `bd` is not
 installed. The GitHub adapter is tested offline against the stand-in and a
@@ -447,12 +451,29 @@ It creates and then deletes real issues there, and refuses any repository
 without "scratch" in its name.
 
 The Airbender tab runs bend for every read and change of an issue
-(`server/bend.ts`, `server/store.ts`), and accepts beads only: a hosted
-tracker is too slow for it until issues are kept in a local copy
-(bead-bb-c9l.6). Still beads-specific in the tab, and to be done with a
-second tracker: the setup steps, watching the `.beads` folder for outside
-changes, the check on what an issue id looks like, the "bd command"
-setting, and the wording on screen.
+(`server/bend.ts`, `server/store.ts`), and takes whatever tracker bend
+finds for the folder (bead-bb-c9l.6). It asks bend what the folder has
+(`bend status --quick`: the tracker, the repository, its kinds of link,
+and whether changes are queued for a hosted tracker) and follows that:
+
+- the beads program is asked for only where the tracker is beads;
+- where changes are queued (GitHub issues), the tab's timed sync runs
+  `bend sync` through a source of its own (`sync/bend.ts`), the sync log
+  window lists the changes GitHub refused (`bend refused`), and a list is
+  never made to wait for GitHub;
+- the link picker offers the tracker's kinds;
+- an agent is told `bend`'s commands instead of `bd`'s
+  (`withBend` in `shared/standard-workflow.ts`), and `bend setup
+  instructions` writes the wording of the rules that names bend.
+
+An epic's branch is kept with the issue as free-form data; on GitHub that
+is one hidden line at the end of the description
+(`<!-- bend:data {"branch":"…"} -->`).
+
+Still beads-specific in the tab: the "Sync with GitHub…" window (beads'
+own mirroring, offered on beads only), the "bd command" setting, and
+switching a repository's tracker, which the tab cannot do yet
+(bead-bb-c9l.18; from a terminal: `bend setup tracker --use github`).
 
 ## Limits of this version
 

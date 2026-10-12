@@ -460,15 +460,11 @@ func TestGitHubCreateWriteEditAndShow(t *testing.T) {
 	repo.ok("edit", id, "--add-label", label, "--remove-label", label)
 	same(t, strings.Join(repo.show(id).Labels, " "), label, "labels after removing and adding in one command")
 
-	// GitHub has no place for free-form data kept with an issue.
-	unsupported := repo.bend("edit", id, "--set-data", "branch=x")
-	same(t, unsupported.status, 3, "keeping free-form data on GitHub")
-	var refused problem
-	repo.parse(repo.bend("edit", id, "--set-data", "branch=x", "--json").out, &refused)
-	if refused.OK || refused.Status != 3 || refused.Kind != "unsupported" {
-		t.Fatalf("keeping free-form data gave %+v", refused)
-	}
-	same(t, repo.show(id).Title, "Checkout", "the title after a refused change")
+	// Free-form data is kept with the issue (a hidden line of the
+	// description; see the copy's own test of it).
+	repo.ok("edit", id, "--set-data", "branch=x")
+	same(t, repo.show(id).Metadata["branch"], any("x"), "free-form data kept on GitHub")
+	same(t, repo.show(id).Title, "Checkout", "the title after keeping data")
 }
 
 // TestGitHubSubIssuesLinksMovingAndBlocking checks sub-issues, links of

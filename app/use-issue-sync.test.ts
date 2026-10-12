@@ -32,6 +32,7 @@ const status = (over: Partial<SyncStatus> = {}): SyncStatus => ({
   remote: "the made-up remote",
   running: false,
   halted: false,
+  refused: [],
   last: null,
   syncedAt: null,
   ...over,
@@ -144,4 +145,19 @@ test("the refresh button's tooltip says what it does, then when the last sync wa
   );
   assert.match(failed, /^The issues have not been synced/u);
   assert.match(failed, / Last sync 1 minute ago: failed\.$/u);
+});
+
+test("refused changes are said under the row of a sync that otherwise worked", () => {
+  const change = { seq: 1, at: "", issue: "12", what: "a comment", text: "Hi", reason: "locked" };
+  const now = 1_000_000;
+  const worked = status({ last: entry({ at: now }), syncedAt: now });
+  assert.equal(syncState(worked, now).message, null);
+  assert.match(
+    syncState({ ...worked, refused: [change] }, now).message ?? "",
+    /^1 change was refused and not sent/,
+  );
+  assert.match(
+    syncState({ ...worked, refused: [change, { ...change, seq: 2 }] }, now).message ?? "",
+    /^2 changes were refused/,
+  );
 });

@@ -702,3 +702,59 @@ test("the epic an issue belongs to is the nearest one above it that holds a bran
   // Never the issue itself.
   assert.equal(over("e"), null);
 });
+
+test("on another tracker every instruction names bend, and with beads it is as it was", () => {
+  const sub = { id: "x-2", title: "A part" };
+  for (const state of flow.states) {
+    for (const size of [null, "s", "m", "l"]) {
+      for (const openSubIssues of [[], [sub]]) {
+        for (const note of [undefined, "Do it again."]) {
+          const issue = { id: "x-1", title: "A thing", size, openSubIssues };
+          const beads = flow.instruction(state, issue, note);
+          // Saying "bd" is the same as saying nothing: the text beads
+          // repositories have always had.
+          assert.equal(flow.instruction(state, { ...issue, commands: "bd" }, note), beads);
+          const bend = flow.instruction(state, { ...issue, commands: "bend" }, note);
+          // Nothing of beads but the tools' own names.
+          const without = bend.replaceAll("beads_workflow_move", "").replaceAll("beads_set_current", "");
+          assert.doesNotMatch(without, /`bd\b|\bbd |beads/iu, `${state.id} ${size}`);
+          assert.match(bend, /^Work on issue x-1: "A thing"\./u);
+          assert.match(bend, /Start with `bend show x-1` and `bend comments x-1`\./u);
+        }
+      }
+    }
+  }
+  // The commands themselves, where a step names one.
+  const told = (stateId: string, size: string) =>
+    flow.instruction(stateOf(flow, stateId), {
+      id: "x-1",
+      title: "A thing",
+      size,
+      openSubIssues: [],
+      commands: "bend",
+    });
+  assert.match(told("define", "l"), /with `bend write x-1 description` and `bend write x-1 done`: a description/u);
+  assert.match(told("plan", "l"), /the issue's plan \(`bend write x-1 plan`\)/u);
+  assert.match(told("implement", "l"), /\(`bend start x-1`\)/u);
+  assert.match(
+    told("implement", "s"),
+    /onto it with `bend write x-1 description` and `bend write x-1 done`/u,
+  );
+  // The owner's own words are left as written, even where they name beads.
+  const title = "Port the beads issue importer; see `bd show x` for $& and $1";
+  const own = flow.instruction(
+    stateOf(flow, "implement"),
+    {
+      id: "x-1",
+      title,
+      size: "l",
+      openSubIssues: [{ id: "x-2", title: "Run `bd update --design` once" }],
+      commands: "bend",
+    },
+    "Use `bd show` on the beads issue first.",
+  );
+  assert.ok(own.includes(JSON.stringify(title)));
+  assert.ok(own.includes(JSON.stringify("Run `bd update --design` once")));
+  assert.ok(own.includes("Use `bd show` on the beads issue first."));
+  assert.match(own, /^Work on issue x-1: /u);
+});

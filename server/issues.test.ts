@@ -22,7 +22,14 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:f
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test as nodeTest } from "node:test";
-import { believedStep, branchOf, toIssues as toTabIssues } from "./issues.ts";
+import {
+  believedStep,
+  branchOf,
+  pickerKinds,
+  toIssues as toTabIssues,
+  trackerKind,
+} from "./issues.ts";
+import { LINK_KINDS } from "../shared/constants.ts";
 import { descendantsOf } from "../shared/tree.ts";
 import { builtBend } from "./bend-for-tests.ts";
 import type { TrackerIssue } from "./bend.ts";
@@ -334,4 +341,25 @@ test("an epic's branch is read from the issue's metadata, and from the label it 
   // The old label is still kept out of the plain labels.
   assert.equal(old!.branch, "x-2-old");
   assert.deepEqual(old!.labels, ["ui"]);
+});
+
+nodeTest("the picker offers a tracker's own kinds of link, in the tab's names", () => {
+  assert.deepEqual(pickerKinds(["blocked-by", "discovered-from", "related"], LINK_KINDS), [
+    "blocks",
+    "discovered-from",
+    "related",
+  ]);
+  // Beads has them all; a kind the tab does not know is not offered.
+  assert.deepEqual(
+    pickerKinds(
+      ["blocked-by", "discovered-from", "related", "tracks", "until", "caused-by", "validates", "supersedes", "odd"],
+      LINK_KINDS,
+    ),
+    [...LINK_KINDS],
+  );
+  // And back, for removing a link by its kind.
+  assert.deepEqual(
+    ["blocks", "relates-to", "discovered-from", "tracks"].map(trackerKind),
+    ["blocked-by", "related", "discovered-from", "tracks"],
+  );
 });

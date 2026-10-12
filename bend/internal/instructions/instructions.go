@@ -48,6 +48,74 @@ import (
 //go:embed rules.md
 var Rules string
 
+// rulesWithBend is the same rules for a repository whose issues are not in
+// beads: every command is bend's, and nothing names beads or its program.
+// It is made from Rules by the replacements in withBend, so the two cannot
+// drift apart in what they ask of an agent (bead-bb-c9l.6). The names of
+// the two agent tools still begin "beads_": those are the tools' names.
+var rulesWithBend = withBend(Rules)
+
+// withBend gives the rules with bend's commands in place of beads'.
+//
+// Panics when a passage it replaces is not in the text, so that a change to
+// rules.md that this would silently miss fails every test instead.
+func withBend(rules string) string {
+	start := strings.Index(rules, "## Working with beads through Airbender")
+	end := strings.Index(rules, "- **Standing facts are in")
+	if start == -1 || end == -1 {
+		panic("instructions: the opening of rules.md is not as withBend expects")
+	}
+	rules = rules[:start] + bendOpening + rules[end:]
+	for _, pair := range [][2]string{
+		{"Do not use `bd remember` for that.", "`bend remember \"...\"` adds\n  one for you."},
+		{"create one first (`bd create`)", "create one first (`bend create`)"},
+		{"(`bd update <id> --acceptance \"...\"`)", "(`bend write <id> done \"...\"`)"},
+		{"create an issue yourself you may give it a size, with the label\n  `size:s`, `size:m` or `size:l`.", "create an issue yourself you may give it a size, with the label\n  `size:s`, `size:m` or `size:l` (`bend edit <id> --add-label size:m`)."},
+		{"go on the issue (`bd comment`, `bd note`, the design\n  field).", "go on the issue (`bend comment`, `bend decide`, and\n  `bend write <id> notes`)."},
+		{"Never close an issue with `bd close`", "Never close an issue with `bend close`"},
+	} {
+		if !strings.Contains(rules, pair[0]) {
+			panic("instructions: rules.md no longer holds: " + pair[0])
+		}
+		rules = strings.Replace(rules, pair[0], pair[1], 1)
+	}
+	return rules
+}
+
+// bendOpening is how the rules open where the commands are bend's.
+const bendOpening = "## Working with issues through Airbender\n" +
+	"\n" +
+	"This repository's issues are worked from the Airbender tab in BB, and read\n" +
+	"and changed with the `bend` command, whatever tracker holds them. These are\n" +
+	"the instructions for working on issues here; follow them whenever you work\n" +
+	"on one.\n" +
+	"\n" +
+	"The commands you need (`bend <command> --help` says more, and `bend status`\n" +
+	"says which tracker this repository uses):\n" +
+	"\n" +
+	"- `bend show <id>` and `bend comments <id>`: read an issue and its history.\n" +
+	"- `bend write <id> description \"...\"`, `bend write <id> done \"...\"` and\n" +
+	"  `bend write <id> plan \"...\"`: write what is wanted, what \"done\" means,\n" +
+	"  and the plan. `bend start <id>`: mark it started.\n" +
+	"- `bend comment <id> \"...\"`: record a surprise or a hand-over;\n" +
+	"  `bend decide <id> \"...\"`: record a decision and its reason.\n" +
+	"- `bend create \"...\" --from <id>`: follow-up work, linked to the issue it\n" +
+	"  came from.\n" +
+	"- `bend link <id> <other-id> --kind blocked-by`: this issue waits for the\n" +
+	"  other one.\n" +
+	"- `bend list` and `bend ready`: what there is, and what can be worked on.\n" +
+	"\n"
+
+// RulesFor gives the rules for a repository by its tracker: beads' own
+// commands where the issues are in beads ("beads", or "" for a tracker not
+// chosen yet), bend's everywhere else.
+func RulesFor(tracker string) string {
+	if tracker == "" || tracker == "beads" {
+		return Rules
+	}
+	return rulesWithBend
+}
+
 const (
 	// RulesStart and rulesEnd mark the start and end of Airbender's block
 	// inside an AGENTS.md.
@@ -98,14 +166,21 @@ func fingerprint(text string) string {
 // "old", an earlier version's, unchanged, which may be replaced; "edited", a
 // block the owner changed, of whatever version, which is theirs and is left
 // alone; "none", no block.
-func RulesIn(agentsFile string) string {
+//
+// tracker is the repository's tracker (see RulesFor). The current rules for
+// another tracker count as "old": they are ours, unchanged, and are replaced
+// when a repository's tracker is changed.
+func RulesIn(agentsFile, tracker string) string {
 	block, ok := rulesBlock(agentsFile)
 	if !ok {
 		return "none"
 	}
 	print := fingerprint(block)
-	if print == fingerprint(Rules) {
+	if print == fingerprint(RulesFor(tracker)) {
 		return "current"
+	}
+	if print == fingerprint(Rules) || print == fingerprint(rulesWithBend) {
+		return "old"
 	}
 	for _, known := range shippedBefore {
 		if print == known {
@@ -121,17 +196,19 @@ func RulesIn(agentsFile string) string {
 // rules are added at the end, after whatever is there. A block the owner
 // edited is left as it is. Nothing else in the file is touched.
 //
-// existing is the file's text; "" when there is no file. Returns existing
-// itself when the current rules are there, or the owner's own are.
-func AgentsFileWith(existing string) string {
-	switch RulesIn(existing) {
+// existing is the file's text; "" when there is no file. tracker is the
+// repository's tracker (see RulesFor). Returns existing itself when the
+// current rules are there, or the owner's own are.
+func AgentsFileWith(existing, tracker string) string {
+	rules := RulesFor(tracker)
+	switch RulesIn(existing, tracker) {
 	case "current", "edited":
 		return existing
 	case "none":
 		if existing == "" {
-			return Rules
+			return rules
 		}
-		return strings.TrimRight(existing, "\n") + "\n\n" + Rules
+		return strings.TrimRight(existing, "\n") + "\n\n" + rules
 	}
 	start := strings.Index(existing, RulesStart)
 	end := strings.Index(existing[start:], rulesEnd)
@@ -141,7 +218,7 @@ func AgentsFileWith(existing string) string {
 	if end != -1 {
 		after = strings.TrimPrefix(existing[start+end+len(rulesEnd):], "\n")
 	}
-	return existing[:start] + Rules + after
+	return existing[:start] + rules + after
 }
 
 // beadsBlock is a block beads generated, between its own markers: the one

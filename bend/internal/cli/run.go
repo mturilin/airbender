@@ -223,7 +223,7 @@ func oneOf(typed string, allowed []string, what string) (string, error) {
 // first and says so plainly when the bend it found is older than it needs,
 // instead of failing on an option that bend does not know. Raise it with
 // every such change.
-const Version = 4
+const Version = 5
 
 // statusWithCopy is what `bend status --json` prints: what the tracker
 // supports, and how the copy on this machine stands; null where the tracker
@@ -854,6 +854,10 @@ func carryOut(command *Command, parsed *Parsed, surroundings Surroundings) (answ
 				{"tracker", about.Tracker},
 				{"repository", about.Repository},
 				{"linkKinds", about.LinkKinds},
+				// Whether changes wait in the copy to be sent (a hosted
+				// tracker): a caller then has a sync to run and a list of
+				// refused changes to show.
+				{"queued", about.Writes == tracker.WritesQueued},
 				{"root", found.Root},
 				{"copy", folder},
 				{"watch", watched},

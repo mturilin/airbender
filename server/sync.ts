@@ -22,9 +22,11 @@ import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { CHANGED_CHANNEL } from "../shared/constants.ts";
 import { createBeadsSource } from "../sync/beads.ts";
 import type { Ran } from "../sync/beads.ts";
+import { createBendSource } from "../sync/bend.ts";
 import { createSyncService } from "../sync/service.ts";
 import type { SyncEntry, SyncSource } from "../sync/types.ts";
 import { shellQuote } from "./bd.ts";
+import type { About, Trackers } from "./bend.ts";
 import type { Folders } from "./folder.ts";
 import type { Store } from "./store.ts";
 
@@ -54,11 +56,14 @@ export async function createSync({
   bb,
   folders,
   store,
+  trackers,
   repositoryKey,
 }: {
   bb: BbPluginApi;
   folders: Folders;
   store: Store;
+  /** Which tracker a folder has, and its sync through bend. */
+  trackers: Trackers;
   repositoryKey: (path: string) => string;
 }) {
   /** Repository key -> its main folder, to name a repository to the tabs. */
@@ -114,19 +119,45 @@ export async function createSync({
   /**
    * The source that syncs a folder's issues.
    *
-   * The one place that decides it. Today every folder's issues are beads':
-   * a tracker choice will answer differently here, and nothing else in the
-   * plugin or the tab has to know.
+   * The one place that decides it, by the folder's tracker: where bend
+   * queues changes for a hosted tracker (GitHub issues), the sync is
+   * bend's own; everywhere else it is beads'. Nothing else in the plugin
+   * or the tab has to know.
    *
    * @returns The repository's key, and its source (made once per
    *   repository and made known to the service).
    */
   async function sourceFor(path: string): Promise<{ key: string; source: SyncSource }> {
     const key = repositoryKey(path);
-    const known = sources.get(key);
-    if (known !== undefined) return { key, source: known };
-    const home = (await folders.mainFolder(path)) ?? path;
+    const home = homes.get(key) ?? (await folders.mainFolder(path)) ?? path;
     homes.set(key, home);
+    // Asked every time (it is remembered, and cheap): a repository whose
+    // tracker was changed since must not keep the other tracker's sync.
+    const found = await trackers.trackerFor(home);
+    const about = "state" in found ? null : trackers.aboutOf(home);
+    const wanted = about === null ? null : about.queued ? remoteOf(about) : "beads";
+    const known = sources.get(key);
+    if (known !== undefined && (wanted === null || made.get(key) === wanted)) {
+      return { key, source: known };
+    }
+    sources.delete(key);
+    if (!("state" in found) && about !== null && about.queued) {
+      const source = createBendSource({
+        name: about.tracker,
+        remote: remoteOf(about),
+        unsent: async () => {
+          const read = await store.readIssues(home);
+          return read.state === "ok"
+            ? read.issues.filter((issue) => issue.unsent > 0).map((issue) => issue.id)
+            : null;
+        },
+        sync: () => found.tracker.sync(),
+      });
+      sources.set(key, source);
+      made.set(key, remoteOf(about));
+      service.use(key, source);
+      return { key, source };
+    }
     const bdPath = await folders.findBd(home);
     const source = createBeadsSource({
       home,
@@ -172,15 +203,28 @@ export async function createSync({
     });
     // A source made before beads was installed would never find it: it
     // is kept, and made known to the service, only once the program is
-    // there. Until then each look makes a fresh one.
-    if (bdPath !== null) {
+    // there and the folder's tracker is known to be beads. Until then each
+    // look makes a fresh one, so that a tracker chosen later is found.
+    if (bdPath !== null && about !== null) {
       sources.set(key, source);
+      made.set(key, "beads");
       service.use(key, source);
     }
     return { key, source };
   }
   /** Repository key -> its source. */
   const sources = new Map<string, SyncSource>();
+  /**
+   * Repository key -> what its source was made for: "beads", or the words
+   * for a hosted tracker and its repository. A source is used only while
+   * the folder's tracker still gives the same.
+   */
+  const made = new Map<string, string>();
+  /** What a hosted tracker's issues are synced with, in words. */
+  const remoteOf = (about: About): string =>
+    about.tracker === "github" && about.repository !== null
+      ? `GitHub issues of ${about.repository}`
+      : `the ${about.tracker} tracker`;
 
   const failed = (what: string) => (cause: unknown) =>
     bb.log.warn(`issue sync (${what}) failed: ${cause}`);

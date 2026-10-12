@@ -18,6 +18,12 @@
 //     progress" (`in-progress`, on an open issue). GitHub makes a label the
 //     first time it is applied. As marked sections at the end of the
 //     description (see tracker/parts.go): requirements, done, plan, notes.
+//   - Free-form data kept with an issue (the Airbender tab keeps an epic's
+//     branch there) has no field on GitHub, and a label will not do: GitHub
+//     refuses one over 50 characters. It is kept as one hidden line at the
+//     end of the description, `<!-- bend:data {"key":"value"} -->`, which
+//     github.com does not show (bead-bb-c9l.6). A visible section was
+//     rejected: it would show for what only tools read.
 //   - "Discovered from" and "related" do not exist on GitHub. They are kept
 //     as lines of a marked "Links" section, written on BOTH issues, so that
 //     showing either one needs no search: GitHub's search is limited to
@@ -56,6 +62,7 @@
 package github
 
 import (
+	"encoding/json"
 	"regexp"
 	"sort"
 	"strconv"
@@ -93,6 +100,60 @@ type bodyParts struct {
 	Notes        string
 	// Links are the links GitHub has no place for; see the package comment.
 	Links []tracker.TextLink
+	// Data is the free-form data kept with the issue, by key; never nil.
+	Data map[string]string
+}
+
+// dataLine is the hidden line that holds an issue's free-form data: an
+// HTML comment with one JSON object of texts, as the last line of the
+// description.
+var dataLine = regexp.MustCompile(`(?:^|\n)<!-- bend:data (\{[^\n]*\}) -->\s*$`)
+
+// splitData takes the hidden data line off the end of a description.
+//
+// Returns the description without it, and the data; an empty map when the
+// description does not end with such a line, or the line does not hold an
+// object of texts (a line someone broke by hand is then left in the
+// description, where it can be seen in the raw text and mended).
+//
+// Only the very last line counts, which is where it is always written. A
+// line of the same shape further up is text: an issue that describes this
+// very line, or quotes another issue's, must not have that taken as its
+// own data (bead-bb-c9l.6, found in review). The price: someone who types
+// under the line on github.com turns it into text, and the data reads as
+// gone until the line is last again.
+func splitData(body string) (string, map[string]string) {
+	found := dataLine.FindStringSubmatchIndex(body)
+	if found == nil {
+		return body, map[string]string{}
+	}
+	data := map[string]string{}
+	if err := json.Unmarshal([]byte(body[found[2]:found[3]]), &data); err != nil || data == nil {
+		return body, map[string]string{}
+	}
+	return strings.TrimRight(body[:found[0]], "\r\n"), data
+}
+
+// joinData puts the hidden data line at the end of a description; none
+// when there is no data.
+//
+// A text is written as JSON with "<" and ">" escaped, which Go's encoder
+// does by itself, so no value can end the comment it sits in.
+func joinData(body string, data map[string]string) string {
+	if len(data) == 0 {
+		return body
+	}
+	// A map is encoded with its keys in order, so the line is the same
+	// whenever the data is.
+	line, err := json.Marshal(data)
+	if err != nil {
+		return body
+	}
+	hidden := "<!-- bend:data " + string(line) + " -->"
+	if strings.TrimSpace(body) == "" {
+		return hidden
+	}
+	return body + "\n\n" + hidden
 }
 
 // splitBody takes a GitHub description apart. Pure; the opposite of
@@ -102,8 +163,10 @@ func splitBody(body string) bodyParts {
 	for _, section := range sections {
 		names = append(names, section[0])
 	}
+	body, data := splitData(body)
 	rest, found := tracker.SplitSections(body, names)
 	return bodyParts{
+		Data:         data,
 		Description:  rest,
 		Requirements: found["requirements"],
 		Done:         found["done"],
@@ -128,7 +191,7 @@ func joinBody(parts bodyParts) string {
 			Name: section[0], Heading: section[1], Text: text[section[0]],
 		})
 	}
-	return tracker.JoinSections(parts.Description, joined)
+	return joinData(tracker.JoinSections(parts.Description, joined), parts.Data)
 }
 
 // asOpen is how a comment written as someone else opens; see the package
@@ -302,6 +365,11 @@ func toIssue(issue Issue, known map[int]Ref) tracker.Issue {
 	for _, ref := range issue.SubIssues {
 		subIssues = append(subIssues, toIssueRef(ref))
 	}
+	// The free-form data from the hidden line; none leaves it to Tidy ({}).
+	var metadata json.RawMessage
+	if len(parts.Data) > 0 {
+		metadata, _ = json.Marshal(parts.Data)
+	}
 	return tracker.Issue{
 		ID:           strconv.Itoa(issue.Number),
 		Title:        issue.Title,
@@ -324,10 +392,9 @@ func toIssue(issue Issue, known map[int]Ref) tracker.Issue {
 		CommentCount: issue.CommentCount,
 		CreatedAt:    tracker.Ptr(issue.CreatedAt),
 		UpdatedAt:    tracker.Ptr(issue.UpdatedAt),
-		// GitHub has no place for free-form data with an issue (Tidy makes
-		// it {}), and an issue here is not the counterpart of one
-		// elsewhere: it is the issue.
-		Metadata:    nil,
+		// An issue here is not the counterpart of one elsewhere: it is the
+		// issue.
+		Metadata:    metadata,
 		ExternalRef: nil,
 	}.Tidy()
 }
@@ -622,6 +689,11 @@ func (github *adapter) Capabilities() (tracker.Capabilities, error) {
 				Note:  "a hand-over comment on an issue left in progress",
 			},
 			{
+				Name:  "kept data",
+				Level: "another way",
+				Note:  "kept as one hidden line at the end of the description",
+			},
+			{
 				Name:  "acting as another name",
 				Level: "no",
 				Note:  "GitHub acts as the signed-in account only",
@@ -858,11 +930,9 @@ func (github *adapter) Create(draft tracker.Draft) (string, error) {
 // adds and removes plain labels; all in one request, and none when nothing
 // would change.
 //
-// Fails with Unsupported for free-form data, which GitHub has no place for.
+// Free-form data goes into the hidden line of the description (see the
+// package comment), in the same request.
 func (github *adapter) Edit(id string, changes tracker.Changes) error {
-	if len(changes.Metadata) > 0 {
-		return tracker.Unsupported("GitHub issues have no place for free-form data kept with an issue.")
-	}
 	issue, err := github.need(id)
 	if err != nil {
 		return err
@@ -926,6 +996,20 @@ func (github *adapter) Edit(id string, changes tracker.Changes) error {
 	if differs {
 		update.Labels = &labels
 		changed = true
+	}
+	if len(changes.Metadata) > 0 {
+		parts := splitBody(issue.Body)
+		for _, one := range changes.Metadata {
+			if one.Value == nil {
+				delete(parts.Data, one.Key)
+			} else {
+				parts.Data[one.Key] = *one.Value
+			}
+		}
+		if body := joinBody(parts); body != issue.Body {
+			update.Body = &body
+			changed = true
+		}
 	}
 	if !changed {
 		return nil // Nothing to change.

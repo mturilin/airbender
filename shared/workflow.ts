@@ -230,6 +230,12 @@ export interface WorkflowSize {
 
 /** What a workflow's instruction may say about the issue. */
 export interface WorkflowIssue {
+  /**
+   * The program the agent is told to read and write the issue with: "bd"
+   * where the repository's issues are in beads (the default), "bend" on
+   * any other tracker.
+   */
+  commands?: "bd" | "bend";
   id: string;
   title: string;
   /** The issue's size (an id from `sizes`); null when it has none yet. */

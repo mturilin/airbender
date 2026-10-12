@@ -132,6 +132,7 @@ func TestDescriptionIsTakenApartAndPutBackTheSame(t *testing.T) {
 			{Kind: "discovered-from", Direction: "in", ID: "15"},
 			{Kind: "related", Direction: "out", ID: "7"},
 		},
+		Data: map[string]string{"branch": "epic/x"},
 	}
 	body := joinBody(parts)
 	same(t, splitBody(body), parts)
@@ -219,15 +220,9 @@ func TestFieldsAreLabelsAndPartsAreSections(t *testing.T) {
 		t.Fatalf("no in-progress label: %v", github.LabelsOf(1))
 	}
 	wantRefused(t, adapter.Edit(id, tracker.Changes{Priority: tracker.Ptr(7)}), `whole number from 0`)
-	// GitHub has no place for free-form data kept with an issue.
+	// Nothing kept with it yet (see the test of kept data below).
 	same(t, string(issue.Metadata), "{}")
 	same(t, issue.ExternalRef, (*string)(nil))
-	wantFailure(t,
-		adapter.Edit(id, tracker.Changes{
-			Metadata: []tracker.MetadataChange{{Key: "branch", Value: tracker.Ptr("x")}},
-		}),
-		tracker.KindUnsupported, `no place for free-form data`,
-	)
 	wantRefused(t, adapter.Edit(id, tracker.Changes{Category: tracker.Ptr("a,b")}), `comma`)
 	// A part that is not one of the written parts is a wrong request.
 	wantFailure(t, adapter.Write(id, "links", "x"), tracker.KindUsage, `not a written part`)
@@ -461,6 +456,75 @@ func TestAnIDIsGitHubsNumberAnythingElseIsRefusedBeforeGitHubIsAsked(t *testing.
 	all, err := adapter.List(tracker.ListFilter{Status: tracker.Ptr("all")})
 	must(t, err)
 	same(t, ids(all), []string{id})
+}
+
+func TestKeptDataIsAHiddenLineAtTheEndOfTheDescription(t *testing.T) {
+	github, adapter := fresh("")
+	id := create(t, adapter, tracker.Draft{Title: "Epic", Description: tracker.Ptr("What is wanted.")})
+	must(t, adapter.Write(id, "plan", "First this."))
+	set := func(key string, value *string) error {
+		return adapter.Edit(id, tracker.Changes{Metadata: []tracker.MetadataChange{{Key: key, Value: value}}})
+	}
+	// A value that would end an HTML comment, or break a line, is kept whole.
+	branch := "epic/a-very-long-branch-name-that-no-label-could-hold-because-it-is-over-fifty --> \"x\""
+	must(t, set("branch", &branch))
+	must(t, set("other", tracker.Ptr("kept")))
+	body := github.BodyOf(1)
+	lines := strings.Split(body, "\n")
+	last := lines[len(lines)-1]
+	if !strings.HasPrefix(last, "<!-- bend:data {") || !strings.HasSuffix(last, "} -->") || strings.Count(body, "-->") != strings.Count(body, "<!--") {
+		t.Fatalf("the data is not one hidden line at the end:\n%s", body)
+	}
+	shown := show(t, adapter, id)
+	same(t, string(shown.Metadata), `{"branch":"epic/a-very-long-branch-name-that-no-label-could-hold-because-it-is-over-fifty --\u003e \"x\"","other":"kept"}`)
+	// Nothing else moved: the description and the plan read as before.
+	same(t, shown.Description, "What is wanted.")
+	same(t, shown.Plan, "First this.")
+	// Writing a part keeps the data, and keeps it last.
+	must(t, adapter.Write(id, "notes", "A note."))
+	lines = strings.Split(github.BodyOf(1), "\n")
+	if !strings.HasPrefix(lines[len(lines)-1], "<!-- bend:data ") {
+		t.Fatalf("the data is no longer last:\n%s", github.BodyOf(1))
+	}
+	// Setting it to what it is asks nothing of GitHub but the read.
+	before := github.Requests()
+	must(t, set("other", tracker.Ptr("kept")))
+	same(t, github.Requests(), before+1)
+	// Taken out one by one; with the last gone, so is the line.
+	must(t, set("branch", nil))
+	must(t, set("other", nil))
+	if strings.Contains(github.BodyOf(1), "bend:data") {
+		t.Fatalf("an empty line of data was left:\n%s", github.BodyOf(1))
+	}
+	same(t, string(show(t, adapter, id).Metadata), "{}")
+
+	// Only the last line is data. A line of the same shape further up is
+	// text: an issue that describes this line keeps its description whole
+	// and gets no data from it.
+	other := create(t, adapter, tracker.Draft{Title: "About the line"})
+	quoted := "Use this line:\n<!-- bend:data {\"branch\":\"doc\"} -->\nto keep data."
+	must(t, github.Update(2, Changes{Body: &quoted}))
+	same(t, string(show(t, adapter, other).Metadata), "{}")
+	same(t, show(t, adapter, other).Description, quoted)
+	// Its own data goes under that, and both are read back as they are.
+	must(t, adapter.Edit(other, tracker.Changes{Metadata: []tracker.MetadataChange{{Key: "branch", Value: tracker.Ptr("b")}}}))
+	same(t, string(show(t, adapter, other).Metadata), `{"branch":"b"}`)
+	same(t, show(t, adapter, other).Description, quoted)
+	// Someone wrote under the line on github.com: it is text now, in view,
+	// and the data reads as gone.
+	text := github.BodyOf(2) + "\n\nAdded on github.com."
+	must(t, github.Update(2, Changes{Body: &text}))
+	same(t, string(show(t, adapter, other).Metadata), "{}")
+	if !strings.Contains(show(t, adapter, other).Description, `bend:data {"branch":"b"}`) {
+		t.Fatal("the line that is no longer last was dropped")
+	}
+	// A line broken by hand is no data, and is left to be seen.
+	broken := "Text.\n\n<!-- bend:data {not json} -->"
+	must(t, github.Update(2, Changes{Body: &broken}))
+	same(t, string(show(t, adapter, other).Metadata), "{}")
+	if !strings.Contains(show(t, adapter, other).Description, "bend:data") {
+		t.Fatal("a broken line of data was dropped")
+	}
 }
 
 func TestStatusNamesTheRepositoryTheAccountAndWhatIsKeptAnotherWay(t *testing.T) {

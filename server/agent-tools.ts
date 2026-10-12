@@ -34,7 +34,7 @@ import type { IssuesResult } from "./contract.ts";
 
 /** Standing instructions for the "set the current issue" tool. */
 export const CURRENT_TOOL_INSTRUCTIONS =
-  "This applies only if the folder you work in tracks its work in beads (it has a .beads folder); otherwise ignore the beads_set_current tool. Its answer also tells you which workflow the repository is on and, on the standard one, which step the issue is at. When you start working on a beads issue, or switch to another one, call beads_set_current with its id so the user can see what this thread is working on. Call it with an empty id when the thread is no longer working on any issue. It does not change the issue itself: still claim issues with bd. Do not close an issue when you finish it; the user validates the work and closes it.";
+  "This applies only if the folder you work in tracks its issues with Airbender (it has a .beads folder, or a .bend.json that names a tracker); otherwise ignore the beads_set_current tool. Its answer also tells you which workflow the repository is on and, on the standard one, which step the issue is at. When you start working on an issue, or switch to another one, call beads_set_current with its id so the user can see what this thread is working on. Call it with an empty id when the thread is no longer working on any issue. It does not change the issue itself: still mark it started with the repository's own command (bd, or bend where the issues are not in beads). Do not close an issue when you finish it; the user validates the work and closes it.";
 
 /**
  * Standing instructions for the step tool: the condition first, then the
@@ -43,7 +43,7 @@ export const CURRENT_TOOL_INSTRUCTIONS =
  * @param workflowText What the standard workflow says to agents.
  */
 export function moveToolInstructions(workflowText: string): string {
-  return `This applies only if the folder you work in tracks its work in beads (it has a .beads folder) and its repository is on the standard workflow. Which workflow a repository is on is the user's choice and can change: you are told it when you set your current issue with beads_set_current, when the user sets one for you, and when the user switches it. Where there is no beads, or the repository is on the simple workflow, there are no steps: do not call the step tool; it refuses and says why.\n\n${workflowText}`;
+  return `This applies only if the folder you work in tracks its issues with Airbender (a .beads folder, or .bend.json) and its repository is on the standard workflow. Which workflow a repository is on is the user's choice and can change: you are told it when you set your current issue with beads_set_current, when the user sets one for you, and when the user switches it. Where there is neither, or the repository is on the simple workflow, there are no steps: do not call the step tool; it refuses and says why.\n\n${workflowText}`;
 }
 
 /**
@@ -62,14 +62,14 @@ export function currentRefusal(
   // beads in it, no bd program, or bd failing. Storing the id anyway would
   // show the user a current issue that does not exist.
   if (listed.state !== "ok") {
-    return `${beadId} cannot be this thread's current issue: ${listed.message ?? "this folder's issues cannot be read."} This tool only applies in a folder that tracks its work in beads.`;
+    return `${beadId} cannot be this thread's current issue: ${listed.message ?? "this folder's issues cannot be read."} This tool only applies in a folder that tracks its issues with Airbender.`;
   }
   const target = listed.issues.find((issue) => issue.id === beadId);
   if (target === undefined) {
-    return `No beads issue with id ${beadId} in ${listed.path}. Run bd list to see ids.`;
+    return `No issue with id ${beadId} in ${listed.path}. List the issues to see ids.`;
   }
   if (target.status === CLOSED_STATUS) {
-    return `${beadId} is closed, so it cannot be this thread's current bead. Reopen it first if work on it continues.`;
+    return `${beadId} is closed, so it cannot be this thread's current issue. Reopen it first if work on it continues.`;
   }
   return null;
 }

@@ -566,7 +566,7 @@ func (state *State) instructionsStep(chosen string, issuesReady bool) Step {
 	claudeText, claudeThere := textOf(claudePath), exists(claudePath)
 	state.hooks = beadsHooksIn(state.home)
 	found := &state.Instructions
-	found.Rules = instructions.RulesIn(agentsText)
+	found.Rules = instructions.RulesIn(agentsText, chosen)
 	if instructions.HasBeadsBlocks(agentsText) {
 		found.BeadsBlocks = append(found.BeadsBlocks, instructions.AgentsFile)
 	}

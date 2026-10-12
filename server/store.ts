@@ -39,10 +39,11 @@ import {
   BEAD_ID_PATTERN,
   CHANGED_CHANNEL,
   CLOSED_STATUS,
+  LINK_KINDS,
 } from "../shared/constants.ts";
 import type { IssueType, LinkKind } from "../shared/constants.ts";
 import type { Tracker, Trackers, Watched } from "./bend.ts";
-import type { Issue, IssueComment, IssuesResult } from "./contract.ts";
+import type { Issue, IssueComment, IssuesResult, RefusedChange } from "./contract.ts";
 import type { CurrentBead } from "./current-bead.ts";
 import type { Folders } from "./folder.ts";
 import {
@@ -51,7 +52,9 @@ import {
   RELATES_TO,
   SIZE_PREFIX,
   STEP_PREFIX,
+  pickerKinds,
   toIssues,
+  trackerKind,
 } from "./issues.ts";
 import { DEFAULT_WORKFLOW_ID } from "../shared/workflows.ts";
 import { repositoryKey } from "./workflow-choice.ts";
@@ -72,10 +75,10 @@ export interface Outcome {
 /** What a plain read of a folder's issues gives. */
 type IssuesRead =
   | { state: "ok"; issues: Issue[] }
-  | { state: "no-bd" | "no-bend" | "no-beads" | "error"; message: string };
+  | { state: "no-bd" | "no-bend" | "no-beads" | "no-login" | "error"; message: string };
 
-/** The sentence for an id that cannot be a beads issue id. */
-const notAnId = (id: string) => `"${id}" is not a beads issue id.`;
+/** The sentence for an id that cannot be an issue id. */
+const notAnId = (id: string) => `"${id}" is not an issue id.`;
 
 /** The sentence for an issue that has disappeared since the tab loaded. */
 const notInList = (id: string) => `Issue ${id} is no longer in the list.`;
@@ -186,8 +189,14 @@ export function createStore({
     const found = await trackerFor(path);
     if ("state" in found) return found;
     try {
-      // Every issue: the closed ones are shown too.
-      const issues = await found.tracker.list(anew);
+      // Every issue: the closed ones are shown too. Where changes are
+      // queued (a hosted tracker) bend's copy is never reread for a list:
+      // there a reread is a whole sync over the network, which the sync
+      // service runs in its own time, and which would make the list fail
+      // with the network off. The copy already holds every change made
+      // through bend.
+      const queued = trackers.aboutOf(path)?.queued === true;
+      const issues = await found.tracker.list(anew && !queued);
       return { state: "ok", issues: toIssues(issues) };
     } catch (cause) {
       // Named, so that it is logged: a list that cannot be read is worth a
@@ -223,6 +232,10 @@ export function createStore({
         folder.path === null
           ? DEFAULT_WORKFLOW_ID
           : workflowChoice.idFor(folder.path),
+      tracker: null,
+      trackerRepository: null,
+      linkKinds: [],
+      queued: false,
     };
     if ("message" in folder) {
       return {
@@ -238,6 +251,7 @@ export function createStore({
       return { state: read.state, path, message: read.message, ...empty };
     }
     watchFolder(path, trackers.watchOf(path));
+    const about = trackers.aboutOf(path);
     const { issues } = read;
     // A closed issue is finished, so it is no longer what the thread works
     // on. The tab's own close button clears it directly, but an issue can
@@ -259,6 +273,12 @@ export function createStore({
       home: homedir(),
       autopilot: null,
       workflow: workflowChoice.idFor(path),
+      // Known once the list was read: what the folder's tracker is, for
+      // the tab to say and to offer only what that tracker has.
+      tracker: about?.tracker ?? null,
+      trackerRepository: about?.repository ?? null,
+      linkKinds: pickerKinds(about?.linkKinds ?? [], LINK_KINDS),
+      queued: about?.queued ?? false,
     };
     const current = issues.find((issue) => issue.id === currentBeadId);
     if (
@@ -726,7 +746,56 @@ export function createStore({
   ): Promise<Outcome> {
     const { fromId, toId, kind } = input;
     return change(input, [fromId, toId], "unlink", (tracker) =>
-      tracker.unlink(fromId, toId, kind !== RELATES_TO),
+      // The kind is named, in the tracker's word for it: a tracker may
+      // hold two links between the same two issues (GitHub: a "blocked by"
+      // and one kept in the text), and only the one shown is to go.
+      tracker.unlink(fromId, toId, kind !== RELATES_TO, trackerKind(kind)),
+    );
+  }
+
+  /**
+   * Which program an agent in a folder is told to read and write issues
+   * with: beads' own (`bd`) where the issues are in beads, as agents there
+   * always were, and `bend` on any other tracker (bead-bb-c9l.6). A folder
+   * whose tracker is not known yet counts as beads.
+   */
+  const commandsIn = (path: string): "bd" | "bend" => {
+    const tracker = trackers.aboutOf(path)?.tracker;
+    return tracker === undefined || tracker === "beads" ? "bd" : "bend";
+  };
+
+  /**
+   * The changes a folder's tracker refused for good, oldest first.
+   *
+   * @returns An empty list where changes are written straight through
+   *   (beads), and when they cannot be read: the list is an extra, and a
+   *   failure to read it must not take the sync's state with it.
+   * Side effects: one run of bend, which reads its own files only.
+   */
+  async function refusedIn(path: string): Promise<RefusedChange[]> {
+    const found = await trackerFor(path);
+    if ("state" in found || trackers.aboutOf(path)?.queued !== true) return [];
+    try {
+      return await found.tracker.refused();
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Takes a refused change off the list, or puts it back to be sent again.
+   *
+   * @param input.again True to send it once more; false to dismiss it.
+   * Side effects: bend's list of refused changes, and its queue when sent
+   *   again; open tabs are told to reload.
+   */
+  async function settleRefused(
+    input: FolderRef & { seq: number; again: boolean },
+  ): Promise<Outcome> {
+    const folder = await folderFor(input);
+    if ("message" in folder) return { message: folder.message };
+    return applyIn(folder.path, input.threadId, "settling a refused change", (tracker) =>
+      tracker.settleRefused(input.seq, input.again),
     );
   }
 
@@ -820,6 +889,9 @@ export function createStore({
     setStep,
     setSize,
     setBranch,
+    refusedIn,
+    settleRefused,
+    commandsIn,
     addComment,
     changed,
     stale,

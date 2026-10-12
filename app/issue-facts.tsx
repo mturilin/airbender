@@ -259,6 +259,13 @@ export function IssueFacts({
           {issue.commentCount === 1 ? "comment" : "comments"}
         </Tag>
       )}
+      {/* On a hosted tracker a change shows here at once and is sent
+          afterwards (bead-bb-c9l.6): said while it has not arrived. */}
+      {issue.unsent === 0 ? null : (
+        <span title={`${issue.unsent} ${issue.unsent === 1 ? "change" : "changes"} made here ${issue.unsent === 1 ? "has" : "have"} not reached the tracker yet. The next sync sends ${issue.unsent === 1 ? "it" : "them"}.`}>
+          <Tag>not sent yet</Tag>
+        </span>
+      )}
     </span>
   );
 }

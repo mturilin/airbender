@@ -24,7 +24,7 @@ import type {
   IssueLink,
   IssuesResult,
 } from "../server/contract.ts";
-import { CLOSED_STATUS } from "../shared/constants.ts";
+import { CLOSED_STATUS, LINK_KINDS } from "../shared/constants.ts";
 import type { IssueType, LinkKind } from "../shared/constants.ts";
 import { CLOSED, movesFor, stateOf } from "../shared/workflow.ts";
 import { DEFAULT_WORKFLOW_ID, workflowFor } from "../shared/workflows.ts";
@@ -96,6 +96,11 @@ export interface IssueLookups {
   moveTargets: (beadId: string) => Issue[];
   /** The issues `beadId` may be linked with: every issue except itself. */
   linkTargets: (beadId: string) => Issue[];
+  /**
+   * The kinds of link the folder's tracker has, for the link picker. All
+   * of the tab's kinds until the list has said which.
+   */
+  linkKinds: readonly LinkKind[];
 }
 
 /**
@@ -561,6 +566,10 @@ export function useIssueActions({
     },
     linkTargets: (beadId) =>
       [...tree.byId.values()].filter((issue) => issue.id !== beadId),
+    linkKinds:
+      result === null || result.linkKinds.length === 0
+        ? LINK_KINDS
+        : LINK_KINDS.filter((kind) => result.linkKinds.includes(kind)),
     moveTargets: (beadId) => {
       const inside = descendantIds(beadId);
       const presentParent = tree.byId.get(beadId)?.parentId ?? null;
