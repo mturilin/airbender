@@ -36,22 +36,6 @@ import type { IssuesResult } from "./contract.ts";
 /** The name of the "set the current issue" tool. */
 export const CURRENT_TOOL = "airbender_set_current";
 
-/**
- * The names the two tools had before (bead-bb-c9l.10), each with its
- * present one. They are still offered, doing the same: an agent calls a
- * tool by name, a conversation that was open at the change keeps the names
- * it started with, and a repository keeps the rules that name them until
- * its instructions step is run again. To be taken out in a later issue.
- */
-export const EARLIER_TOOL_NAMES: readonly (readonly [earlier: string, now: string])[] = [
-  ["beads_set_current", CURRENT_TOOL],
-  ["beads_workflow_move", MOVE_TOOL],
-];
-
-/** What a tool offered under an earlier name says of itself. */
-export const renamedTo = (now: string): string =>
-  `The earlier name of the ${now} tool, which does the same. Call ${now} instead.`;
-
 /** Standing instructions for the "set the current issue" tool. */
 export const CURRENT_TOOL_INSTRUCTIONS =
   `This applies only if the folder you work in tracks its issues with Airbender (it has a .beads folder, or a .bend.json that names a tracker); otherwise ignore the ${CURRENT_TOOL} tool. Its answer also tells you which workflow the repository is on and, on the standard one, which step the issue is at. When you start working on an issue, or switch to another one, call ${CURRENT_TOOL} with its id so the user can see what this thread is working on. Call it with an empty id when the thread is no longer working on any issue. It does not change the issue itself: still mark it started, with \`bend start\`. Do not close an issue when you finish it; the user validates the work and closes it.`;

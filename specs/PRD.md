@@ -1480,12 +1480,12 @@ breaking a requirement above.
   rules in the instruction file are version 3; setup takes version 1 and
   both wordings of version 2 (the one that named `bd` and the one that
   named `bend`) as earlier versions of its own and replaces them in place,
-  and leaves a block the owner edited alone. The two tools are still
-  offered under the names they had (`beads_set_current`,
-  `beads_workflow_move`), doing the same and saying in one line that they
-  were renamed, so that a conversation open at the change and a repository
-  not yet set up again go on working; to be taken out later. The
-  background sizing's own tool is `airbender_report_sizes`. `[c9l.10]`
+  and leaves a block the owner edited alone. The background sizing's own
+  tool is `airbender_report_sizes`. `[c9l.10]` The two tools are offered
+  under their own names only; the names they had before
+  (`beads_set_current`, `beads_workflow_move`) are gone, so a conversation
+  from before the change has to be started anew, and a repository whose
+  rules still name them has to take the update. `[c9l.20]`
 - Rules that fell behind: the rules block names its version in a hidden
   line. A block changed by hand that names the current version is the
   owner's and the step counts as done; one that names an earlier version,

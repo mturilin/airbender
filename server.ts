@@ -40,13 +40,13 @@
 // - The plugin speaks to the current thread's agent by sending the thread a
 //   message: the instruction for a step, the request to commit after the
 //   user accepts an issue, and the "Agree & continue" button's fixed reply. The
-//   agent answers through two tools: `beads_set_current` and the workflow
+//   agent answers through two tools: `airbender_set_current` and the workflow
 //   move tool. The plugin never changes git; it only reads which branch a
 //   folder is on.
 // - "Current bead" is BB's knowledge, not beads': which issue a given thread
 //   is working on. It is stored on the thread (BB's per-plugin thread
 //   metadata), set either by the user in the tab or by the thread's agent
-//   through the `beads_set_current` tool. Beads itself is not changed by it.
+//   through the `airbender_set_current` tool. Beads itself is not changed by it.
 // - The tab's list is one `bd list --all`. "Blocked" is worked out from
 //   each issue's dependency list (in the adapter, and for the owner's
 //   "every open sub-issue is blocked" rule in server/issues.ts) instead of
@@ -90,10 +90,8 @@ import { z } from "zod";
 import {
   CURRENT_TOOL,
   CURRENT_TOOL_INSTRUCTIONS,
-  EARLIER_TOOL_NAMES,
   currentRefusal,
   moveToolInstructions,
-  renamedTo,
   switchNote,
   workflowLine,
 } from "./server/agent-tools.ts";
@@ -432,22 +430,11 @@ export default async function plugin(bb: BbPluginApi) {
   // tool rather than a `bb` command because agent sandboxes on Linux can block
   // the local connection a `bb` command needs, which would turn every update
   // into a permission prompt.
-  //
-  // Each of the two tools is also offered under the name it had before, so
-  // that a conversation open at the change, and a repository whose rules
-  // still name the old one, go on working (see EARLIER_TOOL_NAMES).
-  /** The names a tool is registered under: its own, then an earlier one. */
-  const namesOf = (tool: string) => [
-    tool,
-    ...EARLIER_TOOL_NAMES.filter(([, now]) => now === tool).map(([earlier]) => earlier),
-  ];
-  for (const name of namesOf(CURRENT_TOOL)) bb.agents.registerTool({
-    name,
+  bb.agents.registerTool({
+    name: CURRENT_TOOL,
     description:
-      name === CURRENT_TOOL
-        ? "Tell BB which issue this thread is working on, so the user sees it highlighted in the Airbender tab. Pass an empty id to clear it."
-        : renamedTo(CURRENT_TOOL),
-    instructions: name === CURRENT_TOOL ? CURRENT_TOOL_INSTRUCTIONS : renamedTo(CURRENT_TOOL),
+      "Tell BB which issue this thread is working on, so the user sees it highlighted in the Airbender tab. Pass an empty id to clear it.",
+    instructions: CURRENT_TOOL_INSTRUCTIONS,
     presentation: {
       label: { pending: "Setting current issue", completed: "Set current issue" },
     },
@@ -489,16 +476,11 @@ export default async function plugin(bb: BbPluginApi) {
   // finished, skip one with a reason, or send its own review back. What it
   // may do is the workflow's decision; a refused move comes back with the
   // reason and what is allowed instead.
-  for (const name of namesOf(MOVE_TOOL)) bb.agents.registerTool({
-    name,
+  bb.agents.registerTool({
+    name: MOVE_TOOL,
     description:
-      name === MOVE_TOOL
-        ? "Move an issue to the next step of its workflow: report the step you were asked to do as finished, skip it with a reason, or send your own review back. The answer says what comes next."
-        : renamedTo(MOVE_TOOL),
-    instructions:
-      name === MOVE_TOOL
-        ? moveToolInstructions(standardWorkflow.describeForAgents())
-        : renamedTo(MOVE_TOOL),
+      "Move an issue to the next step of its workflow: report the step you were asked to do as finished, skip it with a reason, or send your own review back. The answer says what comes next.",
+    instructions: moveToolInstructions(standardWorkflow.describeForAgents()),
     presentation: {
       label: { pending: "Moving the issue on", completed: "Moved the issue on" },
     },
@@ -576,7 +558,7 @@ export default async function plugin(bb: BbPluginApi) {
   bb.agents.configure((context) => ({
     tools: sizing.isWorker(context.thread.title)
       ? [REPORT_TOOL]
-      : [...namesOf(CURRENT_TOOL), ...namesOf(MOVE_TOOL)],
+      : [CURRENT_TOOL, MOVE_TOOL],
     skills: [],
   }));
 }

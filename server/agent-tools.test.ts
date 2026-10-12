@@ -11,14 +11,12 @@
 // beads would show the user a current issue that does not exist.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { standardWorkflow } from "../shared/standard-workflow.ts";
+import { MOVE_TOOL, standardWorkflow } from "../shared/standard-workflow.ts";
 import {
   CURRENT_TOOL,
   CURRENT_TOOL_INSTRUCTIONS,
-  EARLIER_TOOL_NAMES,
   currentRefusal,
   moveToolInstructions,
-  renamedTo,
   switchNote,
   workflowLine,
 } from "./agent-tools.ts";
@@ -110,16 +108,9 @@ test("the step tool's standing instructions fit the limit BB sets", () => {
   );
 });
 
-test("the tools have their new names, and each earlier name points at one", () => {
+test("the tools have their names, and nothing an agent reads names an earlier one", () => {
   assert.equal(CURRENT_TOOL, "airbender_set_current");
-  assert.deepEqual(
-    EARLIER_TOOL_NAMES.map(([earlier, now]) => `${earlier} -> ${now}`),
-    ["beads_set_current -> airbender_set_current", "beads_workflow_move -> airbender_workflow_move"],
-  );
-  // What an agent reads of a tool offered under an earlier name is one
-  // short sentence, far from the limit BB sets on a tool's instructions.
-  assert.ok(renamedTo(CURRENT_TOOL).length < 120);
-  assert.match(renamedTo(CURRENT_TOOL), /Call airbender_set_current instead\./u);
+  assert.equal(MOVE_TOOL, "airbender_workflow_move");
   // The standing texts name bend and the new names only.
   const texts = [
     CURRENT_TOOL_INSTRUCTIONS,

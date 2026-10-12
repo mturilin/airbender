@@ -187,9 +187,7 @@ From top to bottom the tab shows:
    the chevron adds type, priority and description.
 
 The agent can set the thread's issue itself with the `airbender_set_current`
-tool and move an issue's step with `airbender_workflow_move` (each also
-still offered under its earlier name, `beads_…`, for conversations and
-repositories from before the change). Both are offered to
+tool and move an issue's step with `airbender_workflow_move`. Both are offered to
 every thread, in any folder: BB fixes a thread's tools when its session
 starts, so offering them only where beads was already set up left some
 agents without them. Where a tool does not apply (no beads in the folder,
