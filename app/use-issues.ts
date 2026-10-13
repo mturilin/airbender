@@ -86,7 +86,7 @@ export function useIssues(scope: Scope) {
   // focus that the list says no longer holds).
   const latest = useRef(0);
   const refresh = useCallback(
-    (fresh = false) => {
+    (fresh = false, passive = false) => {
       const mine = ++latest.current;
       setLoading(true);
       // One request per scope at a time, shared; a fresh one is always
@@ -98,7 +98,7 @@ export function useIssues(scope: Scope) {
           : undefined;
       if (asked === undefined) {
         const sent: Promise<IssuesResult> = rpc
-          .call("issues_list", { threadId, projectId, fresh })
+          .call("issues_list", { threadId, projectId, fresh, passive })
           .then((next) => {
             lastAnswer.set(key, next);
             return next;
@@ -143,7 +143,9 @@ export function useIssues(scope: Scope) {
   // The backend publishes after any change it makes and after any change it
   // sees made outside the plugin (an agent or a terminal running bd), so the
   // tab follows along on its own.
-  const onChanged = useCallback(() => refresh(), [refresh]);
+  // Such a read is not the owner looking: it is marked passive, so that
+  // bend does not count it as being used (bead-bb-c9l.16).
+  const onChanged = useCallback(() => refresh(false, true), [refresh]);
   useRealtime(CHANGED_CHANNEL, onChanged);
   // Never another scope's list, also in the moment before the effect above
   // has run for a new scope.

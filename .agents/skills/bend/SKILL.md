@@ -30,8 +30,10 @@ An issue's id is whatever `bend` prints for it: a short name with beads
 
 On GitHub, `bend` works from a copy on this computer: reads are instant,
 and your changes are sent to GitHub a moment later by themselves. Two
-things to know. What someone else changed shows after a sync, so run `bend
-sync` before relying on an issue you have not looked at for a while. And if
+things to know. What someone else changed shows after a sync: `bend` syncs
+by itself every three minutes while it is in use, and `bend sync` does it
+now, so run that before relying on an issue you have not looked at for a
+while. And if
 a change to an issue's step is refused because "it was changed on GitHub",
 read the issue again before doing anything else: someone moved it. `bend
 status` says how many changes still wait to be sent, and how many GitHub

@@ -17,6 +17,9 @@
 //     nothing depends on it: if it fails, the next read finds the copy
 //     behind and rereads it itself.
 //
+//   - The same moment, after a command, is when the helper that syncs on a
+//     clock is started if it is not running (bend/internal/helper).
+//
 // Gotchas:
 //   - BEND_NO_BACKGROUND, when set, starts nothing: for tests, which must
 //     not leave processes behind, and for the process started here.
@@ -30,6 +33,8 @@ import (
 	"path/filepath"
 	"sync"
 	"syscall"
+
+	"github.com/mturilin/airbender/bend/internal/helper"
 )
 
 // logFile is where a reread behind a command leaves its complaints.
@@ -44,6 +49,10 @@ var (
 		dir  string
 	}
 )
+
+// NoHelper, when set by a command, keeps AfterCommand from starting the
+// helper: for the commands that stop or disable it.
+var NoHelper bool
 
 // Opened notes that a copy was opened for a command run in dir, so that
 // AfterCommand can have it reread.
@@ -67,6 +76,11 @@ func AfterCommand() {
 		return
 	}
 	for _, one := range opened {
+		// The helper that syncs on a clock: started when it is not running,
+		// and told that bend was used (helper.AfterCommand says when not).
+		if !NoHelper && one.made.Syncs() {
+			helper.AfterCommand(one.made.store.Dir, one.dir)
+		}
 		if !one.made.wantsReread {
 			continue
 		}
@@ -80,7 +94,11 @@ func AfterCommand() {
 		// straight one's is reread.
 		command := exec.Command(program, "-C", one.dir, "refresh")
 		if one.made.isQueued() {
-			command = exec.Command(program, "-C", one.dir, "sync", "--no-wait")
+			cause := CauseRead
+			if one.made.changedHere {
+				cause = CauseChange
+			}
+			command = exec.Command(program, "-C", one.dir, "sync", "--no-wait", "--cause", cause)
 		}
 		// Its own session: it is not ended with the terminal or the caller.
 		command.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
@@ -91,7 +109,8 @@ func AfterCommand() {
 			}
 		}
 		// A reread started from a reread would go on for ever.
-		command.Env = append(os.Environ(), "BEND_NO_BACKGROUND=1")
+		// Nor is it bend being used: the command it follows was.
+		command.Env = append(os.Environ(), "BEND_NO_BACKGROUND=1", "BEND_PASSIVE=1")
 		if command.Start() == nil {
 			command.Process.Release()
 		}

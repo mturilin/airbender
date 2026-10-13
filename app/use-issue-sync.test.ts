@@ -8,8 +8,15 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { ago, refreshTip, syncDid, syncFailing, syncState } from "./use-issue-sync.ts";
-import type { SyncEntry, SyncStatus } from "./use-issue-sync.ts";
+import {
+  ago,
+  refreshTip,
+  syncDid,
+  syncFailing,
+  syncState,
+  troubleLines,
+} from "./use-issue-sync.ts";
+import type { SyncEntry, SyncStatus, SyncTrouble } from "./use-issue-sync.ts";
 
 const NOW = 1_800_000_000_000;
 const MINUTE = 60_000;
@@ -23,6 +30,9 @@ const entry = (over: Partial<SyncEntry> = {}): SyncEntry => ({
   message: "",
   sent: [],
   broughtIn: [],
+  refused: 0,
+  waiting: 0,
+  runs: 1,
   ...over,
 });
 
@@ -35,6 +45,20 @@ const status = (over: Partial<SyncStatus> = {}): SyncStatus => ({
   refused: [],
   last: null,
   syncedAt: null,
+  trouble: null,
+  helper: null,
+  ...over,
+});
+
+/** Trouble as bend reports it, changed by `over`. */
+const trouble = (over: Partial<SyncTrouble> = {}): SyncTrouble => ({
+  kind: "failing",
+  serious: true,
+  title: "The issues are not being synced: the last 3 syncs failed.",
+  advice: "Sync again once the cause is dealt with.",
+  message: "no route to host",
+  since: NOW - 9 * MINUTE,
+  failures: 3,
   ...over,
 });
 
@@ -105,24 +129,36 @@ test("the menu's row: a word or two, and a message only when there is something 
   );
 });
 
-test("the refresh button is marked only when syncing has not worked for a while", () => {
-  const failing = (over: Partial<SyncStatus>) => syncFailing(status(over), NOW);
+test("the refresh button is marked exactly when bend reports serious trouble", () => {
   const failed = entry({ end: "failed", message: "x" });
-  assert.equal(failing({}), null);
-  assert.equal(failing({ remote: null, last: failed }), null);
-  assert.equal(failing({ last: entry({ at: NOW - 40 * MINUTE }), syncedAt: NOW - 40 * MINUTE }), null);
-  // One failed attempt soon after a good one: not yet.
-  assert.equal(failing({ last: failed, syncedAt: NOW - 7 * MINUTE }), null);
-  assert.match(
-    failing({ last: failed, syncedAt: NOW - 25 * MINUTE }) ?? "",
-    /not been synced with the made-up remote for 25 minutes\. See the menu\./u,
+  // A failed run alone decides nothing here: when it counts is bend's rule.
+  assert.equal(syncFailing(status({ last: failed })), null);
+  assert.equal(
+    syncFailing(status({ last: failed, trouble: trouble() })),
+    "The issues are not being synced: the last 3 syncs failed.",
   );
-  // Never synced from this computer, and the attempt failed.
-  assert.match(failing({ last: failed }) ?? "", /could not be synced/u);
-  // Stopped on a conflict: at once.
-  assert.match(
-    failing({ halted: true, last: entry({ end: "conflict" }), syncedAt: NOW - MINUTE }) ?? "",
-    /has stopped/u,
+  // Something to know, not a sync that does not work: not marked.
+  assert.equal(
+    syncFailing(status({ trouble: trouble({ kind: "refused", serious: false }) })),
+    null,
+  );
+});
+
+test("the trouble bar says since when, when the issues were last synced, and what to do", () => {
+  assert.deepEqual(troubleLines(status({}), NOW), []);
+  assert.deepEqual(
+    troubleLines(status({ trouble: trouble(), syncedAt: NOW - 12 * MINUTE }), NOW),
+    ["Since 9 minutes ago. Last synced 12 minutes ago.", "Sync again once the cause is dealt with."],
+  );
+  assert.deepEqual(troubleLines(status({ trouble: trouble() }), NOW)[0],
+    "Since 9 minutes ago. The issues have never been synced from this computer.");
+  // What is not serious has no "since": only what to do.
+  assert.deepEqual(
+    troubleLines(
+      status({ trouble: trouble({ kind: "disabled", serious: false, advice: "Enable it." }) }),
+      NOW,
+    ),
+    ["Enable it."],
   );
 });
 
@@ -140,10 +176,10 @@ test("the refresh button's tooltip says what it does, then when the last sync wa
   assert.match(refreshTip(status({}), NOW), / Not yet synced from here\.$/u);
   // Marked as failing: the reason first.
   const failed = refreshTip(
-    status({ last: entry({ end: "failed" }), syncedAt: NOW - 25 * MINUTE }),
+    status({ last: entry({ end: "failed" }), syncedAt: NOW - 25 * MINUTE, trouble: trouble() }),
     NOW,
   );
-  assert.match(failed, /^The issues have not been synced/u);
+  assert.match(failed, /^The issues are not being synced/u);
   assert.match(failed, / Last sync 1 minute ago: failed\.$/u);
 });
 

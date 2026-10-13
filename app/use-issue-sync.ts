@@ -7,23 +7,28 @@
 //
 // Why: syncing runs by itself every few minutes and shows nothing while it
 // works (bead-bb-0bz). The owner asked to be able to see when the last one
-// was and what it did, on the button and in the menu (bead-bb-6a9).
+// was and what it did, on the button and in the menu (bead-bb-6a9), and to
+// have failures shown prominently, "because ... it can mess up the data"
+// (bead-bb-c9l.16): what is wrong is worked out by bend, as `trouble`, and
+// every place here that warns goes by it.
 //
 // Design notes:
 // - Nothing here names a tracker. The words come from the sync layer's own
 //   terms (sync/types.ts): how a run ended, which issues were sent and
 //   brought in. Another source than beads needs no change here.
 // - Asked again on every change notice: the server publishes one when a
-//   sync starts and when it ends.
+//   sync it started begins and ends, and when bend's log of syncs changes
+//   (a sync made in a terminal, or by bend's helper). Those re-reads are
+//   marked passive, so that bend does not take them for the owner using it.
 
 import { useRealtime, useRpc } from "@get-bb/plugin-sdk/app";
 import { useCallback, useEffect, useState } from "react";
 import type { RefusedChange, rpcContract } from "../server/contract.ts";
 import { CHANGED_CHANNEL } from "../shared/constants.ts";
-import type { SyncEntry } from "../sync/types.ts";
+import type { HelperState, SyncEntry, SyncTrouble } from "../sync/types.ts";
 import type { Scope } from "./use-issues.ts";
 
-export type { RefusedChange, SyncEntry };
+export type { HelperState, RefusedChange, SyncEntry, SyncTrouble };
 
 /** The answer of `sync_status` (server/contract.ts). */
 export interface SyncStatus {
@@ -36,6 +41,10 @@ export interface SyncStatus {
   syncedAt: number | null;
   /** The changes the tracker refused for good, oldest first. */
   refused: RefusedChange[];
+  /** What is wrong with the syncing now, as bend works it out; else null. */
+  trouble: SyncTrouble | null;
+  /** bend's helper, which syncs on a clock; null where there is no tracker. */
+  helper: HelperState | null;
 }
 
 /** "3 minutes ago", for a moment in the past. */
@@ -157,36 +166,37 @@ export function syncState(
   }
 }
 
-/** A sync that has not worked for this long shows on the refresh button. */
-const OVERDUE_MS = 10 * 60_000;
-
 /**
  * Why the refresh button is marked as failing, or null when it is not.
  *
- * Syncing happens every five minutes by itself, so there is nothing to
- * show while it works (the user: "This way we don't have to show the timer
- * at all"). The button is marked only when "the sync was failing and we
- * didn't sync for more than, let's say, ten minutes", or when syncing has
- * stopped on a conflict. Not while a folder is synced with nothing:
- * nothing is failing then, and the setup card says it. Not on a fresh
- * start either, when the last sync is old only because the app was closed:
- * the latest attempt has to have failed. A folder that has never synced
- * from this computer has no last success to count from, so there one
- * failed attempt is enough.
+ * It is marked exactly when bend reports serious trouble: the issues are
+ * not being synced. When that is, is bend's rule (bend/internal/kept/
+ * report.go), so that the button, the bar above the list and a terminal
+ * never disagree.
  *
- * @returns One line for the button's tooltip; the menu has the rest.
+ * @returns One line for the button's tooltip; the bar has the rest.
  */
-export function syncFailing(status: SyncStatus, now: number): string | null {
-  const { last } = status;
-  if (status.remote === null || last === null || last.end === "synced") return null;
-  if (status.halted) {
-    return `Syncing with ${status.remote} has stopped. See the menu.`;
+export function syncFailing(status: SyncStatus): string | null {
+  return status.trouble !== null && status.trouble.serious ? status.trouble.title : null;
+}
+
+/**
+ * The lines the trouble bar shows under its title: since when and when the
+ * issues were last synced well, then what to do.
+ */
+export function troubleLines(status: SyncStatus, now: number): string[] {
+  const { trouble } = status;
+  if (trouble === null) return [];
+  const times: string[] = [];
+  if (trouble.serious && trouble.since > 0) times.push(`Since ${ago(trouble.since, now)}.`);
+  if (trouble.serious) {
+    times.push(
+      status.syncedAt === null
+        ? "The issues have never been synced from this computer."
+        : `Last synced ${ago(status.syncedAt, now)}.`,
+    );
   }
-  const since = status.syncedAt;
-  if (since !== null && now - since <= OVERDUE_MS) return null;
-  return since === null
-    ? `The issues could not be synced with ${status.remote}. See the menu.`
-    : `The issues have not been synced with ${status.remote} for ${ago(since, now).replace(" ago", "")}. See the menu.`;
+  return [...(times.length === 0 ? [] : [times.join(" ")]), trouble.advice];
 }
 
 /**
@@ -199,7 +209,7 @@ export function refreshTip(status: SyncStatus | null, now: number): string {
   if (status === null || status.remote === null) return "Refresh the list";
   // One line: the app's tooltip does not break lines.
   const does = `Refresh the list and sync the issues with ${status.remote}.`;
-  const failing = syncFailing(status, now);
+  const failing = syncFailing(status);
   const { last } = status;
   const lastLine =
     status.running
@@ -211,24 +221,51 @@ export function refreshTip(status: SyncStatus | null, now: number): string {
 }
 
 /**
+ * How long after a failed sync that is not yet called trouble the state is
+ * asked for again: a little more than bend's four minutes.
+ */
+const TROUBLE_RECHECK_MS = 4.5 * 60_000;
+
+/**
  * The sync status of the tab's folder.
  *
  * @returns `status` (null until the first answer), `reload`, `syncNow`,
  *   which resolves to a message when the sync could not be started,
- *   `loadLog`, the runs newest first, and `settleRefused`.
+ *   `loadLog`, the runs newest first (only the failed ones when asked),
+ *   and `settleRefused`.
  */
 export function useIssueSync(scope: Scope, active: boolean) {
   const rpc = useRpc<typeof rpcContract>();
   const { threadId, projectId } = scope;
   const [status, setStatus] = useState<SyncStatus | null>(null);
-  const reload = useCallback(() => {
-    if (!active) return;
-    rpc.call("sync_status", { threadId, projectId }).then(setStatus, () => {
-      // Without an answer the tab says nothing about syncing.
-    });
-  }, [rpc, threadId, projectId, active]);
+  const read = useCallback(
+    (passive: boolean) => {
+      if (!active) return;
+      rpc.call("sync_status", { threadId, projectId, passive }).then(setStatus, () => {
+        // Without an answer the tab says nothing about syncing.
+      });
+    },
+    [rpc, threadId, projectId, active],
+  );
+  const reload = useCallback(() => read(false), [read]);
+  // When syncs fail, bend calls it trouble only once that has gone on for
+  // a few minutes, and nothing changes on disk at that moment to bring a
+  // re-read about: so after a failed sync that is not yet trouble, the
+  // state is asked for once more, a little after it would become one.
+  const pendingTrouble =
+    status !== null &&
+    status.trouble === null &&
+    status.last !== null &&
+    status.last.end !== "synced";
+  useEffect(() => {
+    if (!pendingTrouble) return;
+    const timer = setTimeout(() => read(true), TROUBLE_RECHECK_MS);
+    return () => clearTimeout(timer);
+  }, [pendingTrouble, read, status?.last?.at]);
   useEffect(reload, [reload]);
-  useRealtime(CHANGED_CHANNEL, reload);
+  // Told that something changed: not the owner looking.
+  const onChanged = useCallback(() => read(true), [read]);
+  useRealtime(CHANGED_CHANNEL, onChanged);
   const syncNow = useCallback(
     () =>
       rpc
@@ -237,8 +274,10 @@ export function useIssueSync(scope: Scope, active: boolean) {
     [rpc, threadId, projectId],
   );
   const loadLog = useCallback(
-    () =>
-      rpc.call("sync_log", { threadId, projectId }).then((answer) => answer.entries),
+    (failed = false) =>
+      rpc
+        .call("sync_log", { threadId, projectId, failed })
+        .then((answer) => answer.entries),
     [rpc, threadId, projectId],
   );
   /** Dismisses a refused change, or has it sent again; a message when it could not. */

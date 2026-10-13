@@ -43,7 +43,8 @@ About this repository:
   recall [words]                                              Show saved facts, all or those containing the words
   facts (--list | --ensure | --add-file <file> | --move-old)  Look after the facts file, for a program that sets a repository up
   refresh                                                     Reread the local copy of the issues from the tracker
-  sync [options]                                              Send waiting changes to a hosted tracker and bring in what changed there
+  sync [options]                                              Sync the issues with their remote now, or say how the syncing stands
+  helper [stop | start | disable | enable]                    The process that syncs the issues on a clock: how it stands, and stopping it
   refused [options]                                           List the changes a hosted tracker refused for good, and dismiss or resend them
   setup [step | all] [options]                                See what a repository needs to be ready, and set it up step by step
   version                                                     Which bend this is
@@ -113,7 +114,8 @@ About this repository:
   recall [words]                                              Show saved facts, all or those containing the words
   facts (--list | --ensure | --add-file <file> | --move-old)  Look after the facts file, for a program that sets a repository up
   refresh                                                     Reread the local copy of the issues from the tracker
-  sync [options]                                              Send waiting changes to a hosted tracker and bring in what changed there
+  sync [options]                                              Sync the issues with their remote now, or say how the syncing stands
+  helper [stop | start | disable | enable]                    The process that syncs the issues on a clock: how it stands, and stopping it
   refused [options]                                           List the changes a hosted tracker refused for good, and dismiss or resend them
   setup [step | all] [options]                                See what a repository needs to be ready, and set it up step by step
   version                                                     Which bend this is
@@ -580,23 +582,34 @@ Options for every command:
 
 $ bend sync --help
 [exit 0]
-Send waiting changes to a hosted tracker and bring in what changed there.
+Sync the issues with their remote now, or say how the syncing stands.
 
 Usage:
   bend sync [options]
 
-On a repository whose issues are on GitHub, bend works from a copy on this
-computer: reads answer from it at once, and changes are sent afterwards.
-bend syncs by itself after a change, and after a read that found the copy
-more than a few minutes old. This does it now, and waits for it.
+Sends what was changed here and brings in what changed elsewhere, and says
+how it ended (synced, failed, busy, conflict, stuck), what was sent and what
+came in. Every sync, whoever started it, leaves an entry in a log kept with
+the repository.
 
-Changes that cannot be sent now (no network, a limit) keep waiting and are
-sent by the next sync, in the order they were made. `bend status` says how
-many wait; `bend refused` lists the ones GitHub refused for good.
+bend also syncs by itself: a helper process, which any bend command starts,
+syncs every three minutes and ends when bend has not been used for half an
+hour (`bend helper`). On a hosted tracker (GitHub issues) a change is also
+sent a moment after the command that made it.
+
+On a hosted tracker, changes that cannot be sent now (no network, a limit)
+keep waiting and are sent by the next sync, in the order they were made;
+`bend refused` lists the ones the tracker refused for good.
+
+Exit status 1 when the sync did not work; the report is printed all the same.
 
 Options:
-  --all      Reread every issue, which also drops the ones deleted on GitHub (done by itself once a day)
-  --no-wait  Do nothing if another sync is running, instead of waiting for it
+  --status        Sync nothing: say what the issues are synced with, what waits, how the last sync ended, and what is wrong
+  --log           Sync nothing: list the syncs made, newest first
+  --failed        With --log: only the syncs that did not work
+  --all           Reread every issue, which also drops the ones deleted on a hosted tracker (done by itself once a day)
+  --no-wait       Do nothing if another sync is running, instead of waiting for it
+  --cause <what>  What set it off, for the log: asked (the default) | timer | change | read
 
 Options for every command:
   -C, --dir <path>     Run as if started in <path>
@@ -692,12 +705,12 @@ Options for every command:
 
 $ bend version
 [exit 0]
-bend 7
+bend 8
 
 $ bend version --json
 [exit 0]
 {
-  "version": 7
+  "version": 8
 }
 
 $ bend status
@@ -1780,13 +1793,17 @@ $ bend recall "nothing like this"
 No saved facts.
 
 $ bend sync
-[exit 0]
-Nothing to sync: this repository's issues are not worked from a copy of a hosted tracker.
+[exit 1]
+[standard error]
+bend: This repository's issues are not synced with anything yet: they are on this computer only. `bend setup` shows the step that publishes them.
 
 $ bend sync --json
-[exit 0]
+[exit 1]
 {
-  "ok": true
+  "ok": false,
+  "status": 1,
+  "kind": "refused",
+  "error": "This repository's issues are not synced with anything yet: they are on this computer only. `bend setup` shows the step that publishes them."
 }
 
 $ bend refused

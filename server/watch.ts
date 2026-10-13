@@ -38,11 +38,6 @@ import type { Watched } from "./bend.ts";
  */
 export async function createWatcher(
   bb: BbPluginApi,
-  /**
-   * Told the folder whenever its issues changed, beside the tabs: the
-   * issue sync listens (server/issue-sync.ts).
-   */
-  onChange: (path: string) => void = () => {},
 ) {
   /** Most folders watched at once; the oldest is dropped beyond this. */
   const MAX_WATCHED_FOLDERS = 32;
@@ -84,6 +79,10 @@ export async function createWatcher(
     // change.
     if (watched.copy !== null) {
       watchOne(path, watched.copy, "issues.json", `${path}\ncopy`);
+      // bend's log of syncs, kept beside the copy (bead-bb-c9l.16): a sync
+      // made in a terminal or by bend's helper then shows in an open tab,
+      // with no timer here.
+      watchOne(path, watched.copy, "sync-runs.json", `${path}\nruns`);
     }
   }
 
@@ -106,7 +105,6 @@ export async function createWatcher(
           timer = null;
           bb.log.info("beads changed in " + path + "; telling open tabs");
           bb.realtime.publish(CHANGED_CHANNEL, { path });
-          onChange(path);
         }, WATCH_SETTLE_MS);
       });
     } catch (cause) {
@@ -123,12 +121,12 @@ export async function createWatcher(
       if (timer !== null) clearTimeout(timer);
     });
     watchers.set(key, watcher);
-    // A folder has up to two watches; the limit counts folders, and the
-    // oldest folder goes with both of its.
+    // A folder has up to three watches; the limit counts folders, and the
+    // oldest folder goes with all of its.
     const folders = [...new Set([...watchers.keys()].map((kept) => kept.split("\n")[0]!))];
     if (folders.length > MAX_WATCHED_FOLDERS) {
       const oldest = folders[0]!;
-      for (const kept of [oldest, `${oldest}\ncopy`]) {
+      for (const kept of [oldest, `${oldest}\ncopy`, `${oldest}\nruns`]) {
         watchers.get(kept)?.close();
         watchers.delete(kept);
       }

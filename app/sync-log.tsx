@@ -1,8 +1,9 @@
 // app/sync-log.tsx — the sync log's window.
 //
-// What: a small window listing the syncs run from here for the folder's
-// repository, newest first: when, what set each off, how it ended, and
-// which issues were sent and brought in.
+// What: a small window listing the syncs of the folder's repository,
+// newest first, whoever ran them (the tab, a terminal, bend's helper):
+// when, what set each off, how it ended, and which issues were sent and
+// brought in. A switch leaves only the runs that did not work.
 //
 // Why: syncing runs unseen every few minutes. The owner asked for a log:
 // "When you see in a small window all the logs of the syncs, was one issue
@@ -11,7 +12,10 @@
 // Design notes:
 // - Every run is listed, also the many that found nothing new: for
 //   troubleshooting, that a sync ran and found nothing is the answer as
-//   often as not.
+//   often as not. bend keeps such runs, one after another, as one entry
+//   with a count, shown as "×12".
+// - A run that did not work is in red, with the tracker's words in full:
+//   the owner asked that failures be prominent (bead-bb-c9l.16).
 // - It speaks the sync layer's words only (sync/types.ts); nothing here
 //   knows which tracker or remote is behind it.
 // - Read when it opens and again on every change notice while open, so a
@@ -33,16 +37,31 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { CHANGED_CHANNEL } from "../shared/constants.ts";
-import { syncDid } from "./use-issue-sync.ts";
-import type { RefusedChange, SyncEntry } from "./use-issue-sync.ts";
+import { ago, syncDid } from "./use-issue-sync.ts";
+import type { HelperState, RefusedChange, SyncEntry } from "./use-issue-sync.ts";
 
 /** What set a sync off, in the owner's words. */
 const CAUSE_WORDS: Record<SyncEntry["cause"], string> = {
-  timer: "every five minutes",
+  timer: "on the clock",
   change: "after a change here",
-  opened: "tab opened",
-  refresh: "refresh pressed",
+  read: "the copy was old",
+  asked: "asked for",
 };
+
+/** How bend's helper, which syncs on its clock, stands, in a line. */
+export function helperLine(helper: HelperState | null, now: number): string | null {
+  if (helper === null) return null;
+  if (helper.disabled) {
+    return "Syncing by itself is switched off here (bend helper enable switches it on).";
+  }
+  if (helper.running) {
+    return `bend syncs these issues every three minutes while it is in use (its helper has been running since ${ago(helper.since, now)}).`;
+  }
+  if (helper.heldBackUntil > now) {
+    return "bend has stopped syncing by itself after failed syncs; a sync that works starts it again.";
+  }
+  return "bend syncs these issues every three minutes while it is in use; its helper is not running now and starts with the next use.";
+}
 
 /** A moment as a date and time of day, in the reader's own format. */
 const when = (at: number) =>
@@ -71,20 +90,30 @@ export function SyncLog({
   remote,
   refused,
   onSettle,
+  helper,
+  failedFirst,
 }: {
   open: boolean;
   onClose: () => void;
-  load: () => Promise<SyncEntry[]>;
+  load: (failed: boolean) => Promise<SyncEntry[]>;
   remote: string | null;
   refused: RefusedChange[];
   onSettle: (seq: number, again: boolean) => Promise<string | null>;
+  /** bend's helper; null where there is none to speak of. */
+  helper: HelperState | null;
+  /** Open on only the runs that did not work. */
+  failedFirst: boolean;
 }) {
   // Null while the log is being read for the first time.
   const [entries, setEntries] = useState<SyncEntry[] | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
+  const [failedOnly, setFailedOnly] = useState(failedFirst);
+  useEffect(() => {
+    if (open) setFailedOnly(failedFirst);
+  }, [open, failedFirst]);
   const read = useCallback(() => {
     if (!open) return;
-    load().then(
+    load(failedOnly).then(
       (found) => {
         setEntries(found);
         setProblem(null);
@@ -92,7 +121,7 @@ export function SyncLog({
       (cause: unknown) =>
         setProblem(cause instanceof Error ? cause.message : String(cause)),
     );
-  }, [open, load]);
+  }, [open, load, failedOnly]);
   useEffect(() => {
     if (open) setEntries(null);
     read();
@@ -120,8 +149,19 @@ export function SyncLog({
             {remote === null
               ? "This folder's issues are not synced with anything."
               : `The syncs of this folder's issues with ${remote}, run from this computer. Newest first.`}
+            {remote === null || helperLine(helper, Date.now()) === null ? null : (
+              <span className="block">{helperLine(helper, Date.now())}</span>
+            )}
           </DialogDescription>
         </DialogHeader>
+        <label className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+          <input
+            type="checkbox"
+            checked={failedOnly}
+            onChange={(event) => setFailedOnly(event.target.checked)}
+          />
+          Only the syncs that did not work
+        </label>
         {refused.length === 0 ? null : (
           <div className="max-h-[40%] shrink-0 overflow-y-auto rounded-md border border-amber-600/40">
             <p className="border-b border-border px-3 py-1.5 text-sm font-medium">
@@ -179,7 +219,9 @@ export function SyncLog({
         ) : entries === null ? (
           <p className="text-sm text-muted-foreground">Reading…</p>
         ) : entries.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No sync has run from here yet.</p>
+          <p className="text-sm text-muted-foreground">
+            {failedOnly ? "No sync has failed." : "No sync has run from here yet."}
+          </p>
         ) : (
           <div className="min-h-0 flex-1 overflow-y-auto rounded-md border border-border">
             {entries.map((entry) => (
@@ -194,19 +236,23 @@ export function SyncLog({
                   <span
                     className={cn(
                       "min-w-0 flex-1 break-words",
-                      entry.end === "failed" && "text-amber-600 dark:text-amber-400",
-                      (entry.end === "conflict" || entry.end === "stuck") &&
-                        "text-destructive",
+                      entry.end !== "synced" && entry.end !== "busy" && "font-medium text-destructive",
                     )}
                   >
                     {syncDid(entry)}
+                    {entry.runs > 1 ? ` ×${entry.runs}` : ""}
                   </span>
                   <span className="shrink-0 text-xs text-muted-foreground">
                     {CAUSE_WORDS[entry.cause]} · {entry.seconds} s
                   </span>
                 </div>
                 {entry.message === "" ? null : (
-                  <pre className="mt-1 whitespace-pre-wrap font-mono text-xs text-muted-foreground">
+                  <pre
+                    className={cn(
+                      "mt-1 whitespace-pre-wrap font-mono text-xs",
+                      entry.end === "synced" ? "text-muted-foreground" : "text-destructive/90",
+                    )}
+                  >
                     {entry.message}
                   </pre>
                 )}

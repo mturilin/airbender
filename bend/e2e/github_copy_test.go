@@ -30,6 +30,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -96,8 +97,8 @@ func TestGitHubCopyAChangeWaitsHereAndArrivesWithASync(t *testing.T) {
 	// GitHub does not have them yet.
 	same(t, repo.live("show", id, "--json") != "" && strings.Contains(repo.live("show", id), "Copy: waits and arrives"), true, "GitHub still has the old title")
 
-	if !strings.Contains(repo.ok("sync"), "Sent 3 changes.") {
-		t.Fatal("the sync did not send three changes")
+	if out := repo.ok("sync"); !strings.Contains(out, "Synced.") || !strings.Contains(out, "Sent: "+id+" (updated).") {
+		t.Fatalf("the sync did not say it sent the issue's changes:\n%s", out)
 	}
 	same(t, repo.waiting(), 0, "changes waiting after the sync")
 	live := repo.live("show", id)
@@ -127,8 +128,17 @@ func TestGitHubCopyWhatChangedBehindItsBackComesInWithRelations(t *testing.T) {
 	same(t, text(repo.show(child).ParentID), "<none>", "the copy before a sync")
 
 	// An ordinary sync: only what changed since is asked for.
-	if out := repo.ok("sync"); strings.Contains(out, "Reread all") {
-		t.Fatalf("the sync reread everything:\n%s", out)
+	repo.ok("sync")
+	// The copy's own log says whether everything was reread.
+	var standing struct {
+		Copy struct {
+			Folder string `json:"folder"`
+		} `json:"copy"`
+	}
+	repo.parse(repo.ok("status", "--json"), &standing)
+	lines, _ := os.ReadFile(filepath.Join(standing.Copy.Folder, "sync.log"))
+	if last := strings.Split(strings.TrimSpace(string(lines)), "\n"); !strings.Contains(last[len(last)-1], "(full: false)") {
+		t.Fatalf("the sync reread everything:\n%s", last[len(last)-1])
 	}
 	moved := repo.show(child)
 	same(t, text(moved.ParentID), parent, "the child's parent")
@@ -215,7 +225,7 @@ func TestGitHubCopyKeptDataIsAHiddenLineAndASyncNamesItsIssues(t *testing.T) {
 	same(t, repo.show(id).Metadata["branch"], any(branch), "the branch, here")
 	// The sync says which issue it sent.
 	synced := repo.ok("sync", "--json")
-	if !strings.Contains(synced, `"sentIssues": [`) || !strings.Contains(synced, `"`+id+`"`) {
+	if !strings.Contains(synced, `"sent": [`) || !strings.Contains(synced, `"id": "`+id+`"`) {
 		t.Fatalf("the sync does not name the issue it sent:\n%s", synced)
 	}
 	// On GitHub: read back directly, with the description as it was.
@@ -246,4 +256,34 @@ func TestGitHubCopyNotesAddUpAndAnIssueCanBeSetAside(t *testing.T) {
 	if !strings.Contains(live, `First note.\n\nSecond note.`) || !strings.Contains(live, `"status": "open"`) {
 		t.Fatalf("GitHub lacks the notes, or the issue is still in progress:\n%s", live)
 	}
+}
+
+func TestGitHubTheHelperBringsInWhatChangedThereOnItsClock(t *testing.T) {
+	repo := newCopyScratch(t)
+	id := repo.create("Copy: the helper's clock")
+	repo.ok("sync")
+	// Changed on GitHub, behind the copy's back.
+	repo.live("edit", id, "--title", "Copy: renamed on GitHub")
+	same(t, repo.show(id).Title, "Copy: the helper's clock", "the copy before any sync")
+
+	// With the helper allowed, and its times shortened: one command starts
+	// it, and what changed on GitHub arrives with no sync typed.
+	repo.env = append(repo.env, "BEND_NO_BACKGROUND=", "BEND_HELPER_EVERY=2s", "BEND_HELPER_WAKE=300ms", "BEND_HELPER_IDLE=20s")
+	t.Cleanup(func() { repo.bend("helper", "disable") })
+	repo.ok("list")
+	if !until(10*time.Second, func() bool { return repo.helper().Running }) {
+		t.Fatal("no helper was started by a command")
+	}
+	quiet := &repository{t: t, root: repo.root, env: append(slices.Clone(repo.env), "BEND_PASSIVE=1")}
+	if !until(30*time.Second, func() bool { return quiet.show(id).Title == "Copy: renamed on GitHub" }) {
+		t.Fatalf("what changed on GitHub did not arrive:\n%s", quiet.ok("sync", "--log"))
+	}
+	var runs []syncEntry
+	quiet.parse(quiet.ok("sync", "--log", "--json"), &runs)
+	if !slices.ContainsFunc(runs, func(entry syncEntry) bool {
+		return entry.Cause == "timer" && slices.Contains(entry.BroughtIn, id)
+	}) {
+		t.Errorf("no sync on the clock brought the issue in: %+v", runs)
+	}
+	same(t, quiet.syncState().Trouble == nil, true, "no trouble")
 }

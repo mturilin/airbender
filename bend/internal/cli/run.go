@@ -34,15 +34,19 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/mturilin/airbender/bend/internal/detect"
 	"github.com/mturilin/airbender/bend/internal/facts"
+	"github.com/mturilin/airbender/bend/internal/helper"
 	"github.com/mturilin/airbender/bend/internal/kept"
 	"github.com/mturilin/airbender/bend/internal/setup"
 	"github.com/mturilin/airbender/bend/internal/tracker"
@@ -126,6 +130,10 @@ func encode(value any, indent string) (string, error) {
 type answer struct {
 	text string
 	json any
+	// status is the exit status when it is not 0: for a command that did
+	// what it was asked and has to say that the outcome was not good (a
+	// sync that failed).
+	status int
 }
 
 // did is the answer of a command that changed something.
@@ -223,7 +231,7 @@ func oneOf(typed string, allowed []string, what string) (string, error) {
 // first and says so plainly when the bend it found is older than it needs,
 // instead of failing on an option that bend does not know. Raise it with
 // every such change.
-const Version = 7
+const Version = 8
 
 // statusWithCopy is what `bend status --json` prints: what the tracker
 // supports, and how the copy on this machine stands; null where the tracker
@@ -231,6 +239,9 @@ const Version = 7
 type statusWithCopy struct {
 	tracker.Capabilities
 	Copy *kept.Status `json:"copy"`
+	// Trouble is what is wrong with the syncing of the issues; left out
+	// when nothing is.
+	Trouble *kept.Trouble `json:"syncTrouble,omitempty"`
 }
 
 // AcceptVariable names the environment variable by which a caller says
@@ -321,7 +332,7 @@ func setUp(parsed *Parsed, surroundings Surroundings) (answer, error) {
 		if err != nil {
 			return answer{}, err
 		}
-		return answer{FormatSetup(state), state}, nil
+		return answer{text: FormatSetup(state), json: state}, nil
 	}
 	terminal := setup.Terminal{
 		Interactive: surroundings.Interactive && !parsed.Flags["no-input"] && surroundings.Ask != nil,
@@ -355,7 +366,7 @@ func setUp(parsed *Parsed, surroundings Surroundings) (answer, error) {
 		if len(outcomes) > 0 {
 			text = "Done: " + plural(len(outcomes), "step") + ". Run `bend setup` to see what is in place."
 		}
-		return answer{text, fields{{"ok", true}, {"steps", outcomes}}}, nil
+		return answer{text: text, json: fields{{"ok", true}, {"steps", outcomes}}}, nil
 	}
 	outcome, err := setup.Run(step, dir, terminal, answers, options)
 	if err != nil {
@@ -388,7 +399,7 @@ func lookAfterFacts(parsed *Parsed, surroundings Surroundings) (answer, error) {
 		if err != nil {
 			return answer{}, err
 		}
-		return answer{FormatFacts(saved), saved}, nil
+		return answer{text: FormatFacts(saved), json: saved}, nil
 	}
 	if !parsed.Flags["ensure"] && !parsed.Flags["move-old"] && addFile == nil {
 		return answer{}, tracker.Usage("Say what to do: --list, --ensure, --add-file <file>, or --move-old.")
@@ -463,7 +474,7 @@ func carryOut(command *Command, parsed *Parsed, surroundings Surroundings) (answ
 	case "facts":
 		return lookAfterFacts(parsed, surroundings)
 	case "version":
-		return answer{"bend " + strconv.Itoa(Version), fields{{"version", Version}}}, nil
+		return answer{text: "bend " + strconv.Itoa(Version), json: fields{{"version", Version}}}, nil
 	}
 	find := surroundings.Detect
 	if find == nil {
@@ -551,14 +562,14 @@ func carryOut(command *Command, parsed *Parsed, surroundings Surroundings) (answ
 		if err != nil {
 			return answer{}, err
 		}
-		return answer{FormatList(listed), printed(listed)}, nil
+		return answer{text: FormatList(listed), json: printed(listed)}, nil
 
 	case "ready":
 		listed, err := issues.Ready()
 		if err != nil {
 			return answer{}, err
 		}
-		return answer{FormatList(listed), printed(listed)}, nil
+		return answer{text: FormatList(listed), json: printed(listed)}, nil
 
 	case "show":
 		id, err := need(parsed, 0, "the issue id")
@@ -571,9 +582,9 @@ func carryOut(command *Command, parsed *Parsed, surroundings Surroundings) (answ
 		}
 		issue = unsent([]tracker.Issue{issue})[0]
 		if parsed.Flags["with-body"] {
-			return answer{FormatIssue(issue), withBodies([]tracker.Issue{issue})[0]}, nil
+			return answer{text: FormatIssue(issue), json: withBodies([]tracker.Issue{issue})[0]}, nil
 		}
-		return answer{FormatIssue(issue), issue}, nil
+		return answer{text: FormatIssue(issue), json: issue}, nil
 
 	case "comments":
 		id, err := need(parsed, 0, "the issue id")
@@ -584,7 +595,7 @@ func carryOut(command *Command, parsed *Parsed, surroundings Surroundings) (answ
 		if err != nil {
 			return answer{}, err
 		}
-		return answer{FormatComments(comments), comments}, nil
+		return answer{text: FormatComments(comments), json: comments}, nil
 
 	case "search":
 		text, err := textOf(parsed, 0, surroundings, false)
@@ -595,7 +606,7 @@ func carryOut(command *Command, parsed *Parsed, surroundings Surroundings) (answ
 		if err != nil {
 			return answer{}, err
 		}
-		return answer{FormatList(listed), printed(listed)}, nil
+		return answer{text: FormatList(listed), json: printed(listed)}, nil
 
 	case "create":
 		title, err := need(parsed, 0, "the title")
@@ -620,7 +631,7 @@ func carryOut(command *Command, parsed *Parsed, surroundings Surroundings) (answ
 		if err != nil {
 			return answer{}, err
 		}
-		return answer{id, fields{{"ok", true}, {"id", id}}}, nil
+		return answer{text: id, json: fields{{"ok", true}, {"id", id}}}, nil
 
 	case "edit":
 		id, err := need(parsed, 0, "the issue id")
@@ -903,7 +914,7 @@ func carryOut(command *Command, parsed *Parsed, surroundings Surroundings) (answ
 			if local != nil && local.SignFile() != "" {
 				watched = tracker.Ptr(local.SignFile())
 			}
-			return answer{FormatAbout(about), fields{
+			return answer{text: FormatAbout(about), json: fields{
 				{"tracker", about.Tracker},
 				{"repository", about.Repository},
 				{"linkKinds", about.LinkKinds},
@@ -921,31 +932,63 @@ func carryOut(command *Command, parsed *Parsed, surroundings Surroundings) (answ
 			return answer{}, err
 		}
 		reported := statusWithCopy{Capabilities: capabilities, Copy: copyNow()}
-		return answer{FormatStatus(capabilities) + FormatCopy(reported.Copy), reported}, nil
+		text := FormatStatus(capabilities) + FormatCopy(reported.Copy)
+		// What is wrong with the syncing, if anything: said wherever the
+		// repository's state is asked for.
+		if local != nil && local.Syncs() {
+			if trouble := local.SyncStatus().Trouble; trouble != nil {
+				reported.Trouble = trouble
+				text += "\n\n" + FormatTrouble(*trouble)
+			}
+		}
+		return answer{text: text, json: reported}, nil
 
 	case "sync":
-		if !queued {
-			return did("Nothing to sync: this repository's issues are not worked from a copy of a hosted tracker."), nil
+		if local == nil || !local.Syncs() {
+			return did("Nothing to sync: this repository's issues are not synced with a remote through bend."), nil
+		}
+		switch {
+		case parsed.Flags["status"]:
+			state := local.SyncStatus()
+			return answer{text: FormatSyncState(state), json: state}, nil
+		case parsed.Flags["log"]:
+			runs := local.Runs(parsed.Flags["failed"])
+			return answer{text: FormatRuns(runs), json: runs}, nil
+		}
+		cause := kept.CauseAsked
+		if given := value("cause"); given != nil {
+			if !slices.Contains(kept.Causes, *given) {
+				return answer{}, tracker.Usage("--cause is one of: %s.", strings.Join(kept.Causes, ", "))
+			}
+			cause = *given
 		}
 		// Where another process is syncing (one started in the background
 		// a moment ago, say), it is waited for, so that this sync sends
 		// what that one did not see.
-		sync := local.WaitAndSync
-		if parsed.Flags["no-wait"] {
-			sync = local.Sync
-		}
-		result, err := sync(parsed.Flags["all"])
+		entry, err := local.SyncNow(cause, parsed.Flags["all"], !parsed.Flags["no-wait"])
 		if err != nil {
 			return answer{}, err
 		}
-		return answer{FormatSync(result), result}, nil
+		reported := answer{text: FormatEntry(entry), json: entry}
+		// A sync that did not work is said in the exit status too, for a
+		// script; the report is printed all the same.
+		if entry.End != tracker.SyncSynced && entry.End != tracker.SyncBusy {
+			reported.status = 1
+		}
+		return reported, nil
+
+	case "helper":
+		if local == nil || !local.Syncs() {
+			return did("There is no helper here: this repository's issues are not synced with a remote through bend."), nil
+		}
+		return helperCommand(parsed, local, found.Root)
 
 	case "refused":
 		if value("dismiss") != nil && value("again") != nil {
 			return answer{}, tracker.Usage("Give --dismiss or --again, not both.")
 		}
 		if !queued {
-			return answer{"No refused changes.", []kept.RefusedChange{}}, nil
+			return answer{text: "No refused changes.", json: []kept.RefusedChange{}}, nil
 		}
 		which, again := value("dismiss"), false
 		if value("again") != nil {
@@ -953,7 +996,7 @@ func carryOut(command *Command, parsed *Parsed, surroundings Surroundings) (answ
 		}
 		if which == nil {
 			refused := local.RefusedChanges()
-			return answer{FormatRefused(refused), refused}, nil
+			return answer{text: FormatRefused(refused), json: refused}, nil
 		}
 		seq := 0
 		if *which != "all" {
@@ -991,7 +1034,7 @@ func carryOut(command *Command, parsed *Parsed, surroundings Surroundings) (answ
 		if err != nil {
 			return answer{}, err
 		}
-		return answer{FormatFacts(saved), saved}, nil
+		return answer{text: FormatFacts(saved), json: saved}, nil
 	}
 	return answer{}, tracker.Usage("Unknown command \"%s\".", command.Name)
 }
@@ -1154,12 +1197,97 @@ func run(argv []string, surroundings Surroundings, asJSON *bool) (int, error) {
 	}
 	if !*asJSON {
 		surroundings.Out(result.text)
-		return 0, nil
+		return result.status, nil
 	}
 	text, err := encode(result.json, "  ")
 	if err != nil {
 		return 0, tracker.Refused("The answer could not be written as JSON: %s", err)
 	}
 	surroundings.Out(text)
-	return 0, nil
+	return result.status, nil
+}
+
+// helperCommand carries out `bend helper`: says how the helper that syncs
+// on a clock stands, or stops, starts, disables or enables it, or is it
+// (`run`, which bend starts by itself).
+//
+// Side effects: may start or end the helper's process, and write the mark
+// that keeps it from being started.
+func helperCommand(parsed *Parsed, local *kept.Tracker, root string) (answer, error) {
+	word := ""
+	if len(parsed.Positionals) > 0 {
+		word = parsed.Positionals[0]
+	}
+	dir := local.Status().Folder
+	// Looking at the helper, or stopping it, is not a reason to start it
+	// behind the command, nor bend being used.
+	kept.NoHelper = true
+	said := ""
+	switch word {
+	case "":
+	case "run":
+		times := helper.TimesNow()
+		reason := helper.Run(helper.Config{
+			Dir: dir, Work: root, Times: times,
+			On: func() (bool, bool) {
+				words, known := local.SyncsWith()
+				return words != "", known
+			},
+			Last: local.LastRun,
+			Sync: func() tracker.SyncEnd { return syncAsHelper(root, times.Limit) },
+		})
+		return did("The helper ended: " + reason + "."), nil
+	case "stop":
+		if !helper.Stop(dir) {
+			return answer{}, tracker.Refused("The helper could not be stopped. Its process is named in %s.", filepath.Join(dir, "helper.json"))
+		}
+		said = "The helper is stopped. The next bend command starts it again; `bend helper disable` keeps it stopped."
+	case "start":
+		words, ok := helper.Start(dir, root)
+		if !ok {
+			return answer{}, tracker.Refused("%s", words)
+		}
+		said = words
+	case "disable":
+		if !helper.Disable(dir) {
+			return answer{}, tracker.Refused("The helper could not be disabled: %s cannot be written.", dir)
+		}
+		said = "The helper is disabled in this repository: nothing is synced by itself. `bend sync` still syncs; `bend helper enable` switches it back on."
+	case "enable":
+		helper.Enable(dir)
+		words, _ := helper.Start(dir, root)
+		said = "The helper is enabled. " + words
+	default:
+		return answer{}, tracker.Usage("`bend helper` takes: stop, start, disable or enable; alone, it says how the helper stands.")
+	}
+	state := helper.Look(dir)
+	text := FormatHelper(state, local.Runs(false))
+	if said != "" {
+		text = said
+	}
+	return answer{text: text, json: fields{{"ok", true}, {"helper", state}}}, nil
+}
+
+// syncAsHelper runs one sync as a process of its own, as the helper does,
+// and says how it ended. A process that cannot be started, is ended for
+// taking too long, or answers in a form that cannot be read counts as a
+// sync that failed.
+func syncAsHelper(root string, limit time.Duration) tracker.SyncEnd {
+	program, err := os.Executable()
+	if err != nil {
+		return tracker.SyncFailed
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), limit)
+	defer cancel()
+	command := exec.CommandContext(ctx, program, "-C", root, "sync", "--cause", kept.CauseTimer, "--no-wait", "--json")
+	command.Env = append(os.Environ(), "BEND_NO_BACKGROUND=1", "BEND_PASSIVE=1")
+	// The exit status says only "not synced"; the answer says how.
+	out, _ := command.Output()
+	var entry struct {
+		End tracker.SyncEnd `json:"end"`
+	}
+	if json.Unmarshal(out, &entry) != nil || entry.End == "" {
+		return tracker.SyncFailed
+	}
+	return entry.End
 }

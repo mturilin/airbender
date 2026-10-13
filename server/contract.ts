@@ -252,11 +252,11 @@ const syncStepSchema = z.object({
   explain: z.object({ lead: z.string(), points: z.array(z.string()) }),
 });
 
-/** One run of the issue sync, as the log keeps it (sync/types.ts). */
+/** One sync, as bend's log keeps it (sync/types.ts). */
 const syncEntrySchema = z.object({
   at: z.number(),
   seconds: z.number(),
-  cause: z.enum(["timer", "change", "opened", "refresh"]),
+  cause: z.enum(["asked", "timer", "change", "read"]),
   end: z.enum(["synced", "failed", "busy", "conflict", "stuck"]),
   message: z.string(),
   /** Issues changed here that this run sent; null when not known. */
@@ -272,6 +272,32 @@ const syncEntrySchema = z.object({
     .nullable(),
   /** Issues this run brought in; null when not known. */
   broughtIn: z.array(z.string()).nullable(),
+  /** Changes refused for good in this run, and those still waiting. */
+  refused: z.number(),
+  waiting: z.number(),
+  /** How many quiet runs in a row the entry stands for. */
+  runs: z.number(),
+});
+
+/** What is wrong with the syncing now, as bend works it out (sync/types.ts). */
+const syncTroubleSchema = z.object({
+  kind: z.enum(["conflict", "stuck", "failing", "refused", "disabled"]),
+  serious: z.boolean(),
+  title: z.string(),
+  advice: z.string(),
+  message: z.string(),
+  since: z.number(),
+  failures: z.number(),
+});
+
+/** How bend's helper, which syncs on a clock, stands (sync/types.ts). */
+const helperStateSchema = z.object({
+  running: z.boolean(),
+  pid: z.number(),
+  since: z.number(),
+  disabled: z.boolean(),
+  gaveUpAt: z.number(),
+  heldBackUntil: z.number(),
 });
 
 /** A change the tracker refused for good; see `bend refused`. */
@@ -444,6 +470,12 @@ export const rpcContract = defineRpcContract({
        * refresh button and when the window comes back into focus.
        */
       fresh: z.boolean().optional(),
+      /**
+       * The tab reads only because it was told the issues changed, not
+       * because the owner looked or asked: bend does not count the read as
+       * being used (see RunOptions in server/bend.ts).
+       */
+      passive: z.boolean().optional(),
     }),
     output: issuesResultSchema,
   },
@@ -758,12 +790,14 @@ export const rpcContract = defineRpcContract({
     output: z.object({ message: z.string().nullable() }),
   },
   sync_status: {
-    // How the folder's issues stand with their remote, in the sync layer's
-    // words; nothing here names a tracker. `remote` null: they are synced
-    // with nothing. `last` is the last sync run from here.
+    // How the folder's issues stand with their remote, as bend says it;
+    // nothing here names a tracker. `remote` null: they are synced with
+    // nothing. `last` is the repository's last sync, whoever ran it.
     input: z.object({
       threadId: z.string().nullable(),
       projectId: z.string().nullable(),
+      /** See `issues_list`. */
+      passive: z.boolean().optional(),
     }),
     output: z.object({
       /** The sync source's name; null when the folder has none. */
@@ -782,6 +816,14 @@ export const rpcContract = defineRpcContract({
        * changes are written straight through (beads).
        */
       refused: z.array(refusedChangeSchema),
+      /**
+       * What is wrong with the syncing now, for the bar across the top of
+       * the tab; null when nothing is. Worked out by bend, so that the tab
+       * and a terminal say the same.
+       */
+      trouble: syncTroubleSchema.nullable(),
+      /** bend's helper; null when the folder has no tracker. */
+      helper: helperStateSchema.nullable(),
     }),
   },
   sync_refused_settle: {
@@ -796,10 +838,12 @@ export const rpcContract = defineRpcContract({
     output: z.object({ message: z.string().nullable() }),
   },
   sync_log: {
-    // The syncs run from here for the folder's repository, newest first.
+    // The syncs of the folder's repository, newest first, whoever ran
+    // them; `failed` for only those that did not work.
     input: z.object({
       threadId: z.string().nullable(),
       projectId: z.string().nullable(),
+      failed: z.boolean().optional(),
     }),
     output: z.object({ entries: z.array(syncEntrySchema) }),
   },

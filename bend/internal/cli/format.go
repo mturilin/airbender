@@ -18,7 +18,9 @@ package cli
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/mturilin/airbender/bend/internal/facts"
@@ -317,23 +319,155 @@ func FormatCopy(status *kept.Status) string {
 	return "\n" + strings.Join(lines[1:], "\n")
 }
 
-// FormatSync gives what `bend sync` prints.
-func FormatSync(result kept.SyncResult) string {
-	if result.Busy {
+// changesWords gives changes as "id (kinds), id (kinds)".
+func changesWords(changes []tracker.SyncChange) string {
+	words := make([]string, 0, len(changes))
+	for _, change := range changes {
+		words = append(words, change.ID+" ("+strings.Join(change.Kinds, ", ")+")")
+	}
+	return strings.Join(words, ", ")
+}
+
+// when gives a moment (milliseconds since 1970) in local time.
+func when(at int64) string {
+	return time.UnixMilli(at).Local().Format("2006-01-02 15:04")
+}
+
+// FormatEntry gives what `bend sync` prints: how one sync ended, what was
+// sent and what came in.
+func FormatEntry(entry kept.Entry) string {
+	lines := []string{}
+	switch entry.End {
+	case tracker.SyncBusy:
 		return "Another sync is running; nothing to do."
+	case tracker.SyncSynced:
+		lines = append(lines, "Synced.")
+	default:
+		lines = append(lines, "The sync did not work ("+string(entry.End)+").")
 	}
-	lines := []string{"Sent " + plural(result.Sent, "change") + "."}
-	if result.Refused > 0 {
-		lines = append(lines, plural(result.Refused, "change")+" refused for good: bend refused")
+	if entry.Message != "" {
+		lines = append(lines, entry.Message)
 	}
-	if result.Waiting > 0 {
-		lines = append(lines, plural(result.Waiting, "change")+" still waiting: "+result.Problem)
+	switch {
+	case entry.End != tracker.SyncSynced && entry.Sent == nil:
+	case entry.Sent == nil:
+		lines = append(lines, "Sent: not known.")
+	case len(entry.Sent) == 0:
+		lines = append(lines, "Sent: nothing.")
+	default:
+		lines = append(lines, "Sent: "+changesWords(entry.Sent)+".")
 	}
-	brought := "Brought in " + plural(result.BroughtIn, "issue") + " changed since the last sync."
-	if result.Full {
-		brought = "Reread all " + plural(result.BroughtIn, "issue") + "."
+	switch {
+	case entry.End != tracker.SyncSynced && entry.BroughtIn == nil:
+	case entry.BroughtIn == nil:
+		lines = append(lines, "Brought in: not known.")
+	case len(entry.BroughtIn) == 0:
+		lines = append(lines, "Brought in: nothing.")
+	default:
+		lines = append(lines, "Brought in: "+strings.Join(entry.BroughtIn, ", ")+".")
 	}
-	return strings.Join(append(lines, brought), "\n")
+	if entry.Waiting > 0 {
+		lines = append(lines, plural(entry.Waiting, "change")+" still waiting to be sent.")
+	}
+	return strings.Join(lines, "\n")
+}
+
+// FormatTrouble gives what is wrong with the syncing, for a terminal.
+func FormatTrouble(trouble kept.Trouble) string {
+	lines := []string{"Sync trouble", "  " + trouble.Title}
+	if trouble.Since > 0 {
+		lines = append(lines, "  Since "+when(trouble.Since)+".")
+	}
+	if trouble.Message != "" {
+		lines = append(lines, "  "+strings.ReplaceAll(trouble.Message, "\n", "\n  "))
+	}
+	return strings.Join(append(lines, "  "+trouble.Advice), "\n")
+}
+
+// FormatSyncState gives what `bend sync --status` prints.
+func FormatSyncState(state kept.SyncState) string {
+	if state.Remote == nil {
+		return "The issues are synced with nothing: they are on this computer only.\n`bend setup` shows the step that publishes them."
+	}
+	lines := []string{"Synced with  " + *state.Remote}
+	switch {
+	case state.Running:
+		lines = append(lines, "Now          a sync is running")
+	case state.Halted:
+		lines = append(lines, "Now          stopped until a sync that is asked for ends well")
+	}
+	if state.Last == nil {
+		lines = append(lines, "Last sync    none from this computer yet")
+	} else {
+		lines = append(lines, "Last sync    "+when(state.Last.At)+", "+string(state.Last.End)+" ("+state.Last.Cause+")")
+	}
+	if state.SyncedAt != nil && (state.Last == nil || state.Last.End != tracker.SyncSynced) {
+		lines = append(lines, "Last good    "+when(*state.SyncedAt))
+	}
+	switch {
+	case state.Pending == nil:
+		lines = append(lines, "Waiting      not known")
+	case len(state.Pending) == 0:
+		lines = append(lines, "Waiting      nothing to send")
+	default:
+		lines = append(lines, "Waiting      "+changesWords(state.Pending))
+	}
+	lines = append(lines, "Helper       "+helperWords(state.Helper))
+	text := strings.Join(lines, "\n")
+	if state.Trouble != nil {
+		text += "\n\n" + FormatTrouble(*state.Trouble)
+	}
+	return text
+}
+
+// helperWords says how the helper stands in a few words.
+func helperWords(state kept.HelperState) string {
+	switch {
+	case state.Disabled:
+		return "disabled in this repository (bend helper enable)"
+	case state.Running:
+		return "running since " + when(state.Since)
+	case state.HeldBackUntil > 0:
+		return "not running: syncs kept failing; not started again by itself before " + when(state.HeldBackUntil)
+	}
+	return "not running; the next bend command starts it"
+}
+
+// FormatHelper gives what `bend helper` prints.
+func FormatHelper(state kept.HelperState, runs []kept.Entry) string {
+	lines := []string{"The helper is " + helperWords(state) + "."}
+	for _, entry := range runs {
+		if entry.Cause == kept.CauseTimer {
+			lines = append(lines, "It last synced "+when(entry.At)+" ("+string(entry.End)+").")
+			break
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// FormatRuns gives what `bend sync --log` prints.
+func FormatRuns(runs []kept.Entry) string {
+	if len(runs) == 0 {
+		return "No syncs to list."
+	}
+	lines := make([]string, 0, len(runs))
+	for _, entry := range runs {
+		line := when(entry.At) + "  " + string(entry.End) + "  (" + entry.Cause + ")"
+		if entry.Runs > 1 {
+			line += "  ×" + strconv.Itoa(entry.Runs)
+		}
+		if len(entry.Sent) > 0 {
+			line += "  sent " + changesWords(entry.Sent)
+		}
+		if len(entry.BroughtIn) > 0 {
+			line += "  brought in " + strings.Join(entry.BroughtIn, ", ")
+		}
+		if entry.Message != "" {
+			line += "\n    " + strings.ReplaceAll(entry.Message, "\n", "\n    ")
+		}
+		lines = append(lines, line)
+	}
+	return strings.Join(lines, "\n")
 }
 
 // FormatRefused gives what `bend refused` prints.

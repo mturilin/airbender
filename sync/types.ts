@@ -1,30 +1,23 @@
-// sync/types.ts — the one shape every sync of issues is seen through.
+// sync/types.ts — the shapes bend reports the syncing of issues in.
 //
-// What: what "syncing a repository's issues" means whatever holds them: a
-// source that can exchange changes with a remote (SyncSource), how a run
-// can end, what it reports, and one line of the log.
+// What: how a sync can end, one entry of the sync log, what is wrong with
+// a repository's syncing (the trouble), and how the helper that syncs on a
+// clock stands, as `bend sync --json`, `--status` and `--log` give them.
 //
-// Why: the owner wants the sync kept apart as "something that could be
-// later replaced ... This will be multiple, and next implementation will
-// be GitHub" (bead-bb-6a9). Beads syncs its database with the git remote;
-// a hosted tracker will sync a local cache with the service. What they
-// share is that issues are worked on in a local copy, and a sync exchanges
-// changes with a remote. Everything above this file (the service, the
-// plugin's requests, the tab) talks only in these terms.
+// Why: syncing is bend's, for every tracker; the plugin only shows it
+// (bead-bb-c9l.16). These are the words it is shown in, the same in the
+// server, the contract and the tab. They are written to match
+// bend/internal/kept/report.go and bend/internal/tracker/sync.go, where
+// each is explained in full.
 //
 // Design notes:
-// - How a run ended is said in this layer's own five words; each source
-//   translates its own signs into them (beads: `bd sync`'s exit codes).
+// - Nothing here names a tracker.
 // - "Not known" is a value (null), for what was sent and what was brought
-//   in: a source that cannot tell says so, and nothing above guesses.
-// - Setting a source up (giving beads a remote, getting the issues on a
-//   fresh clone) is not here: those are steps of `bend setup`
-//   (bead-bb-c9l.9).
+//   in: bend says so when a tracker cannot tell, and nothing above guesses.
 //
 // Gotchas:
-// - This file must stay free of imports from the plugin, from BB and from
-//   any tracker, like bend/internal/tracker in the tracker layer it is meant to
-//   sit beside one day.
+// - This file must stay free of imports from the plugin and from BB: the
+//   tab's code and the server's both read it.
 
 /**
  * How a sync ended.
@@ -41,11 +34,7 @@
  */
 export type SyncEnd = "synced" | "failed" | "busy" | "conflict" | "stuck";
 
-/** Whether syncing by itself stops after this end until the owner syncs. */
-export const haltsOn = (end: SyncEnd): boolean =>
-  end === "conflict" || end === "stuck";
-
-/** The kinds of change made to an issue, in this layer's words. */
+/** The kinds of change made to an issue. */
 export type ChangeKind =
   | "created"
   | "updated"
@@ -61,47 +50,82 @@ export interface Change {
   kinds: ChangeKind[];
 }
 
-/** What one run reports. */
-export interface SyncRun {
+/**
+ * What set a sync off: someone asked (`bend sync`, the tab's Refresh), the
+ * helper's clock, a change made through bend a moment before, or a read
+ * that found bend's copy a few minutes old.
+ */
+export type SyncCause = "asked" | "timer" | "change" | "read";
+
+/** One sync, as bend's log keeps it. */
+export interface SyncEntry {
   end: SyncEnd;
-  /** The source's own words about a run that did not end `synced`; else "". */
+  /** The tracker's own words about a run that did not end `synced`; else "". */
   message: string;
-  /** What this side had to send; null when the source cannot tell. */
+  /** What this side sent; null when it is not known. */
   sent: Change[] | null;
-  /** Issues that came in new or changed; null when it cannot tell. */
+  /** Issues that came in new or changed; null when it is not known. */
   broughtIn: string[] | null;
-}
-
-/** One implementation of syncing, for one repository. */
-export interface SyncSource {
-  /** The source's name, e.g. "beads". */
-  readonly name: string;
-  /**
-   * A lock file shared with other processes that may sync the same
-   * repository; null when the source needs none.
-   */
-  readonly lockFile: string | null;
-  /**
-   * What the issues are synced with, in words for the owner ("the
-   * repository's git remote"); null when syncing is not switched on.
-   */
-  remote(): Promise<string | null>;
-  /**
-   * The changes made on this side that have not been sent; null when the
-   * source cannot tell. An empty list means there is nothing to send.
-   */
-  pending(): Promise<Change[] | null>;
-  /** One sync. Never rejects: a failure is an end. */
-  run(): Promise<SyncRun>;
-}
-
-/** What set a sync off. */
-export type SyncCause = "timer" | "change" | "opened" | "refresh";
-
-/** One sync, as the log keeps it. */
-export interface SyncEntry extends SyncRun {
   /** When it ended (milliseconds since 1970), and how long it took. */
   at: number;
   seconds: number;
   cause: SyncCause;
+  /** Changes the tracker refused for good in this run; those still waiting. */
+  refused: number;
+  waiting: number;
+  /**
+   * How many runs the entry stands for: more than 1 for runs that ended
+   * well with nothing to do, one after another.
+   */
+  runs: number;
+}
+
+/** What is wrong with a repository's syncing now. */
+export interface SyncTrouble {
+  kind: "conflict" | "stuck" | "failing" | "refused" | "disabled";
+  /**
+   * The issues are not being synced, so work can be lost or done twice;
+   * otherwise it is something to know and deal with at leisure.
+   */
+  serious: boolean;
+  /** It in a few words, and what to do. */
+  title: string;
+  advice: string;
+  /** The tracker's own words from the last run that did not work; or "". */
+  message: string;
+  /** When it began (milliseconds since 1970; 0 when that means nothing). */
+  since: number;
+  /** How many syncs in a row did not work. */
+  failures: number;
+}
+
+/** How the helper that syncs on a clock stands. */
+export interface HelperState {
+  running: boolean;
+  pid: number;
+  /** When the running one started (milliseconds since 1970); 0 for none. */
+  since: number;
+  /** Kept from being started in this repository (`bend helper disable`). */
+  disabled: boolean;
+  /** When the last one ended after failed syncs; 0 for never. */
+  gaveUpAt: number;
+  heldBackUntil: number;
+}
+
+/** What `bend sync --status` answers. */
+export interface SyncState {
+  /** The tracker's name. */
+  source: string;
+  /** What the issues are synced with, in words; null when with nothing. */
+  remote: string | null;
+  running: boolean;
+  /** Syncing by itself has stopped until a sync asked for ends well. */
+  halted: boolean;
+  last: SyncEntry | null;
+  /** When the last sync that worked ended; null when none did. */
+  syncedAt: number | null;
+  /** Changes made here not yet sent; null when it is not known. */
+  pending: Change[] | null;
+  trouble: SyncTrouble | null;
+  helper: HelperState;
 }

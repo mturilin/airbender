@@ -206,10 +206,7 @@ export default async function plugin(bb: BbPluginApi) {
   ];
   const folders = createFolders({ bb, bdCandidates, bendCandidates });
   const currentBead = createCurrentBead(bb);
-  // The issue sync is built further down and listens to the watcher; the
-  // watcher is told through this until then.
-  let issuesChanged: (path: string) => void = () => {};
-  const { watchFolder } = await createWatcher(bb, (path) => issuesChanged(path));
+  const { watchFolder } = await createWatcher(bb);
   const workflowChoice = await createWorkflowChoice(bb);
   const trackers = createTrackers({
     findBd: folders.findBd,
@@ -272,8 +269,7 @@ export default async function plugin(bb: BbPluginApi) {
   workEvents.closed = autopilot.advance;
   workEvents.stuck = autopilot.stuck;
   workEvents.ownerCurrent = autopilot.ownerSteppedIn;
-  const issueSync = await createSync({ bb, folders, store, trackers, repositoryKey });
-  issuesChanged = issueSync.changed;
+  const issueSync = createSync({ bb, store, trackers });
   const { setupStatus, runSetup } = createSetup({
     bb,
     folders,
@@ -301,11 +297,6 @@ export default async function plugin(bb: BbPluginApi) {
       }
       // Which issues have a conversation of their own in a work tree is
       // the plugin's knowledge, not beads': added here, for the tab.
-      // And for the issues' own sync with their remote, if the last one
-      // is old (the tab was just opened).
-      if (listed.state === "ok" && listed.path !== null) {
-        issueSync.opened(listed.path);
-      }
       // And the moment for autopilot to take up what a reload cut short.
       autopilot.consider(input.threadId);
       return {
@@ -350,16 +341,23 @@ export default async function plugin(bb: BbPluginApi) {
             last: null,
             syncedAt: null,
             refused: [],
+            trouble: null,
+            helper: null,
           }
         : {
-            ...(await issueSync.state(folder.path)),
-            refused: await store.refusedIn(folder.path),
+            ...(await issueSync.state(folder.path, input.passive === true)),
+            // Asked the same way: every run of bend this request makes
+            // must be passive, or none is.
+            refused: await store.refusedIn(folder.path, input.passive === true),
           };
     },
     sync_refused_settle: (input) => store.settleRefused(input),
     sync_log: async (input) => {
       const folder = await folders.folderFor(input);
-      return { entries: "message" in folder ? [] : await issueSync.log(folder.path) };
+      return {
+        entries:
+          "message" in folder ? [] : await issueSync.log(folder.path, input.failed === true),
+      };
     },
     sync_now: async (input) => {
       const folder = await folders.folderFor(input);

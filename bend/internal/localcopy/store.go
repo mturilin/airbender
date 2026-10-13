@@ -211,7 +211,15 @@ func (store Store) lock(name string, wait bool) (unlock func(), ok bool, err err
 	if !wait {
 		how |= syscall.LOCK_NB
 	}
-	if err := syscall.Flock(int(file.Fd()), how); err != nil {
+	err = syscall.Flock(int(file.Fd()), how)
+	// Someone only looking whether the lock is held (Held) holds it, shared,
+	// for an instant: that is not another holder, so it is tried again a
+	// few times before the answer is "held".
+	for tries := 0; err != nil && !wait && errors.Is(err, syscall.EWOULDBLOCK) && tries < 5; tries++ {
+		time.Sleep(10 * time.Millisecond)
+		err = syscall.Flock(int(file.Fd()), how)
+	}
+	if err != nil {
 		file.Close()
 		if !wait && errors.Is(err, syscall.EWOULDBLOCK) {
 			return nil, false, nil
@@ -243,6 +251,39 @@ func (store Store) Changing(act func() error) error {
 func (store Store) Syncing() (done func(), ok bool, err error) {
 	return store.lock("sync.lock", false)
 }
+
+// Hold takes a lock of the folder by name, without waiting, for a holder
+// that keeps it for as long as it lives (the helper that syncs on a clock).
+//
+// Returns the function that lets go; ok is false when another process
+// holds it. The lock is let go by the system when the holder ends, however
+// it ends.
+func (store Store) Hold(name string) (release func(), ok bool, err error) {
+	return store.lock(name, false)
+}
+
+// Held says whether a lock of the folder is held by some process now,
+// without ever standing in a holder's way for longer than an instant and
+// without making the folder.
+//
+// It asks for the lock shared: two processes that only look do not see
+// each other as holders.
+func (store Store) Held(name string) bool {
+	file, err := os.OpenFile(store.path(name), os.O_RDWR, 0o644)
+	if err != nil {
+		return false
+	}
+	defer file.Close()
+	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_SH|syscall.LOCK_NB); err != nil {
+		return errors.Is(err, syscall.EWOULDBLOCK)
+	}
+	syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
+	return false
+}
+
+// SyncingNow says whether a sync is running, for a caller that only shows
+// it.
+func (store Store) SyncingNow() bool { return store.Held("sync.lock") }
 
 // SetAside renames a file of the copy out of the way, so that a file that
 // cannot be read is kept for a person to look at and the copy can go on

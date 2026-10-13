@@ -350,6 +350,10 @@ type Tracker struct {
 	// home is the folder the repository's `.beads` folder is in; "" when it
 	// was not said.
 	home string
+	// runs and gits, when not nil, stand in for running bd and git in the
+	// sync (sync.go): for tests.
+	runs func(args []string, long bool) Ran
+	gits func(args []string) (string, bool)
 }
 
 // New builds the beads adapter for one folder.

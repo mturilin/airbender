@@ -189,7 +189,9 @@ func TestBeadsCopyIsRereadBehindACommand(t *testing.T) {
 	starts()
 	// With the reread behind the command allowed: after a change it is
 	// done by a process of its own, and the next read finds a fresh copy.
-	repo.env = append(repo.env, "BEND_NO_BACKGROUND=")
+	// The helper that syncs on a clock is left out: it starts bd too, at
+	// moments of its own.
+	repo.env = append(repo.env, "BEND_NO_BACKGROUND=", "BEND_NO_HELPER=1")
 	repo.ok("edit", id, "--title", "Kept, changed")
 	fresh := false
 	for range 50 {

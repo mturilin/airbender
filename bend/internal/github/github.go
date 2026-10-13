@@ -613,6 +613,12 @@ func (github *adapter) About() tracker.About {
 	}
 }
 
+// SyncedWith is tracker.Remote's: what the issues are synced with, in
+// words for the owner.
+func (github *adapter) SyncedWith() string {
+	return "GitHub issues of " + github.client.Repository()
+}
+
 // As gives the same tracker acting as someone else, for a change that was
 // made as one person and is sent later by a process that names nobody.
 func (github *adapter) As(actor string) tracker.Tracker {

@@ -46,9 +46,10 @@
 import { execFile } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
+import type { SyncEntry, SyncState } from "../sync/types.ts";
 
 /** The bend this plugin needs at least; see `Version` in bend's cli. */
-export const NEEDED_VERSION = 7;
+export const NEEDED_VERSION = 8;
 
 /** How long one run of bend may take. */
 const BEND_TIMEOUT_MS = 60_000;
@@ -59,7 +60,14 @@ const BEND_TIMEOUT_MS = 60_000;
  */
 const BEND_LONG_TIMEOUT_MS = 5 * 60_000;
 /** The commands that get the longer time. */
-const LONG_COMMANDS = ["sync", "list"];
+const LONG_COMMANDS = ["list"];
+/**
+ * Longest a sync may take: longer than the limits bend sets itself (it
+ * ends a tracker's own program after five minutes), so that a sync that
+ * hangs is ended by bend, from the inside, and leaves its entry in the
+ * log; cut off from here it would leave none.
+ */
+const BEND_SYNC_TIMEOUT_MS = 8 * 60_000;
 /** Upper bound on bend's output we are willing to buffer (64 MiB). */
 const BEND_MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
 
@@ -123,19 +131,6 @@ export interface About {
    * afterwards (a hosted tracker), not written straight through (beads).
    */
   queued: boolean;
-}
-
-/** What one `bend sync` did; see SyncResult in bend/internal/kept. */
-export interface BendSync {
-  busy: boolean;
-  sent: number;
-  refused: number;
-  waiting: number;
-  broughtIn: number;
-  full: boolean;
-  problem: string;
-  sentIssues: string[];
-  broughtInIssues: string[];
 }
 
 /** A change the tracker refused for good, as `bend refused` gives it. */
@@ -212,7 +207,26 @@ export class BendFailure extends Error {
  * @throws BendFailure, always: bend's own failure with its kind, "no-bend"
  *   when the program is not there, "not-understood" for anything else.
  */
-export type Run = (args: string[], input?: string) => Promise<unknown>;
+export type Run = (
+  args: string[],
+  input?: string,
+  options?: RunOptions,
+) => Promise<unknown>;
+
+/** How one run of bend is made. */
+export interface RunOptions {
+  /**
+   * The run is not somebody using bend: the plugin reads because it was
+   * told the files changed, not because the owner looked or asked. bend
+   * then does not count it as use, so the helper that syncs on a clock is
+   * neither started nor kept alive by it (bead-bb-c9l.16). Without this a
+   * helper's own sync, which changes the files, would keep it alive for as
+   * long as a tab is open.
+   */
+  passive?: boolean;
+  /** An exit status that is an answer, not a failure: its output is read. */
+  answers?: number;
+}
 
 /**
  * Builds the runner of one bend program for one folder.
@@ -227,17 +241,24 @@ export function createRun(
   path: string,
   env: Record<string, string> = {},
 ): Run {
-  return (args, input) =>
+  return (args, input, options = {}) =>
     new Promise((resolve, reject) => {
       const child = execFile(
         command,
         ["-C", path, "--json", ...args],
         {
-          timeout: LONG_COMMANDS.includes(args[0] ?? "")
-            ? BEND_LONG_TIMEOUT_MS
-            : BEND_TIMEOUT_MS,
+          timeout:
+            args[0] === "sync" && !args.includes("--status") && !args.includes("--log")
+              ? BEND_SYNC_TIMEOUT_MS
+              : LONG_COMMANDS.includes(args[0] ?? "")
+                ? BEND_LONG_TIMEOUT_MS
+                : BEND_TIMEOUT_MS,
           maxBuffer: BEND_MAX_OUTPUT_BYTES,
-          env: { ...process.env, ...env },
+          env: {
+            ...process.env,
+            ...env,
+            ...(options.passive === true ? { BEND_PASSIVE: "1" } : {}),
+          },
         },
         (error, stdout, stderr) => {
           if (error !== null && (error as NodeJS.ErrnoException).code === "ENOENT") {
@@ -257,6 +278,16 @@ export function createRun(
             );
           }
           if (error === null) return resolve(parsed);
+          // A command that did what it was asked and says, by its exit
+          // status too, that the outcome was not good (a sync that
+          // failed): its answer is the answer.
+          if (
+            options.answers !== undefined &&
+            (error as { code?: unknown }).code === options.answers &&
+            (parsed as { ok?: unknown } | null)?.ok !== false
+          ) {
+            return resolve(parsed);
+          }
           const failed = parsed as { kind?: unknown; error?: unknown } | null;
           if (
             typeof failed === "object" &&
@@ -282,7 +313,7 @@ export interface Tracker {
    * @param fresh Have bend reread its copy of the issues from the tracker
    *   first, for when something changed that bend cannot know of.
    */
-  list(fresh?: boolean): Promise<TrackerIssue[]>;
+  list(fresh?: boolean, passive?: boolean): Promise<TrackerIssue[]>;
   show(id: string): Promise<TrackerIssue>;
   comments(id: string): Promise<TrackerComment[]>;
   /** @returns The new issue's id. */
@@ -311,12 +342,25 @@ export interface Tracker {
    */
   unlink(id: string, otherId: string, onlyFrom?: boolean, kind?: string): Promise<void>;
   /**
-   * Sends the waiting changes to a hosted tracker and brings in what
-   * changed there. Never asked of a tracker that queues nothing.
+   * Syncs the issues with their remote now, both ways, and reports the
+   * run. A sync that did not work is an entry, not a rejection; it rejects
+   * where the issues are synced with nothing.
    */
-  sync(): Promise<BendSync>;
-  /** The changes the tracker refused for good, oldest first. */
-  refused(): Promise<RefusedChange[]>;
+  sync(): Promise<SyncEntry>;
+  /**
+   * How the syncing stands; nothing is synced.
+   *
+   * @param passive See RunOptions.
+   */
+  syncState(passive?: boolean): Promise<SyncState>;
+  /** The syncs made, newest first; `failed` for only those that did not work. */
+  syncLog(failed?: boolean): Promise<SyncEntry[]>;
+  /**
+   * The changes the tracker refused for good, oldest first.
+   *
+   * @param passive See RunOptions.
+   */
+  refused(passive?: boolean): Promise<RefusedChange[]>;
   /** Takes a refused change off the list, or puts it back to be sent again. */
   settleRefused(seq: number, again: boolean): Promise<void>;
 }
@@ -332,14 +376,12 @@ export function trackerOver(run: Run): Tracker {
   const option = (name: string, value: string | number | undefined) =>
     value === undefined ? [] : [`--${name}`, `${value}`];
   return {
-    async list(fresh = false) {
-      return (await run([
-        "list",
-        "--status",
-        "all",
-        "--with-body",
-        ...(fresh ? ["--fresh"] : []),
-      ])) as TrackerIssue[];
+    async list(fresh = false, passive = false) {
+      return (await run(
+        ["list", "--status", "all", "--with-body", ...(fresh ? ["--fresh"] : [])],
+        undefined,
+        { passive },
+      )) as TrackerIssue[];
     },
     async show(id) {
       return (await run(["show", "--with-body", "--", id])) as TrackerIssue;
@@ -410,10 +452,18 @@ export function trackerOver(run: Run): Tracker {
       ]);
     },
     async sync() {
-      return (await run(["sync"])) as BendSync;
+      return (await run(["sync"], undefined, { answers: 1 })) as SyncEntry;
     },
-    async refused() {
-      return (await run(["refused"])) as RefusedChange[];
+    async syncState(passive = false) {
+      return (await run(["sync", "--status"], undefined, { passive })) as SyncState;
+    },
+    async syncLog(failed = false) {
+      return (await run(["sync", "--log", ...(failed ? ["--failed"] : [])], undefined, {
+        passive: true,
+      })) as SyncEntry[];
+    },
+    async refused(passive = false) {
+      return (await run(["refused"], undefined, { passive })) as RefusedChange[];
     },
     async settleRefused(seq, again) {
       await run(["refused", again ? "--again" : "--dismiss", `${seq}`]);

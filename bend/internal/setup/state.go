@@ -325,37 +325,10 @@ func mainFolderOf(root string) string {
 }
 
 // remoteState says where a beads repository's issues stand with a remote:
-// "none", beads has no remote for them; "empty", it has one that nothing
-// was ever sent to; "holds", the remote holds them; "unknown", it could not
-// be told now.
+// "none", "empty", "holds" or "unknown"; see the beads adapter's
+// RemoteState, which is the one place that knows how to ask.
 func remoteState(root, bd string) string {
-	listed, ok := quiet(root, 30*time.Second, bd, "dolt", "remote", "list", "--json")
-	if !ok {
-		return "unknown"
-	}
-	var remotes []struct {
-		URL *string `json:"url"`
-	}
-	if json.Unmarshal([]byte(listed), &remotes) != nil {
-		return "unknown"
-	}
-	if len(remotes) == 0 {
-		return "none"
-	}
-	// Beads keeps the issues on a git remote under refs/dolt/data. A remote
-	// that is not a git repository cannot be asked this way: taken as
-	// holding.
-	if remotes[0].URL == nil || !strings.HasPrefix(*remotes[0].URL, "git+") {
-		return "holds"
-	}
-	answer, ok := quiet(root, 30*time.Second, "git", "ls-remote", strings.TrimPrefix(*remotes[0].URL, "git+"), "refs/dolt/data")
-	switch {
-	case !ok:
-		return "unknown"
-	case answer == "":
-		return "empty"
-	}
-	return "holds"
+	return beads.New(root, "", bd).RemoteState()
 }
 
 // Options adjust how the state is read.

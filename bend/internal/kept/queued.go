@@ -583,7 +583,7 @@ func (kept *Tracker) record(one change) error {
 		queue.Changes = append(queue.Changes, one)
 		return kept.store.Write(queueFile, queue)
 	})
-	kept.loaded, kept.wantsReread = false, true
+	kept.loaded, kept.wantsReread, kept.changedHere = false, true, true
 	return err
 }
 

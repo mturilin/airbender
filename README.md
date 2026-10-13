@@ -14,8 +14,8 @@ panel, beside a thread or on the New thread screen.
   `store.ts` holds the issue operations, each one a call on that tracker
   (it keeps no list itself: bend answers from its own copy of the issues);
   `work.ts` moves an issue through its workflow; `autopilot.ts` starts an
-  epic's issues one after another; `sync.ts` joins the issue sync (the `sync/` folder) to the
-  plugin;
+  epic's issues one after another; `sync.ts` reads from bend how the issue sync stands and asks it
+  for a sync;
   `github-comments.ts` copies the comments of imported
   GitHub issues, which beads' own sync leaves behind; `github.ts` lists GitHub issues, open and closed, and
   runs `bd github sync` for the ones chosen in the "Import / export GitHub issues"
@@ -33,15 +33,11 @@ panel, beside a thread or on the New thread screen.
   and `app/use-focus.ts` are epic mode; `app/place.ts` says whether an
   issue belongs to an epic with a branch and whether the folder is on it. Logic without React is
   in `app/issue-model.ts` and `app/quick-tags.ts`.
-- `sync/` — keeping a repository's issues in step with a remote, as a
-  layer of its own that knows neither BB nor one tracker: `types.ts` is
-  what every sync source offers (`SyncSource`) and reports; `service.ts`
-  runs any source one at a time per repository, decides when, and keeps
-  the log; `beads.ts` is the first source (`bd sync`, beads' events
-  journal for what was sent); `bend.ts` is the second, for a hosted
-  tracker whose changes bend queues (GitHub issues): it runs `bend sync`.
-  Which one a folder gets is decided in one function, `sourceFor` in
-  `server/sync.ts`.
+- `sync/types.ts` — the shapes bend reports the syncing of issues in
+  (one sync, the trouble, the helper's state), shared by the server and
+  the tab. Syncing itself is bend's (see "Syncing" under "bend" below);
+  the plugin's side, `server/sync.ts`, only reads bend's answers and
+  starts `bend sync` for the refresh button.
 - `shared/` — what both halves use: `constants.ts` (the values they must
   agree on), `tree.ts` (walking sub-issues), and the workflow:
   `workflow.ts` says what a workflow is, `standard-workflow.ts` is the
@@ -55,8 +51,9 @@ panel, beside a thread or on the New thread screen.
   without knowing which tracker holds them (see "bend" below). It does not
   depend on the plugin or on BB. The tab's backend reads and changes issues
   by running it too, so there is one code path to the tracker; the only
-  `bd` commands in the plugin are the syncing in `sync/` and
-  `server/github.ts`; setting a repository up is `bend setup`.
+  `bd` commands in the plugin are in `server/github.ts` (the "Import /
+  export GitHub issues" window); syncing and setting a repository up are
+  bend's (`bend sync`, `bend setup`).
 - `*.test.ts` — tests for the logic without React or BB; run `npm test`.
   The server's tests build bend from `bend/` first, so they need Go; where
   it is missing they are skipped.
@@ -261,13 +258,12 @@ either; with GitHub issues the beads steps below are not needed, and
    origin as the remote and sends nothing. `bd init` leaves the issue database on this computer
    only (it is not in git); this publishes it to the git remote under
    `refs/dolt/data`, and beads commits the remote into
-   `.beads/config.yaml` by itself. Afterwards Airbender runs `bd sync`
-   itself: every five minutes, two minutes after the issues stop
-   changing, and when you press the refresh button, which also reloads
-   the list. The button turns red when syncing has not worked for more
-   than ten minutes; the "⋯" menu says how the last sync went. One
-   repository is synced by one run at a time (a queue in the plugin, plus
-   the lock file `.beads/airbender-sync.lock`), whichever work tree asks.
+   `.beads/config.yaml` by itself. Afterwards bend syncs the issues
+   by itself, every three minutes while it is in use (see "Syncing"
+   below), and when you press the refresh button, which also reloads the
+   list. When the issues are not being synced, a red bar across the top
+   of the list says so and the button turns red; the "⋯" menu says how
+   the last sync went.
 
 In a fresh clone whose remote already holds the issues, step 2 reads
 **Get this repository's issues** and runs `bd bootstrap --yes` instead.
@@ -403,7 +399,43 @@ sending it and taking it off its list, or if GitHub got the request but its
 answer was lost. For a comment that means the comment appears twice.
 
 `BEND_LIVE=1` makes bend ask GitHub directly for every command, as it used
-to; `BEND_NO_BACKGROUND=1` stops it starting a sync by itself.
+to; `BEND_NO_BACKGROUND=1` stops it starting a sync, or the helper, by
+itself.
+
+### Syncing
+
+bend keeps a repository's issues in step with their remote by itself, for
+every tracker, with or without the tab (bead-bb-c9l.16):
+
+- **`bend sync`** syncs now, both ways, and says how it ended (synced,
+  failed, busy, conflict, stuck), what was sent and what came in; exit
+  status 1 when it did not work. With beads it runs `bd sync`, reads what
+  was sent from beads' events journal, and works out what came in by
+  comparing the issues before and after; with GitHub issues it sends the
+  waiting changes and asks what changed.
+- **`bend sync --status`** syncs nothing: what the issues are synced with,
+  what waits, the last sync, the helper, and what is wrong (`trouble`).
+  **`bend sync --log`** lists the syncs, newest first (`--failed` for only
+  those that did not work). The log is `sync-runs.json` in the copy's
+  folder, so a terminal and the tab read the same one.
+- **The helper** is a process bend starts by itself, one for each copy of
+  a repository's issues, after any command that was run on purpose. It
+  syncs every three minutes and ends when bend has not been used for half
+  an hour, when the bend program is rebuilt, or after three failed syncs
+  in a row. `bend helper` says how it stands; `stop` ends the one running
+  (the next command starts one again), `start` starts one now, `disable`
+  keeps it away in this repository, `enable` allows it again.
+- **The plugin does not sync.** It reads `bend sync --status` and
+  `--log`, starts `bend sync` for the refresh button, and watches the log
+  file so that a sync made anywhere shows in an open tab. A read it makes
+  only because a file changed is run with `BEND_PASSIVE=1`, which bend
+  does not count as being used.
+
+In the code: `bend/internal/tracker/sync.go` is what a tracker's own sync
+says, in common words (`Syncer`); `bend/internal/beads/sync.go` is beads'
+side of it, and the only place that knows `bd sync`; `bend/internal/kept/
+report.go` is the report, the log and the trouble, for every tracker;
+`bend/internal/helper` is the helper, which knows no tracker.
 
 It is the same copy that answers for beads (`bend/internal/kept`), with
 the queued way of writing switched on: the GitHub adapter says its changes
@@ -434,8 +466,9 @@ tracker) and `not-signed-in`; `bend version` gives a number that goes up
 when the commands or the JSON change; `status --quick` asks the tracker
 nothing; `--with-body` adds each issue's description and requirements as
 one text, which `write <id> body` takes back; `edit` adds and removes
-labels and kept data; `sync --json` names the issues it sent and those that
-came in changed; `BEND_BD` names the beads program and `BEND_ACCEPT` the
+labels and kept data; `sync --json` gives one sync as an entry (how it ended, the issues
+it sent and those that came in), `sync --status --json` how the syncing
+stands and what is wrong; `BEND_BD` names the beads program and `BEND_ACCEPT` the
 trackers the caller can work with.
 
 Tests: `cd bend && go test ./...`. They are skipped where `bd` is not
@@ -460,10 +493,9 @@ finds for the folder (bead-bb-c9l.6). It asks bend what the folder has
 and whether changes are queued for a hosted tracker) and follows that:
 
 - the beads program is asked for only where the tracker is beads;
-- where changes are queued (GitHub issues), the tab's timed sync runs
-  `bend sync` through a source of its own (`sync/bend.ts`), the sync log
-  window lists the changes GitHub refused (`bend refused`), and a list is
-  never made to wait for GitHub;
+- where changes are queued (GitHub issues), the sync log window lists
+  the changes GitHub refused (`bend refused`), and a list is never made
+  to wait for GitHub;
 - the link picker offers the tracker's kinds;
 - what an agent is told names `bend` in every repository, beads too
   (bead-bb-c9l.10): the step messages (`shared/standard-workflow.ts`), the

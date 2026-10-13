@@ -160,11 +160,14 @@ export function createStore({
    * Pre-condition: the folder exists (see folders.folderFor).
    * @param fresh Have bend reread its copy from the tracker first: the
    *   owner asked (refresh), or came back to the window.
+   * @param passive The read is not the owner looking or asking: the
+   *   plugin was told the files changed. bend then does not count it as
+   *   being used (see RunOptions in server/bend.ts).
    * @returns The issues, or which of the expected problems occurred.
    * Side effects: one run of bend, shared with any other request for the
    *   same folder that arrives while it runs.
    */
-  function readIssues(path: string, fresh = false): Promise<IssuesRead> {
+  function readIssues(path: string, fresh = false, passive = false): Promise<IssuesRead> {
     const repository = repositoryKey(path);
     const anew = fresh || behind.has(repository);
     // Shared only between requests for the same folder, of the same kind,
@@ -173,7 +176,7 @@ export function createStore({
     const under = reading.get(key);
     if (under !== undefined) return under;
     behind.delete(repository);
-    const read = readFresh(path, anew)
+    const read = readFresh(path, anew, passive)
       .then((result) => {
         // Not reread after all: the mark stands for the next read.
         if (anew && !fresh && result.state !== "ok") behind.add(repository);
@@ -185,18 +188,22 @@ export function createStore({
   }
 
   /** The read itself: one read of the folder's tracker. */
-  async function readFresh(path: string, anew: boolean): Promise<IssuesRead> {
+  async function readFresh(
+    path: string,
+    anew: boolean,
+    passive: boolean,
+  ): Promise<IssuesRead> {
     const found = await trackerFor(path);
     if ("state" in found) return found;
     try {
       // Every issue: the closed ones are shown too. Where changes are
       // queued (a hosted tracker) bend's copy is never reread for a list:
-      // there a reread is a whole sync over the network, which the sync
-      // service runs in its own time, and which would make the list fail
+      // there a reread is a whole sync over the network, which bend runs
+      // in its own time, and which would make the list fail
       // with the network off. The copy already holds every change made
       // through bend.
       const queued = trackers.aboutOf(path)?.queued === true;
-      const issues = await found.tracker.list(anew && !queued);
+      const issues = await found.tracker.list(anew && !queued, passive);
       return { state: "ok", issues: toIssues(issues) };
     } catch (cause) {
       // Named, so that it is logged: a list that cannot be read is worth a
@@ -215,7 +222,7 @@ export function createStore({
    *   changes, and clears a current issue that has been closed.
    */
   async function listIssues(
-    input: FolderRef & { fresh?: boolean },
+    input: FolderRef & { fresh?: boolean; passive?: boolean },
   ): Promise<IssuesResult> {
     const currentBeadId = await currentBead.read(input.threadId);
     const folder = await folderFor(input);
@@ -246,7 +253,7 @@ export function createStore({
       };
     }
     const { path } = folder;
-    const read = await readIssues(path, input.fresh === true);
+    const read = await readIssues(path, input.fresh === true, input.passive === true);
     if (read.state !== "ok") {
       return { state: read.state, path, message: read.message, ...empty };
     }
@@ -761,11 +768,11 @@ export function createStore({
    *   failure to read it must not take the sync's state with it.
    * Side effects: one run of bend, which reads its own files only.
    */
-  async function refusedIn(path: string): Promise<RefusedChange[]> {
+  async function refusedIn(path: string, passive = false): Promise<RefusedChange[]> {
     const found = await trackerFor(path);
     if ("state" in found || trackers.aboutOf(path)?.queued !== true) return [];
     try {
-      return await found.tracker.refused();
+      return await found.tracker.refused(passive);
     } catch {
       return [];
     }

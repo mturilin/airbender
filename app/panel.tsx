@@ -46,6 +46,7 @@ import { MoveIcon, WorkflowProvider } from "./workflow-controls.tsx";
 import { askPanelOnArrival } from "./arrival.ts";
 import { GithubSync } from "./github-sync.tsx";
 import { SyncLog } from "./sync-log.tsx";
+import { SyncTrouble } from "./sync-trouble.tsx";
 import { refreshTip, syncFailing, syncState, useIssueSync } from "./use-issue-sync.ts";
 import { EpicBand, EpicReturn } from "./epic-band.tsx";
 import { useFocus } from "./use-focus.ts";
@@ -84,9 +85,12 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
   const syncStatus = issueSync.status;
   // Why the refresh button is marked as failing; null when it is not.
   const syncProblem =
-    syncStatus === null ? null : syncFailing(syncStatus, Date.now());
+    syncStatus === null ? null : syncFailing(syncStatus);
   // Whether the sync log's window is open.
   const [showingSyncLog, setShowingSyncLog] = useState(false);
+  // Whether the log opens on only the runs that did not work (from the
+  // trouble bar) or on all of them (from the menu).
+  const [syncLogFailed, setSyncLogFailed] = useState(false);
   // Whether the "Sync with GitHub" window is open.
   const [syncingGithub, setSyncingGithub] = useState(false);
   // A warning waiting to be read in its message box; null when none is.
@@ -390,10 +394,11 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
                 where the issues have a remote, syncs with it; the list is
                 reloaded again when the sync ends. Two controls stood here
                 for a day, refresh and a sync mark: they meant nearly the
-                same, looked alike and spun together. Syncing runs every
-                five minutes by itself, so the button says nothing about it
-                unless it has not worked for a while: then it is red, with
-                the reason as its tooltip and the rest in the menu. */}
+                same, looked alike and spun together. bend syncs every
+                few minutes by itself, so the button says nothing about it
+                unless the issues are not being synced: then it is red,
+                with the reason as its tooltip and the rest in the bar
+                below. */}
             <Button
               variant="ghost"
               size="icon"
@@ -451,7 +456,10 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
                   ? undefined
                   : {
                       ...syncState(syncStatus, Date.now()),
-                      onLog: () => setShowingSyncLog(true),
+                      onLog: () => {
+                        setSyncLogFailed(false);
+                        setShowingSyncLog(true);
+                      },
                     }
               }
               onChooseWorkflow={(workflow) => {
@@ -464,6 +472,25 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
               }}
             />
           </div>
+          {/* What is wrong with the syncing of the issues, across the top
+              and not to be put away: a sync that does not work can lose
+              work (bead-bb-c9l.16). */}
+          {ok ? (
+            <SyncTrouble
+              status={syncStatus}
+              now={Date.now()}
+              onSync={() => {
+                issueSync.syncNow().then((message) => {
+                  setActionProblem(message);
+                  issueSync.reload();
+                }, reportProblem);
+              }}
+              onLog={(failed) => {
+                setSyncLogFailed(failed);
+                setShowingSyncLog(true);
+              }}
+            />
+          ) : null}
           {/* Epic mode's band, between the toolbar and Current (the user's
               layout): which epic the list is zoomed in on, and the way
               back out. */}
@@ -758,6 +785,8 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
           remote={syncStatus?.remote ?? null}
           refused={syncStatus?.refused ?? []}
           onSettle={issueSync.settleRefused}
+          helper={syncStatus?.helper ?? null}
+          failedFirst={syncLogFailed}
         />
         <GithubSync
           open={syncingGithub}

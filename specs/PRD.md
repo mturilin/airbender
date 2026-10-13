@@ -160,9 +160,33 @@ When something the panel needs is missing, the panel offers to set it up.
   synced nowhere, the panel says so and offers to sync them to the
   repository's remote; from then on the product keeps them in sync by
   itself. `[0bz]`
-- **Several open panels on the same repository must not sync at the same
-  time**: there is a lock, and syncs of one repository happen one after
-  another. `[0bz]`
+- **Syncing is `bend`'s, for every tracker; the panel only shows it.**
+  `bend` runs the syncs, keeps time, keeps the log and works out what is
+  wrong; the panel shows the state, the log and the trouble, and its
+  refresh button asks `bend` for a sync. A repository is synced the same
+  when it is worked from a plain terminal with no panel open. `[c9l.16]`
+- **`bend` keeps time with a helper process of its own.** Any `bend`
+  command starts it for the repository when it is not running. It syncs
+  every three minutes, and ends by itself when `bend` has not been used
+  for half an hour. `[c9l.16]`
+  - **"Used" means any command run on purpose.** A read the panel makes
+    only because it was told the issues changed does not count.
+  - **`bend helper stop` ends the one that is running**, and nothing more:
+    the next `bend` command starts one again. **`bend helper start`**
+    starts one now. **`bend helper disable`** ends it and keeps it from
+    being started in that repository; **`bend helper enable`** allows it
+    again.
+- **Nothing of one tracker shows above the tracker layer.** What a
+  tracker's own sync has to say is said in common words (is syncing
+  switched on and with what; how one sync ended, what was sent, what came
+  in, or "not known"); the helper, the commands, the log and the panel
+  know nothing else of it. `[c9l.16]`
+- **A sync that does not work is shown prominently**, because it can lose
+  work: a bar across the top of the issue list says what is wrong, for as
+  long as it is wrong, and the sync log can show only the syncs that
+  failed. `[c9l.16]`
+- **Syncs of one repository never run at the same time**, whoever starts
+  them: there is a lock, and they happen one after another. `[0bz]`
 - **On another computer**, a copy of the repository whose issues are on
   the remote is offered them, in place of an empty start. `[0bz]`
 - **Hovering the refresh button shows the time of the last sync and its
@@ -176,10 +200,10 @@ When something the panel needs is missing, the panel offers to set it up.
   does not assume one way of syncing. There will be several, the next for
   GitHub. `[6a9]`
 - **Refresh and sync are one control**: the refresh button. **The issues
-  are synced every five minutes**, so no time is shown. **The button is
-  marked as an error, red, when the sync has been failing and nothing was
-  synced for more than ten minutes.** The rest of the information is in
-  the menu. `[0bz]`
+  are synced by themselves every few minutes**, so no time is shown. **The
+  button is marked as an error, red, when the issues are not being
+  synced.** The rest of the information is in the bar above the list and
+  in the menu. `[0bz]` `[c9l.16]`
 
 ## The groups
 
@@ -837,7 +861,10 @@ panel. `[bwr]`
     the background. Everything is reread once a day.
   - **The copy is kept in the repository's git folder**, shared by all its
     work trees, never committed. It holds issue texts, never the login.
-  - **No background service for now**; a sync can be asked for at any time.
+  - **A change is sent a moment after the command that made it**, and the
+    helper's clock brings in what others changed (see "Keeping the issues
+    on the repository's remote"); a sync can be asked for at any time.
+    `[c9l.16]`
 - **Agents read and change issues with `bend` in every repository**, also
   where the tracker is beads; they do not need to know which tracker a
   repository uses. `[c9l.7]` `[c9l.10]`
@@ -865,8 +892,8 @@ panel. `[bwr]`
   on them. It does so through `bend`'s copy, so it answers at once.
   `[c9l.6]`
   - **It does not ask for the beads program where beads is not used.**
-  - **Its timed sync runs `bend`'s sync** there, and the "Issue sync" row
-    and the sync log say what each sync sent and brought in.
+  - **The "Issue sync" row and the sync log say what each of `bend`'s
+    syncs sent and brought in** there, as on a beads repository.
   - **It shows what waits and what was refused**: an issue with changes
     not yet sent says so, and the changes GitHub refused are listed with
     their issue, what they were, their text and the reason.
@@ -1189,21 +1216,81 @@ breaking a requirement above.
   reason comes first.
 - The sync log: an entry "Sync log…" under the "Issue sync" row; a small
   window, newest first, each sync with its time, what it did, what set it
-  off (every five minutes, after a change here, the tab opened, refresh
-  pressed), how long it took, and the store's own message where it failed.
-  The newest two hundred are kept, per repository, on this computer. Syncs
-  that found nothing new are listed too.
+  off (on the clock, after a change here, the copy was old, asked for),
+  how long it took, and the store's own message where it failed. It lists
+  the syncs of the repository whoever ran them: the panel, a terminal, the
+  helper. A sync that did not work is in red. A switch leaves only those.
+  A line says how the helper stands. The newest two hundred are kept, per
+  repository, with the repository on this computer (in its git folder,
+  never committed). Syncs that found nothing new are listed too; several
+  of them in a row are one line with a count. A sync that found another
+  one running and did nothing is not listed. The log the panel kept before
+  syncing moved to `bend` is not carried over.
+- The sync commands: `bend sync` syncs now and says how it ended, what was
+  sent and what came in, and exits with status 1 when it did not work;
+  `bend sync --status` syncs nothing and says what the issues are synced
+  with, what waits to be sent, how the last sync ended, how the helper
+  stands and what is wrong; `bend sync --log` lists the syncs, with
+  `--failed` only those that did not work. `bend status` also says what is
+  wrong with the syncing, when something is.
+- The helper: one for each copy of a repository's issues, shared by its
+  work trees. It looks every fifteen seconds whether it should end, and
+  syncs when three minutes have passed since its own last try and since
+  the last sync that ended well, by anyone; a sync that failed elsewhere
+  (inside an agent's sandbox, say) does not put it off. Each sync is a
+  `bend sync` of its own. A sync that hangs is ended: the store's own
+  program after five minutes, with everything it started, which leaves a
+  failed entry in the log; the whole sync after seven by the helper, and
+  after eight when the panel asked for it. It also ends when the `bend` program is replaced by another
+  build, when the folder it was started from is gone, and after three
+  syncs in a row failed. After it gave up, none is started by itself for
+  three minutes, twice as long each further time, an hour at most, until a
+  sync works; this holds only for commands run with the same view of the
+  network as the one that gave up, so that a helper that fails inside an
+  agent's sandbox does not keep one from being started outside it, and a
+  running helper that is failing is replaced by one started from another
+  view of the network. It does not sync where the issues are synced with
+  nothing, nor after a conflict or a stuck state, but stays, and takes
+  syncing up again when that changes. Where it cannot be told whether the
+  issues are synced with anything, because the remote is not reached, that
+  counts as a failed sync towards giving up. A stop after a conflict or a
+  stuck state holds until a sync ends well; one that merely fails after it
+  does not lift it. Asking how the helper stands (`bend helper`) and
+  stopping it do not count as `bend` being used, and start none. `BEND_NO_BACKGROUND` set keeps
+  `bend` from starting it (and from syncing behind a command);
+  `BEND_NO_HELPER` keeps it from starting the helper alone.
+- What counts as trouble with the syncing: a conflict or a stuck state, at
+  once; syncs that fail, from the first one where the issues have never
+  synced well from this computer, otherwise once two or more in a row have
+  failed over more than four minutes (a little more than one round of the
+  clock, so that one dropped connection, or a sync that failed inside an
+  agent's sandbox a moment before the helper sent the change, is not
+  called trouble); changes the tracker refused for good; and the helper
+  being disabled. The first three mean the issues are not being synced and
+  are shown in red; the last two in amber.
+- The trouble bar: across the top of the issue list, under the toolbar. It
+  says what is wrong, since when and when the issues were last synced
+  well, what to do, and the tracker's own words from the last sync that
+  failed. "Sync now" is offered for what a sync can mend, and "Show log"
+  opens the sync log, on the failed syncs when the trouble is one. It
+  cannot be put away; it goes when the trouble does. After a failed sync
+  that is not yet called trouble, the panel asks again four and a half
+  minutes later, so that the bar appears when it becomes one. Syncs that
+  fail because the remote is not reached are trouble also where it could
+  never be confirmed what the issues are synced with.
 - Issues count as synced only when the remote really holds them. A
   repository whose issue store names a remote to which nothing was ever
   sent (the store does that by itself when a folder is set up) is treated
   like one with no remote: nothing is synced by itself, and the setup step
   is offered; that step sends the issues first and then syncs. When the
   remote cannot be reached it is neither synced nor offered the step.
-- After a sync that did not work, the wait before the next one by itself
-  doubles each time, up to an hour, and is back to five minutes as soon as
-  one works; pressing refresh always tries at once.
-- A sync set off by a change is not run when nothing was really changed
-  (an agent only read an issue); the five-minute sync always runs.
+- Pressing refresh always tries a sync at once, whatever the helper is
+  doing.
+- With beads, a change is not synced right after the command that made
+  it: the clock sends it, within about three minutes.
+- With beads, what came in is worked out by comparing the issues before
+  and after a sync ("last changed", status, number of comments), less
+  those changed on this computer meanwhile.
 - The state on the "Issue sync" row: "synced 1 minute ago", "syncing…",
   "not synced", "not yet synced from here", "failed", "stopped" or
   "waiting"; a longer message appears under the row only for a folder
@@ -1213,31 +1300,30 @@ breaking a requirement above.
   is synced; changes made before that are not known and not guessed.
 - Refresh and sync as one control: the refresh button reloads the list at
   once and, where the issues have a remote, syncs with it, reloading again
-  when the sync ends; it turns while either goes on. It is red when the
-  latest sync failed and the last good one is more than ten minutes old
-  (or there never was one from this computer), and when syncing has
-  stopped on a conflict; its tooltip then says so in one line. It is not
-  red in a folder whose issues are synced nowhere, nor merely because the
-  app was closed for a while.
+  when the sync ends; it turns while either goes on. It is red exactly
+  when the trouble bar is red; its tooltip then says so in one line. It is
+  not red in a folder whose issues are synced nowhere, nor merely because
+  the app was closed for a while.
 - Keeping the issues on the remote: the step is one of the setup steps,
   "Sync issues to the repository's remote", shown on the setup card like
   the others and in the menu. It asks first, saying that the whole issue
   history is published to the repository's remote, apart from the
   branches, and that the issue store records the remote with a small
-  commit of its own, whose pushing is the owner's. After it the product
+  commit of its own, whose pushing is the owner's. After it `bend`
   syncs (brings in what other computers changed, then sends what changed
-  here) every five minutes while the app runs, about two minutes after
-  the issues stop changing, when the panel is opened and the last sync is
-  more than five minutes old, and when the owner presses refresh. The
+  here) every three minutes while it is in use, and when the owner presses
+  refresh. The
   menu says, on its "Issue sync" row, when the
   issues were last synced, that a sync is under way, or that the last one
   failed and why. One repository's syncs never overlap, whichever of its
-  work trees and however many panels and conversations ask; asking during
-  a sync leads to one more sync after it. A failed sync is tried again at
-  the next occasion. A change made on two computers that cannot be merged
+  work trees and however many panels and conversations ask; a sync asked
+  for during another waits for it and then runs. A failed sync is tried
+  again at the next round. A change made on two computers that cannot be merged
   stops the syncing by itself and is shown with the issue store's message;
   the product does not settle it, and takes syncing up again after a sync
-  the owner asks for succeeds. Syncing happens only while the app runs.
+  the owner asks for succeeds. Syncing by itself happens only while `bend`
+  is in use: with the panel open but untouched for half an hour the helper
+  ends, and what changed elsewhere shows when the panel is next looked at.
   On a copy of the repository with no issues, where the remote has them,
   the setup step reads "Get this repository's issues" and downloads them;
   nothing is published by it.

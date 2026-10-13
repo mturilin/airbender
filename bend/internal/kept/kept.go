@@ -134,6 +134,9 @@ type Tracker struct {
 	state   state
 	// wantsReread says that a reread should follow this command.
 	wantsReread bool
+	// changedHere says a change was made through the copy in this command:
+	// it is what the sync that follows is logged as set off by.
+	changedHere bool
 }
 
 // Options adjust a copy; the zero value is the usual one.
