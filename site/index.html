@@ -1,0 +1,391 @@
+<!doctype html>
+<!--
+  What: the single-page marketing site for Airbender, an open source plugin
+        for the BB coding-agent app.
+  Why:  to get people to install it. The page sells user journeys (what a
+        person does with it and what gets better), not a feature list.
+  Design notes:
+    - Static: this file, styles.css, main.js, fonts/ and img/. No build step, no
+      framework, no third-party request; it can be served from any folder.
+    - The hero shows a real screenshot (img/hero.webp, img/hero.png). The
+      smaller pictures of the product further down are drawn in HTML and
+      CSS, one moment of a journey each. The wording on
+      buttons, steps and status lines is taken from the product's spec
+      (specs/PRD.md in the Airbender repository) and must stay true to it.
+    - The page works without JavaScript: main.js only adds motion, the copy
+      buttons and the workflow demo's interaction.
+  Gotchas:
+    - The repository address and the install command appear in several
+      places; search for "mturilin/airbender" when either changes.
+    - No licence is named anywhere on purpose: the repository has no
+      licence file yet.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Airbender: never get lost in vibe coding</title>
+  <meta name="description" content="Run many coding-agent sessions at once without losing track. Airbender keeps your project's tasks organized right beside every session, so each agent knows what it is on and you always know what is next. Open source.">
+  <meta name="theme-color" content="#0a0a0b">
+  <meta property="og:title" content="Airbender: never get lost in vibe coding">
+  <meta property="og:description" content="Run several agent sessions at once, with tasks organized right beside each one. Always know what comes next.">
+  <meta property="og:type" content="website">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="preload" href="fonts/archivo-var.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+
+  <!-- Top bar: stays in place; gets a background once the page has scrolled (main.js). -->
+  <header class="nav" data-nav>
+    <a class="wordmark" href="#top" aria-label="Airbender, back to top">
+      <svg class="wordmark__glyph" viewBox="0 0 32 32" aria-hidden="true"><path d="M4 23c7 0 9-14 16-14 4 0 6 3 6 6s-2 5-5 5c-2 0-4-1-4-3" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"/></svg>
+      <span>Airbender</span>
+    </a>
+    <nav class="nav__links" aria-label="Sections">
+      <a href="#journeys">Journeys</a>
+      <a href="#workflow">The workflow</a>
+      <a href="#trust">Principles</a>
+      <a href="#install">Install</a>
+    </nav>
+    <a class="btn btn--small btn--ghost" href="https://github.com/mturilin/airbender">GitHub</a>
+  </header>
+
+  <main id="main">
+
+    <!-- ───────────────────────── Hero ───────────────────────── -->
+    <section class="hero" id="top">
+      <div class="hero__copy">
+        <p class="eyebrow"><span class="dot"></span>Open source · a plugin for <a href="https://getbb.app">BB</a></p>
+        <h1 class="display hero__title">
+          <span class="line">Never get</span>
+          <span class="line">lost in</span>
+          <span class="line"><em>vibe coding.</em></span>
+        </h1>
+        <p class="lede">
+          Run several agent sessions at once, with tasks organized right
+          beside each one. Every agent knows what it is on, and you always
+          know what comes next.
+        </p>
+        <div class="hero__cta">
+          <a class="btn btn--volt" href="#install">Install Airbender <span aria-hidden="true">↓</span></a>
+          <a class="btn btn--ghost" href="#journeys">See a day with it</a>
+        </div>
+      </div>
+
+      <!--
+        A real screenshot of BB with the Airbender tab open (img/hero.webp,
+        with img/hero.png for browsers without WebP). Taken at about twice
+        the size it is shown at, so it stays sharp on high-density screens.
+        width and height are the image's own, so the browser keeps its place
+        before it has loaded and the page does not jump.
+      -->
+      <figure class="shot">
+        <picture>
+          <source srcset="img/hero.webp" type="image/webp">
+          <img class="shot__img" src="img/hero.png" width="1962" height="1183" fetchpriority="high"
+            alt="BB with the Airbender tab open. On the left, the list of conversations across several projects. In the middle, an agent working on issue litedraft-ma3.16, at the Define step. On the right, the Airbender tab: the current issue with its step, size, priority, type and category, and the Ready group with an epic of six sub-issues, its description, and buttons to make it current, start it in a worktree, edit it, add a sub-issue, move it and link it.">
+        </picture>
+        <figcaption>The real thing: Airbender in BB, on a live project.</figcaption>
+      </figure>
+    </section>
+
+    <!-- A moving band of the workflow's verbs. Decorative; hidden from screen readers. -->
+    <div class="marquee" aria-hidden="true">
+      <div class="marquee__track">
+        <span>Define</span><i>✳</i><span>Review</span><i>✳</i><span>Plan</span><i>✳</i><span>Approve</span><i>✳</i><span>Build</span><i>✳</i><span>Accept</span><i>✳</i><span>Commit</span><i>✳</i>
+        <span>Define</span><i>✳</i><span>Review</span><i>✳</i><span>Plan</span><i>✳</i><span>Approve</span><i>✳</i><span>Build</span><i>✳</i><span>Accept</span><i>✳</i><span>Commit</span><i>✳</i>
+      </div>
+    </div>
+
+    <!-- ───────────────────────── The problem ───────────────────────── -->
+    <section class="paper problem">
+      <p class="eyebrow eyebrow--ink">The problem</p>
+      <h2 class="display display--md">
+        Your agent got fast.<br>
+        Your process is still <em>a terminal tab and a good memory.</em>
+      </h2>
+      <div class="pains">
+        <article class="pain" data-reveal>
+          <span class="pain__no">01</span>
+          <h3>The work list lives somewhere else.</h3>
+          <p>To see what is next, or to write a thought down, you leave the conversation. So you stop writing things down.</p>
+        </article>
+        <article class="pain" data-reveal>
+          <span class="pain__no">02</span>
+          <h3>The agent decides when it is done.</h3>
+          <p>It builds before you agreed on what to build, and commits before you looked. You find out in the diff.</p>
+        </article>
+        <article class="pain" data-reveal>
+          <span class="pain__no">03</span>
+          <h3>The reasons die with the chat.</h3>
+          <p>What you asked for, what was tried and why it was decided scrolls away. Next week, nobody knows. Including the agent.</p>
+        </article>
+      </div>
+    </section>
+
+    <!-- ───────────────────────── Journeys ───────────────────────── -->
+    <section class="journeys" id="journeys">
+      <header class="section-head">
+        <p class="eyebrow">Six journeys</p>
+        <h2 class="display display--lg">A day with <em>Airbender.</em></h2>
+        <p class="lede">Not a feature list. What you actually do, from the first thought of the morning to the last commit, and what changes at each turn.</p>
+      </header>
+
+      <!-- Journey 1 -->
+      <article class="journey" data-reveal>
+        <div class="journey__text">
+          <span class="journey__no">01 · Capture</span>
+          <h3 class="display display--sm">A thought becomes an issue in <em>one line.</em></h3>
+          <p>You are mid-conversation and notice something else that is broken. The field at the bottom of the tab is always there: type a title, press Enter, keep going. Tags in the title set the type, the priority and the category as you write.</p>
+          <dl class="shift">
+            <div><dt>Before</dt><dd>Switch to a terminal, remember the command, lose your place. Or tell yourself you will remember.</dd></div>
+            <div><dt>With Airbender</dt><dd>One line, without leaving the conversation. A background agent sizes it S, M or L before you ever start it.</dd></div>
+          </dl>
+        </div>
+        <div class="journey__art">
+          <div class="card card--panel">
+            <div class="panel__group">Ready <small>5</small></div>
+            <div class="row row--new">
+              <span class="row__title">Fix login redirect on expired session</span>
+              <span class="row__meta"><span class="chip chip--step">Not started</span><span class="chip">S</span><span class="chip">bug</span><span class="chip">P1</span><span class="chip">ux</span><span class="id">shop-ky8</span></span>
+            </div>
+            <div class="row row--dim"><span class="row__title">Remember the last shipping address</span></div>
+            <div class="typer">
+              <span class="typer__text" data-typer="Fix login redirect on expired session #bug #p1 $ux">Fix login redirect on expired session <b>#bug</b> <b>#p1</b> <b>$ux</b></span><span class="caret" aria-hidden="true"></span>
+              <kbd>Enter ↵</kbd>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <!-- Journey 2: the workflow, with the interactive demo -->
+      <article class="journey journey--wide" id="workflow" data-reveal>
+        <div class="journey__text">
+          <span class="journey__no">02 · Hand off</span>
+          <h3 class="display display--sm">Press play. <em>Keep the wheel.</em></h3>
+          <p>Every issue walks a fixed path, and at each step it waits for exactly one of you. The agent defines, plans, builds and reviews its own work. You approve the definition, the plan and the result. A small icon on every issue says whose move it is, so you never wonder who is waiting for whom.</p>
+          <p>And an issue only takes the steps its size needs. A typo fix reaches you once, at the end. A risky change stops at every turn.</p>
+        </div>
+
+        <div class="demo" data-demo>
+          <div class="demo__top">
+            <div class="sizes" role="group" aria-label="Size of the issue">
+              <span class="sizes__label">Size</span>
+              <button type="button" data-size="s" aria-pressed="false">S</button>
+              <button type="button" data-size="m" aria-pressed="false">M</button>
+              <button type="button" data-size="l" aria-pressed="true">L</button>
+            </div>
+            <p class="demo__size-note" data-size-note>Large, risky or unclear: every step. You review the definition, then the plan, then the result.</p>
+          </div>
+
+          <!-- The path. main.js marks the step in play and dims the steps a size leaves out. -->
+          <ol class="track" data-track>
+            <li data-step="not-started" data-who="you"><button type="button"><span class="track__who">You</span><span class="track__name">Not started</span></button></li>
+            <li data-step="define" data-who="agent"><button type="button"><span class="track__who">Agent</span><span class="track__name">Define</span></button></li>
+            <li data-step="review-definition" data-who="you"><button type="button"><span class="track__who">You</span><span class="track__name">Review definition</span></button></li>
+            <li data-step="plan" data-who="agent"><button type="button"><span class="track__who">Agent</span><span class="track__name">Plan</span></button></li>
+            <li data-step="review-plan" data-who="you"><button type="button"><span class="track__who">You</span><span class="track__name">Review plan</span></button></li>
+            <li data-step="implement" data-who="agent"><button type="button"><span class="track__who">Agent</span><span class="track__name">Implement</span></button></li>
+            <li data-step="agent-review" data-who="agent"><button type="button"><span class="track__who">Agent</span><span class="track__name">Agent review</span></button></li>
+            <li data-step="human-review" data-who="you"><button type="button"><span class="track__who">You</span><span class="track__name">Human review</span></button></li>
+            <li data-step="commit" data-who="agent"><button type="button"><span class="track__who">Agent</span><span class="track__name">Commit</span></button></li>
+          </ol>
+
+          <!-- What you see at the step in play. The text below is the first step's, so the demo reads without JavaScript. -->
+          <div class="demo__screen" aria-live="polite">
+            <div class="msg msg--agent" data-demo-msg>Nothing has happened yet. The issue is one line you typed. Press play and the agent reads it, reads the code it touches, and sizes it.</div>
+            <div class="composer">
+              <div class="statusline">
+                <span class="chip chip--step" data-demo-chip>Not started</span>
+                <span class="id">shop-7h1</span>
+                <span data-demo-ask>Start when you are ready.</span>
+              </div>
+              <div class="composer__box">
+                <span class="composer__hint" data-demo-hint>Your move.</span>
+                <span class="composer__actions" data-demo-actions>
+                  <button type="button" class="mbtn mbtn--main" data-demo-next>▶ Start</button>
+                </span>
+              </div>
+            </div>
+          </div>
+          <p class="demo__foot"><span data-demo-count>You are asked three times on this path.</span> Click the main button, or any step, to walk it.</p>
+        </div>
+      </article>
+
+      <!-- Journey 3 -->
+      <article class="journey journey--flip" data-reveal>
+        <div class="journey__text">
+          <span class="journey__no">03 · Decide</span>
+          <h3 class="display display--sm">The decision sits <em>where you are reading.</em></h3>
+          <p>The agent finishes and says so. Right above the message box, one line tells you which issue this is, which step it is at and what is needed from you. The step's moves are buttons inside the box: approve, or send it back with the reason you just typed.</p>
+          <p>Or simply reply. If your reply asks for changes, the agent moves the issue back to the work. If it is only a question, the issue stays where it is.</p>
+          <dl class="shift">
+            <div><dt>Before</dt><dd>"Looks good, go ahead": and you hope it understood which part.</dd></div>
+            <div><dt>With Airbender</dt><dd>One click that means one thing, recorded on the issue with your reason.</dd></div>
+          </dl>
+        </div>
+        <div class="journey__art">
+          <div class="card">
+            <div class="msg msg--agent">Done and reviewed. Totals are now computed in one place; six tests cover every coupon and shipping combination. I did not check the mobile layout.</div>
+            <div class="composer">
+              <div class="statusline">
+                <span class="chip chip--step">Human review</span>
+                <span class="id">shop-7h1</span>
+                <span>Please review the results and give feedback.</span>
+              </div>
+              <div class="composer__box composer__box--typed">
+                <span>Check the mobile layout too, the total wraps on small screens</span>
+                <span class="composer__actions">
+                  <span class="mbtn">Accept &amp; commit</span>
+                  <span class="mbtn mbtn--main mbtn--pulse">Send back</span>
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <!-- Journey 4 -->
+      <article class="journey" data-reveal>
+        <div class="journey__text">
+          <span class="journey__no">04 · Multiply</span>
+          <h3 class="display display--sm">Three issues. Three work trees. <em>One clean main.</em></h3>
+          <p>One agent on one issue is slow going. "Start in worktree" opens a new conversation for an issue, in a work tree and on a branch of its own, and leaves the conversation you were in alone. Start another. And another.</p>
+          <p>When you accept the work, the agent brings main into its branch, settles any conflict there, lands it and pushes. Then the conversation is archived, the work tree removed and the branch deleted. Nothing is left lying around.</p>
+          <dl class="shift">
+            <div><dt>Before</dt><dd>Stashes, half-named branches, and a folder called <span class="mono">shop-copy-2</span>.</dd></div>
+            <div><dt>With Airbender</dt><dd>One menu entry to start. One button to land. The cleanup is not your job.</dd></div>
+          </dl>
+        </div>
+        <div class="journey__art">
+          <div class="lanes">
+            <div class="lane"><span class="lane__tree">▲</span><div><b>Remember the last shipping address</b><span class="mono">shop-2oy · worktree</span></div><span class="chip chip--step">Implement</span></div>
+            <div class="lane"><span class="lane__tree">▲</span><div><b>Empty cart page has no way back</b><span class="mono">shop-b5o · worktree</span></div><span class="chip chip--step">Human review</span></div>
+            <div class="lane lane--landed"><span class="lane__tree">▲</span><div><b>Cart total wrong with coupon</b><span class="mono">shop-7h1 · landed on main</span></div><span class="chip chip--done">Closed</span></div>
+            <div class="lanes__main"><span class="mono">main</span><i></i></div>
+          </div>
+        </div>
+      </article>
+
+      <!-- Journey 5 -->
+      <article class="journey journey--flip" data-reveal>
+        <div class="journey__text">
+          <span class="journey__no">05 · Go big</span>
+          <h3 class="display display--sm">Take on an epic. <em>Autopilot,</em> with your hands on the reviews.</h3>
+          <p>A migration with fourteen parts. Nest the parts under one issue, by dragging them. Give the whole epic one branch. Zoom in, and the tab shows only that epic.</p>
+          <p>Then switch on Autopilot. The epic's ready issues are started one after another, most urgent first, in the same conversation. Every review is still yours. If an issue gets stuck, it stops and tells you why, instead of digging. When the last one closes: "Close &amp; merge".</p>
+          <dl class="shift">
+            <div><dt>Before</dt><dd>Fourteen times: find the next one, paste the context, press go.</dd></div>
+            <div><dt>With Airbender</dt><dd>You review. That is the whole job.</dd></div>
+          </dl>
+        </div>
+        <div class="journey__art">
+          <div class="card card--panel">
+            <div class="epicband">
+              <span>←</span>
+              <b>Move payments to the new provider</b>
+              <span class="id">shop-ty5</span>
+              <span class="switch" aria-hidden="true"><i></i></span><span class="epicband__auto">Autopilot</span>
+            </div>
+            <div class="panel__toolbar panel__toolbar--sub"><span class="mono">⑂ shop-ty5-move-payments</span></div>
+            <div class="row row--sub row--closed"><span class="row__title">Add the provider's client</span><span class="chip chip--done">Closed</span></div>
+            <div class="row row--sub row--closed"><span class="row__title">Write new charges to both</span><span class="chip chip--done">Closed</span></div>
+            <div class="row row--current"><span class="row__title">Move refunds over</span><span class="row__meta"><span class="chip chip--step">Implement</span><span class="chip">M</span><span class="id">shop-ty5.3</span></span></div>
+            <div class="row row--sub"><span class="row__title">Switch reads to the new provider</span><span class="chip chip--step">Not started</span></div>
+            <div class="row row--sub"><span class="row__title">Remove the old client</span><span class="chip chip--step">Not started</span></div>
+            <div class="progress"><i style="width:40%"></i></div>
+          </div>
+        </div>
+      </article>
+
+      <!-- Journey 6 -->
+      <article class="journey" data-reveal>
+        <div class="journey__text">
+          <span class="journey__no">06 · Remember</span>
+          <h3 class="display display--sm">Chat is lost. <em>The issue is not.</em></h3>
+          <p>Three weeks later somebody asks why refunds go through a queue. The answer is not in a conversation you closed. It is on the issue: what you asked for in your own words, the plan, every decision with its reason, and what was tried and dropped.</p>
+          <p>The issues live inside your repository, kept by <a href="https://github.com/gastownhall/beads">beads</a>, and travel with it to your own git remote. Coming from GitHub Issues? Bring them in, comments and all, and send yours back the other way.</p>
+          <dl class="shift">
+            <div><dt>Before</dt><dd>"I think the agent mentioned it. Scroll up?"</dd></div>
+            <div><dt>With Airbender</dt><dd>One commit per issue, the issue's id in the subject, the reasons one click away.</dd></div>
+          </dl>
+        </div>
+        <div class="journey__art">
+          <div class="card card--record">
+            <div class="record__head"><span class="id">shop-ty5.3</span><b>Move refunds over</b></div>
+            <details open><summary>Description</summary><p>Refunds must keep working during the switch. "I do not want a single refund lost, even if it is slow."</p></details>
+            <details open><summary>Design</summary><p>Refunds go through a queue and are retried. Rejected: calling both providers directly, which loses a refund if one call fails.</p></details>
+            <details open><summary>Decisions <small>2</small></summary><p><b>Queue, not direct calls.</b> A lost refund costs more than a slow one.</p></details>
+            <div class="commit mono"><span>a65fef0</span> shop-ty5.3: Move refunds over</div>
+          </div>
+        </div>
+      </article>
+    </section>
+
+    <!-- ───────────────────────── Principles ───────────────────────── -->
+    <section class="paper trust" id="trust">
+      <p class="eyebrow eyebrow--ink">What it refuses to be</p>
+      <h2 class="display display--lg">Opinionated.<br><em>On purpose.</em></h2>
+      <ul class="nots">
+        <li data-reveal><h3><s>An auto-closer.</s></h3><p>No issue closes without you: by your acceptance, or by your cancelling it. The agent commits only after you accepted and chose how.</p></li>
+        <li data-reveal><h3><s>A second tracker.</s></h3><p>Issues stay in beads, in your repository. The tab shows and changes them there. Change one in a terminal and the tab follows by itself.</p></li>
+        <li data-reveal><h3><s>A git tool.</s></h3><p>The plugin never commits. It asks your agent to, in the conversation, where you can see it happen.</p></li>
+        <li data-reveal><h3><s>A cloud service.</s></h3><p>There is no Airbender server. Your issues are in your repository and on your own git remote, nowhere else.</p></li>
+        <li data-reveal><h3><s>A cage.</s></h3><p>Too much ceremony for this repository? Switch it to Simple: no steps at all. Make current, release, close. Switch back and every issue is where it was.</p></li>
+        <li data-reveal><h3><s>A guessing machine.</s></h3><p>Open questions come first. Being started on an issue is not permission to assume the answers: the agent asks, and waits.</p></li>
+      </ul>
+    </section>
+
+    <!-- ───────────────────────── For agents: bend ───────────────────────── -->
+    <section class="bend">
+      <div class="bend__text">
+        <p class="eyebrow">For the agents</p>
+        <h2 class="display display--md">They get a tool <em>too.</em></h2>
+        <p class="lede"><span class="mono">bend</span> is a small command agents use to read and change issues: list what is ready, write a plan, record a decision and its reason, hand work over to you. It works the same whatever tracker holds the issues, and it does not need the app at all.</p>
+      </div>
+      <pre class="term" aria-label="Example of the bend command"><code><span class="t-dim">$</span> bend ready
+<span class="t-dim">shop-2oy  P2  S  Remember the last shipping address
+shop-b5o  P2  S  Empty cart page has no way back</span>
+
+<span class="t-dim">$</span> bend decide shop-ty5.3 <span class="t-volt">"Queue, not direct calls:
+  a lost refund costs more than a slow one"</span>
+
+<span class="t-dim">$</span> bend handover shop-ty5.3 \
+    --done <span class="t-volt">"Refunds go through the queue"</span> \
+    --checked <span class="t-volt">"Retry, duplicate and timeout tests"</span> \
+    --not-checked <span class="t-volt">"The provider's sandbox was down"</span></code></pre>
+    </section>
+
+    <!-- ───────────────────────── Install ───────────────────────── -->
+    <section class="install" id="install">
+      <p class="eyebrow">Two minutes</p>
+      <h2 class="display display--xl">Bend the work.<br><em>Keep the call.</em></h2>
+
+      <div class="install__cmd">
+        <code data-copy-source>bb plugin install https://github.com/mturilin/airbender</code>
+        <button type="button" class="btn btn--volt btn--small" data-copy>Copy</button>
+      </div>
+
+      <ol class="steps">
+        <li><span>1</span><div><h3>Install the plugin</h3><p>Run the line above where <a href="https://getbb.app">BB</a> is installed (version 0.44 or later).</p></div></li>
+        <li><span>2</span><div><h3>Open the tab</h3><p>In any conversation: right-hand panel, new tab, <b>Airbender</b>.</p></div></li>
+        <li><span>3</span><div><h3>Say yes to setup</h3><p>Whatever the folder is missing, the tab offers: the beads tracker, the folder's issue store, the rules for your agent. Each runs in a terminal you can watch, and each has a Skip.</p></div></li>
+      </ol>
+
+      <div class="install__cta">
+        <a class="btn btn--volt btn--big" href="https://github.com/mturilin/airbender">Get Airbender on GitHub <span aria-hidden="true">↗</span></a>
+        <p>Open source. Works with Claude Code and Codex inside BB.<br>Prefer to build it yourself? <span class="mono">git clone</span>, <span class="mono">npm install</span>, <span class="mono">bb plugin build</span>, <span class="mono">bb plugin install .</span></p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <a class="wordmark" href="#top"><svg class="wordmark__glyph" viewBox="0 0 32 32" aria-hidden="true"><path d="M4 23c7 0 9-14 16-14 4 0 6 3 6 6s-2 5-5 5c-2 0-4-1-4-3" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"/></svg><span>Airbender</span></a>
+    <p>Issues by <a href="https://github.com/gastownhall/beads">beads</a>. Runs in <a href="https://getbb.app">BB</a>. Source on <a href="https://github.com/mturilin/airbender">GitHub</a>.</p>
+  </footer>
+
+  <script src="main.js" defer></script>
+</body>
+</html>

@@ -1,0 +1,50 @@
+# What: publishes the folder site/ as this repository's GitHub Pages site.
+# Why:  GitHub Pages can serve a folder straight from a branch only when it
+#       is the repository's root or is called docs/. The site lives in
+#       site/, so it is published by this workflow instead.
+# Design notes:
+#   - Runs only when something under site/ (or this file) changes on main,
+#     so ordinary plugin commits do not redeploy the site.
+#   - The site is static and has no build step: the folder is uploaded as
+#     it is.
+# Gotchas:
+#   - It deploys nothing until Pages is switched on for the repository with
+#     "GitHub Actions" as its source (Settings, Pages, Build and deployment).
+#   - Every commit here is pushed by the post-commit hook, so a commit that
+#     touches site/ goes live a minute or two later.
+name: Publish the site
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - ".github/workflows/site.yml"
+  # Lets the site be published by hand from the Actions tab.
+  workflow_dispatch:
+
+# What the deployment needs, and nothing else.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time; a newer one waits for the one under way to finish.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deployment
+        uses: actions/deploy-pages@v4
