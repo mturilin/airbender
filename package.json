@@ -8,7 +8,7 @@
   },
   "bb": {
     "name": "Airbender",
-    "description": "See the beads issues of the folder a thread works in, in a tab beside the conversation.",
+    "description": "Your project's issues, in beads or GitHub issues, in a tab beside every agent conversation, so each agent knows what it is on and you know what comes next.",
     "branding": {
       "icon": "ListTodo"
     },
