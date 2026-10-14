@@ -46,10 +46,11 @@
     <nav class="nav__links" aria-label="Sections">
       <a href="#journeys">Journeys</a>
       <a href="#workflow">The workflow</a>
-      <a href="#trust">Principles</a>
-      <a href="#install">Install</a>
+      <a href="#trackers">Trackers</a>
+      <a href="https://github.com/mturilin/airbender">GitHub</a>
     </nav>
-    <a class="btn btn--small btn--ghost" href="https://github.com/mturilin/airbender">GitHub</a>
+    <!-- The one button in the top bar is the page's main action. -->
+    <a class="btn btn--small btn--volt" href="#install">Install</a>
   </header>
 
   <main id="main">
@@ -57,7 +58,7 @@
     <!-- ───────────────────────── Hero ───────────────────────── -->
     <section class="hero" id="top">
       <div class="hero__copy">
-        <p class="eyebrow"><span class="dot"></span>Open source · a plugin for <a href="https://getbb.app">BB</a></p>
+        <p class="eyebrow"><span class="dot"></span>Open source · for <a href="https://getbb.app">BB</a> · beads or GitHub issues</p>
         <h1 class="display hero__title">
           <span class="line">Never get</span>
           <span class="line">lost in</span>
@@ -258,6 +259,7 @@
             <div><dt>Before</dt><dd>Stashes, half-named branches, and a folder called <span class="mono">shop-copy-2</span>.</dd></div>
             <div><dt>With Airbender</dt><dd>One menu entry to start. One button to land. The cleanup is not your job.</dd></div>
           </dl>
+          <a class="journey__note" href="#trackers">Best on beads: built for many agents writing at once →</a>
         </div>
         <div class="journey__art">
           <div class="lanes">
@@ -280,6 +282,7 @@
             <div><dt>Before</dt><dd>Fourteen times: find the next one, paste the context, press go.</dd></div>
             <div><dt>With Airbender</dt><dd>You review. That is the whole job.</dd></div>
           </dl>
+          <a class="journey__note" href="#trackers">Best on beads: no request limits, however fast the epic moves →</a>
         </div>
         <div class="journey__art">
           <div class="card card--panel">
@@ -306,7 +309,7 @@
           <span class="journey__no">06 · Remember</span>
           <h3 class="display display--sm">Chat is lost. <em>The issue is not.</em></h3>
           <p>Three weeks later somebody asks why refunds go through a queue. The answer is not in a conversation you closed. It is on the issue: what you asked for in your own words, the plan, every decision with its reason, and what was tried and dropped.</p>
-          <p>The issues live inside your repository, kept by <a href="https://github.com/gastownhall/beads">beads</a>, and travel with it to your own git remote. Coming from GitHub Issues? Bring them in, comments and all, and send yours back the other way.</p>
+          <p>The issues live in your tracker, not in the chat: in <a href="https://github.com/gastownhall/beads">beads</a>, inside your repository, or in GitHub issues. Coming from GitHub issues with a backlog? Bring it in, comments and all.</p>
           <dl class="shift">
             <div><dt>Before</dt><dd>"I think the agent mentioned it. Scroll up?"</dd></div>
             <div><dt>With Airbender</dt><dd>One commit per issue, the issue's id in the subject, the reasons one click away.</dd></div>
@@ -324,18 +327,40 @@
       </article>
     </section>
 
-    <!-- ───────────────────────── Principles ───────────────────────── -->
-    <section class="paper trust" id="trust">
-      <p class="eyebrow eyebrow--ink">What it refuses to be</p>
-      <h2 class="display display--lg">Opinionated.<br><em>On purpose.</em></h2>
-      <ul class="nots">
-        <li data-reveal><h3><s>An auto-closer.</s></h3><p>No issue closes without you: by your acceptance, or by your cancelling it. The agent commits only after you accepted and chose how.</p></li>
-        <li data-reveal><h3><s>A second tracker.</s></h3><p>Issues stay in beads, in your repository. The tab shows and changes them there. Change one in a terminal and the tab follows by itself.</p></li>
-        <li data-reveal><h3><s>A git tool.</s></h3><p>The plugin never commits. It asks your agent to, in the conversation, where you can see it happen.</p></li>
-        <li data-reveal><h3><s>A cloud service.</s></h3><p>There is no Airbender server. Your issues are in your repository and on your own git remote, nowhere else.</p></li>
-        <li data-reveal><h3><s>A cage.</s></h3><p>Too much ceremony for this repository? Switch it to Simple: no steps at all. Make current, release, close. Switch back and every issue is where it was.</p></li>
-        <li data-reveal><h3><s>A guessing machine.</s></h3><p>Open questions come first. Being started on an issue is not permission to assume the answers: the agent asks, and waits.</p></li>
-      </ul>
+    <!-- ───────────────────────── Trackers ─────────────────────────
+         The two trackers Airbender works on, and which job each is for:
+         beads for many agents at once, GitHub issues for projects that
+         move at human pace. The owner's positioning; keep it that way. -->
+    <section class="engines" id="trackers">
+      <header class="section-head">
+        <p class="eyebrow">Two trackers</p>
+        <h2 class="display display--lg">Two engines. <em>Pick your speed.</em></h2>
+      </header>
+      <div class="engines__grid">
+        <article class="engine engine--fast" data-reveal>
+          <p class="engine__tag">For swarms</p>
+          <h3 class="engine__name">beads</h3>
+          <p>Built for many agents at once. Issues live in a fast local database inside your repository, so every read and every change is instant: no network round trip, no request limits, no server to wait on.</p>
+          <ul>
+            <li>Ten sessions in ten work trees</li>
+            <li>An epic on Autopilot</li>
+            <li>Agents filing what they discover as they go</li>
+            <li>Synced to your own git remote</li>
+          </ul>
+        </article>
+        <article class="engine" data-reveal>
+          <p class="engine__tag">For the slow-moving stuff</p>
+          <h3 class="engine__name">GitHub issues</h3>
+          <p>For projects that move at human pace. Your issues stay where everyone already looks. Airbender keeps a local copy so the tab stays fast, but every new issue and every step change goes through GitHub, and GitHub's request limits apply. Fine for a couple of sessions, not for a swarm.</p>
+          <ul>
+            <li>An open source backlog</li>
+            <li>A team that lives on GitHub</li>
+            <li>Issues other people file and follow</li>
+            <li>No new tool to adopt</li>
+          </ul>
+        </article>
+      </div>
+      <p class="engines__switch">Start on either. Switch at any time, both ways: your issues come with you.</p>
     </section>
 
     <!-- ───────────────────────── For agents: bend ───────────────────────── -->
@@ -363,19 +388,20 @@ shop-b5o  P2  S  Empty cart page has no way back</span>
       <p class="eyebrow">Two minutes</p>
       <h2 class="display display--xl">Bend the work.<br><em>Keep the call.</em></h2>
 
+      <!-- The page's main action: the install command and its copy button. -->
       <div class="install__cmd">
         <code data-copy-source>bb plugin install https://github.com/mturilin/airbender</code>
-        <button type="button" class="btn btn--volt btn--small" data-copy>Copy</button>
+        <button type="button" class="btn btn--volt btn--big" data-copy>Copy install command</button>
       </div>
 
       <ol class="steps">
         <li><span>1</span><div><h3>Install the plugin</h3><p>Run the line above where <a href="https://getbb.app">BB</a> is installed (version 0.44 or later).</p></div></li>
         <li><span>2</span><div><h3>Open the tab</h3><p>In any conversation: right-hand panel, new tab, <b>Airbender</b>.</p></div></li>
-        <li><span>3</span><div><h3>Say yes to setup</h3><p>Whatever the folder is missing, the tab offers: the beads tracker, the folder's issue store, the rules for your agent. Each runs in a terminal you can watch, and each has a Skip.</p></div></li>
+        <li><span>3</span><div><h3>Pick a tracker, say yes to setup</h3><p>beads or GitHub issues. Then the tab offers whatever the folder is missing: the tracker's program, the issue store, the rules for your agent. Each step can be watched, and each has a Skip.</p></div></li>
       </ol>
 
       <div class="install__cta">
-        <a class="btn btn--volt btn--big" href="https://github.com/mturilin/airbender">Get Airbender on GitHub <span aria-hidden="true">↗</span></a>
+        <a class="btn btn--ghost btn--small" href="https://github.com/mturilin/airbender">Source on GitHub <span aria-hidden="true">↗</span></a>
         <p>Open source. Works with Claude Code and Codex inside BB.<br>Prefer to build it yourself? <span class="mono">git clone</span>, <span class="mono">npm install</span>, <span class="mono">bb plugin build</span>, <span class="mono">bb plugin install .</span></p>
       </div>
     </section>
@@ -383,7 +409,7 @@ shop-b5o  P2  S  Empty cart page has no way back</span>
 
   <footer class="footer">
     <a class="wordmark" href="#top"><svg class="wordmark__glyph" viewBox="0 0 32 32" aria-hidden="true"><path d="M4 23c7 0 9-14 16-14 4 0 6 3 6 6s-2 5-5 5c-2 0-4-1-4-3" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"/></svg><span>Airbender</span></a>
-    <p>Issues by <a href="https://github.com/gastownhall/beads">beads</a>. Runs in <a href="https://getbb.app">BB</a>. Source on <a href="https://github.com/mturilin/airbender">GitHub</a>.</p>
+    <p>Issues in <a href="https://github.com/gastownhall/beads">beads</a> or GitHub issues. Runs in <a href="https://getbb.app">BB</a>. Source on <a href="https://github.com/mturilin/airbender">GitHub</a>.</p>
   </footer>
 
   <script src="main.js" defer></script>

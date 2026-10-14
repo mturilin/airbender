@@ -103,6 +103,8 @@ if (typer && !reducedMotion) {
 const copyButton = document.querySelector("[data-copy]");
 const copySource = document.querySelector("[data-copy-source]");
 if (copyButton && copySource) {
+  // The label in the HTML, put back after "Copied", whatever it says.
+  const label = copyButton.textContent;
   copyButton.addEventListener("click", async () => {
     try {
       await navigator.clipboard.writeText(copySource.textContent.trim());
@@ -111,7 +113,7 @@ if (copyButton && copySource) {
       window.getSelection().selectAllChildren(copySource);
       copyButton.textContent = "Selected";
     }
-    setTimeout(() => (copyButton.textContent = "Copy"), 2000);
+    setTimeout(() => (copyButton.textContent = label), 2000);
   });
 }
 
