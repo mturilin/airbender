@@ -141,6 +141,12 @@ every tracker, with or without the tab (bead-bb-c9l.16):
   was sent from beads' events journal, and works out what came in by
   comparing the issues before and after; with GitHub issues it sends the
   waiting changes and asks what changed.
+- **No `__dolt_remote_info__` branch.** When beads pushes, the Dolt inside
+  it also force-pushes a one-file branch of that name, which GitHub then
+  shows as "had recent pushes" after every sync. bend switches it off for
+  every bd it starts, the setup steps' included (`DOLT_REMOTE_INFO_BRANCH`
+  set and empty; a value you set yourself is kept). A `bd` typed in a terminal is not covered: set the
+  same variable in your own environment (bead-bb-7lb).
 - **`bend sync --status`** syncs nothing: what the issues are synced with,
   what waits, the last sync, the helper, and what is wrong (`trouble`).
   **`bend sync --log`** lists the syncs, newest first (`--failed` for only

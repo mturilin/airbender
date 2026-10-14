@@ -220,6 +220,7 @@ func run(dir string, limit time.Duration, program string, args ...string) Ran {
 	defer cancel()
 	command := exec.CommandContext(ctx, program, args...)
 	command.Dir = dir
+	command.Env = Environment()
 	var stdout, stderr bytes.Buffer
 	command.Stdout, command.Stderr = &stdout, &stderr
 	// A group of its own, ended whole when the limit passes: the program

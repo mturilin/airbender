@@ -160,6 +160,9 @@ When something the panel needs is missing, the panel offers to set it up.
   synced nowhere, the panel says so and offers to sync them to the
   repository's remote; from then on the product keeps them in sync by
   itself. `[0bz]`
+- **Syncing leaves no branch of its own on the remote.** The issues go to
+  the remote under a ref of their own, and nothing a sync does shows up on
+  the remote as a branch or a "recent pushes" notice. `[7lb]`
 - **Syncing is `bend`'s, for every tracker; the panel only shows it.**
   `bend` runs the syncs, keeps time, keeps the log and works out what is
   wrong; the panel shows the state, the log and the trouble, and its

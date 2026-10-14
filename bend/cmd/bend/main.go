@@ -21,6 +21,7 @@ import (
 	"os"
 	"os/exec"
 
+	"github.com/mturilin/airbender/bend/internal/beads"
 	"github.com/mturilin/airbender/bend/internal/cli"
 )
 
@@ -65,6 +66,10 @@ func main() {
 		Attach: func(dir string, keyboard bool, name string, args ...string) int {
 			command := exec.Command(name, args...)
 			command.Dir = dir
+			// The setup steps start bd this way (bd init, bd dolt push, bd sync):
+			// the same environment the adapter gives it, so that a first
+			// publish leaves no info branch either (bead-bb-7lb).
+			command.Env = beads.Environment()
 			// Without a keyboard its standard input stays nothing.
 			if keyboard {
 				command.Stdin = os.Stdin

@@ -421,6 +421,7 @@ func (beads *Tracker) bd(args []string, input *string) (string, error) {
 	defer cancel()
 	command := exec.CommandContext(ctx, beads.command, args...)
 	command.Dir = beads.dir
+	command.Env = Environment()
 	var stdout, stderr bytes.Buffer
 	command.Stdout = &stdout
 	command.Stderr = &stderr
@@ -1016,3 +1017,30 @@ func (beads *Tracker) Unlink(id, otherID string, options tracker.UnlinkOptions) 
 	}
 	return nil
 }
+
+// Environment is the environment every bd gets: this process's own, plus
+// one setting for the Dolt inside bd. Exported for the setup steps, which
+// start bd through a terminal of their own.
+//
+// Why: when bd pushes the issues to a git remote, Dolt also force-pushes a
+// one-file branch, `__dolt_remote_info__`, after every successful write (a
+// note saying the repository is a Dolt remote, with the head and a time).
+// Dolt never reads it, but GitHub shows a "had recent pushes" banner for a
+// branch pushed in the last hours, and bend syncs every few minutes, so the
+// banner never left (bead-bb-7lb). Dolt reads DOLT_REMOTE_INFO_BRANCH: set
+// but empty means no such branch. Set here, so that every bd that bend
+// starts, and the bd of a sync the helper starts through bend, has it; a
+// bd typed by hand in a terminal is not covered.
+//
+// A value the owner set themselves is left alone: Dolt treats any name as
+// the branch to use, and that is their choice.
+func Environment() []string {
+	if _, set := os.LookupEnv(doltInfoBranchVar); set {
+		return os.Environ()
+	}
+	return append(os.Environ(), doltInfoBranchVar+"=")
+}
+
+// doltInfoBranchVar is the variable Dolt reads for the name of its info
+// branch (dolthub/dolt, go/store/blobstore/git_refs.go).
+const doltInfoBranchVar = "DOLT_REMOTE_INFO_BRANCH"
