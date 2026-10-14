@@ -146,7 +146,13 @@ export function createSetup({
   folders,
   store,
   bendIn,
+  trackerChanged = () => {},
 }: {
+  /**
+   * Told the folder when a step may have changed which tracker it has, so
+   * that nothing remembered about the old one is used again.
+   */
+  trackerChanged?: (path: string) => void;
   bb: BbPluginApi;
   folders: Folders;
   store: Store;
@@ -481,6 +487,7 @@ export function createSetup({
         return { message: reasonOf(cause) };
       } finally {
         forget(path);
+        trackerChanged(path);
         store.stale(path);
         bb.realtime.publish(CHANGED_CHANNEL, { path });
       }

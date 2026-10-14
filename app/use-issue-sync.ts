@@ -110,7 +110,7 @@ export function syncDid(entry: SyncEntry, withIds = true): string {
 }
 
 /**
- * The state for the menu's "Issue sync" row, in a word or two at the right
+ * The state for the menu's "Sync log…" row, in a word or two at the right
  * like a setup step's "done", with a longer message for under the row when
  * there is something to read (a failure's own words).
  */

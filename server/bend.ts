@@ -226,6 +226,8 @@ export interface RunOptions {
   passive?: boolean;
   /** An exit status that is an answer, not a failure: its output is read. */
   answers?: number;
+  /** Added to the environment of this run only. */
+  env?: Record<string, string>;
 }
 
 /**
@@ -257,6 +259,7 @@ export function createRun(
           env: {
             ...process.env,
             ...env,
+            ...(options.env ?? {}),
             ...(options.passive === true ? { BEND_PASSIVE: "1" } : {}),
           },
         },
@@ -682,6 +685,10 @@ export function createTrackers({
     let watch: Watched = { copy: null, sign: null };
     let about: About;
     let root = path;
+    // How the choice stood before bend was asked: if the tracker is
+    // switched while bend answers, what is remembered below is the old
+    // tracker under the old mark, and the next look asks again.
+    const before = chosenIn(ready?.root ?? path);
     try {
       // The quick form asks the tracker nothing: it says which tracker the
       // folder has, or fails saying that it has none.
@@ -724,7 +731,7 @@ export function createTrackers({
       watch,
       about,
       root,
-      chosen: chosenIn(root),
+      chosen: root === (ready?.root ?? path) ? before : chosenIn(root),
     };
     known.set(path, found);
     return { tracker: found.tracker };
@@ -751,7 +758,30 @@ export function createTrackers({
     known.delete(path);
   };
 
-  return { trackerFor, bendIn, problem, watchOf, aboutOf, forget };
+  /**
+   * The issues the folder has in beads, whichever tracker the repository
+   * is on: for working out what a switch of tracker would copy
+   * (bead-bb-c9l.18), where both sides have to be seen at once.
+   *
+   * @returns The issues; null when the folder has no beads database, or
+   *   bend or beads could not be run.
+   * Side effects: one run of bend, told to accept beads only, which is not
+   *   counted as bend being used.
+   */
+  async function beadsIssues(path: string): Promise<TrackerIssue[] | null> {
+    const bend = await bendIn(path);
+    if ("state" in bend) return null;
+    try {
+      return (await bend.run(["list", "--status", "all"], undefined, {
+        env: { BEND_ACCEPT: "beads" },
+        passive: true,
+      })) as TrackerIssue[];
+    } catch {
+      return null;
+    }
+  }
+
+  return { trackerFor, bendIn, problem, watchOf, aboutOf, forget, beadsIssues };
 }
 
 /** What createTrackers returns; handed to the store and to setup. */

@@ -275,12 +275,14 @@ export default async function plugin(bb: BbPluginApi) {
     folders,
     store,
     bendIn: trackers.bendIn,
+    trackerChanged: trackers.forget,
   });
   const github = createGithub({
     bb,
     folders,
     store,
     readToken: async () => (await settings.get()).githubToken ?? "",
+    readBeads: trackers.beadsIssues,
   });
 
   // Every handler is one call into a module: what each does, and how it
@@ -367,6 +369,7 @@ export default async function plugin(bb: BbPluginApi) {
     },
     github_issues: (input) => github.issues(input),
     github_sync: (input) => github.sync(input),
+    tracker_switch_preview: (input) => github.switchPreview(input, input.to),
     github_sync_progress: async (input) => github.progress(input),
     issue_set_size: (input) => work.resize(input),
     issue_request_sizing: async (input) => {

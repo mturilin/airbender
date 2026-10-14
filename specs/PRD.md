@@ -191,11 +191,13 @@ When something the panel needs is missing, the panel offers to set it up.
   the remote is offered them, in place of an empty start. `[0bz]`
 - **Hovering the refresh button shows the time of the last sync and its
   result**, for example whether it was one issue's update. `[6a9]`
-- **In the menu, "Issue sync" and its state are on the same line**, like a
-  setup step and its "installed": issue sync, synced one minute ago.
-  `[6a9]`
 - **The menu has a sync log**: a small window with all the syncs and what
   each did, for troubleshooting. `[6a9]`
+- **In the menu, the sync log and the sync's state are one line**: "Sync
+  log…" with the state at its right, as a setup step has its "installed":
+  synced one minute ago. `[6a9]` `[c9l.18]`
+- **That line is the menu's second**, right under the line that names the
+  tracker. `[c9l.18]`
 - **The syncing is a part of its own that can be replaced**: the panel
   does not assume one way of syncing. There will be several, the next for
   GitHub. `[6a9]`
@@ -892,7 +894,7 @@ panel. `[bwr]`
   on them. It does so through `bend`'s copy, so it answers at once.
   `[c9l.6]`
   - **It does not ask for the beads program where beads is not used.**
-  - **The "Issue sync" row and the sync log say what each of `bend`'s
+  - **The "Sync log…" row and the sync log say what each of `bend`'s
     syncs sent and brought in** there, as on a beads repository.
   - **It shows what waits and what was refused**: an issue with changes
     not yet sent says so, and the changes GitHub refused are listed with
@@ -901,8 +903,17 @@ panel. `[bwr]`
     only the name of one tracker.
   - **The menu says which tracker the project uses**, as its first line,
     above the workflow choice, with a small icon: "This project uses
-    GitHub issues" or "This project uses beads issues". It only informs;
-    the toolbar does not name the tracker. `[c9l.21]`
+    GitHub issues" or "This project uses beads issues". The toolbar does
+    not name the tracker. `[c9l.21]`
+  - **The tracker is switched in that same spot**, between beads and
+    GitHub issues, either way. `[c9l.18]`
+    - **The window says what it will do, and does not ask how**: how many
+      issues that exist only in the tracker in use will be created in the
+      other, how many that are on both sides already will be brought up to
+      date, and what stays where it is. Then it does it.
+    - **The copying is that of "Import / export GitHub issues".**
+    - **After switching back, the issues of the first tracker are there
+      as before.**
   - **The menu's setup steps are folded away** under one row that opens
     them, since they are not needed all the time. `[c9l.21]`
   - **What an agent is told there names `bend`, not `bd`**: the message
@@ -1214,7 +1225,8 @@ breaking a requirement above.
   ended. The refresh button's tooltip is one line: what the button does,
   then "Last sync 1 minute ago:" and that; when the button is red the
   reason comes first.
-- The sync log: an entry "Sync log…" under the "Issue sync" row; a small
+- The sync log: the menu's row "Sync log…", which also shows the sync's
+  state; a small
   window, newest first, each sync with its time, what it did, what set it
   off (on the clock, after a change here, the copy was old, asked for),
   how long it took, and the store's own message where it failed. It lists
@@ -1291,13 +1303,47 @@ breaking a requirement above.
 - With beads, what came in is worked out by comparing the issues before
   and after a sync ("last changed", status, number of comments), less
   those changed on this computer meanwhile.
-- The state on the "Issue sync" row: "synced 1 minute ago", "syncing…",
+- The state on the "Sync log…" row: "synced 1 minute ago", "syncing…",
   "not synced", "not yet synced from here", "failed", "stopped" or
   "waiting"; a longer message appears under the row only for a folder
   synced with nothing, a failure or a stop.
 - With beads as the store, what was sent is read from beads' own journal
   of changes, which is switched on for the repository the first time it
   is synced; changes made before that are not known and not guessed.
+- Switching the tracker: a "Switch…" control at the right of the menu's
+  first line, not offered while a setup step runs in a terminal. Its
+  window names the tracker in use and the other one, and lists what
+  happens as sentences with numbers: the open issues that exist only on
+  the side being left, created on the other; the issues linked on both
+  sides, brought up to date (the newer side wins; comments are copied);
+  the closed issues that exist only on the side being left, which are not
+  copied; that nothing is deleted and one can switch back at any time;
+  that `.bend.json` changes and is to be committed; and how many changes
+  made here still wait to be sent, when any do. Only open issues are
+  created on the other side, since issues created on GitHub cannot be
+  deleted, only closed; the window says that too. There are two buttons,
+  "Copy N issues and switch" (or "Update N issues and switch" when there
+  are only linked ones) and "Switch only"; with nothing to copy, or where
+  no copy can be made (no GitHub sign-in, no beads database in the folder,
+  no repository on github.com), there is one, "Switch", and the reason is
+  said. A field takes the GitHub repository where the folder's remote does
+  not name it. The copy shows its progress in the window. Going to GitHub
+  issues the copy is made first and the switch only if it went through, so
+  a failure changes nothing; going to beads the switch is made first and
+  the copy follows, and a failure of the copy is said as that, with the
+  window then showing only that. A copy counts as gone through only when
+  no issue was left out. The copy can be stopped, and closing the window
+  during it stops it and switches nothing afterwards. The copying works
+  with the repository of the folder's git remote; where the switch is
+  about another one (named in the field, or the one in use), no copy is
+  offered and the window says which is which. The buttons are off until it
+  is worked out what a copy would do. Afterwards the tab shows the other tracker's
+  issues, and watches that tracker's copy, with no reload. A
+  conversation's current issue that is not among the issues shown is not
+  shown as current, and is shown again after switching back. Where the
+  other tracker is not ready, the usual setup card offers its step, and
+  the menu's first line still names the tracker and offers the switch, so
+  that there is a way back.
 - Refresh and sync as one control: the refresh button reloads the list at
   once and, where the issues have a remote, syncs with it, reloading again
   when the sync ends; it turns while either goes on. It is red exactly
@@ -1313,7 +1359,7 @@ breaking a requirement above.
   syncs (brings in what other computers changed, then sends what changed
   here) every three minutes while it is in use, and when the owner presses
   refresh. The
-  menu says, on its "Issue sync" row, when the
+  menu says, on its "Sync log…" row, when the
   issues were last synced, that a sync is under way, or that the last one
   failed and why. One repository's syncs never overlap, whichever of its
   work trees and however many panels and conversations ask; a sync asked
@@ -1558,7 +1604,7 @@ breaking a requirement above.
   `[c9l.15]`
 - The panel on GitHub issues: an issue with unsent changes carries a small
   "not sent yet" mark. The refused changes are at the top of the sync log
-  window, each with "Send again" and "Dismiss", and the "Issue sync" row
+  window, each with "Send again" and "Dismiss", and the "Sync log…" row
   says when there are any. "Import / export GitHub issues…", which mirrors beads issues
   to GitHub, is not offered there. A folder with no tracker says so
   whether or not the beads program is installed. A missing GitHub login is

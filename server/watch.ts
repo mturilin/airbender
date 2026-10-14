@@ -50,6 +50,12 @@ export async function createWatcher(
 
   /** Live watchers by folder path, in the order they were started. */
   const watchers = new Map<string, FSWatcher>();
+  /**
+   * What each watch looks at, by the same key: when a folder is to be
+   * watched somewhere else (its tracker was switched, so bend's copy of the
+   * issues is in another folder, bead-bb-c9l.18), the watch is replaced.
+   */
+  const watching = new Map<string, string>();
 
   /**
    * Starts telling open tabs about beads changes made outside this plugin in
@@ -93,7 +99,16 @@ export async function createWatcher(
    * @param key What the watch is kept under; one watch per key.
    */
   function watchOne(path: string, beadsDir: string, file: string, key: string): void {
-    if (watchers.has(key)) return;
+    const target = join(beadsDir, file);
+    if (watchers.has(key)) {
+      if (watching.get(key) === target) return;
+      // Another place for the same folder: the old watch would go on
+      // telling of changes that are no longer this folder's, and miss the
+      // ones that are.
+      watchers.get(key)?.close();
+      watchers.delete(key);
+      watching.delete(key);
+    }
     if (!existsSync(beadsDir)) return;
     let timer: NodeJS.Timeout | null = null;
     let watcher: FSWatcher;
@@ -114,13 +129,17 @@ export async function createWatcher(
     const stop = () => {
       if (timer !== null) clearTimeout(timer);
       watcher.close();
-      if (watchers.get(key) === watcher) watchers.delete(key);
+      if (watchers.get(key) === watcher) {
+        watchers.delete(key);
+        watching.delete(key);
+      }
     };
     watcher.on("error", stop);
     watcher.on("close", () => {
       if (timer !== null) clearTimeout(timer);
     });
     watchers.set(key, watcher);
+    watching.set(key, target);
     // A folder has up to three watches; the limit counts folders, and the
     // oldest folder goes with all of its.
     const folders = [...new Set([...watchers.keys()].map((kept) => kept.split("\n")[0]!))];
@@ -129,6 +148,7 @@ export async function createWatcher(
       for (const kept of [oldest, `${oldest}\ncopy`, `${oldest}\nruns`]) {
         watchers.get(kept)?.close();
         watchers.delete(kept);
+        watching.delete(kept);
       }
     }
     // Remember the folder so the watch comes back after the plugin is

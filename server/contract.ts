@@ -723,6 +723,33 @@ export const rpcContract = defineRpcContract({
       message: z.string().nullable(),
     }),
   },
+  tracker_switch_preview: {
+    // What copying the issues across would do if the repository's tracker
+    // were switched to `to`; nothing is changed. `cannot` says in one
+    // sentence why no copy can be made, and the lists are then empty.
+    input: z.object({
+      threadId: z.string().nullable(),
+      projectId: z.string().nullable(),
+      to: z.enum(["beads", "github"]),
+    }),
+    output: z.object({
+      cannot: z.string().nullable(),
+      /** "owner/name"; null when it could not be told. */
+      repository: z.string().nullable(),
+      /** Beads ids to create on GitHub (switching to GitHub issues). */
+      createIds: z.array(z.string()),
+      /** GitHub issue numbers to bring into beads (switching to beads). */
+      createNumbers: z.array(z.number()),
+      /** Beads ids of the issues that are on both sides already. */
+      update: z.array(z.string()),
+      /** Closed issues only on the side being left: not copied. */
+      closedLeft: z.number(),
+      /** GitHub has more issues than were read. */
+      truncated: z.boolean(),
+      /** The git remote names no repository on github.com: one is asked for. */
+      needsRepository: z.boolean(),
+    }),
+  },
   github_sync_progress: {
     // How a sync is getting on; `stop` asks it to finish the issues it is
     // on and start no more. When `done`, `message` is null if every run

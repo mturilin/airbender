@@ -47,6 +47,7 @@ import { askPanelOnArrival } from "./arrival.ts";
 import { GithubSync } from "./github-sync.tsx";
 import { SyncLog } from "./sync-log.tsx";
 import { SyncTrouble } from "./sync-trouble.tsx";
+import { TrackerSwitch } from "./tracker-switch.tsx";
 import { refreshTip, syncFailing, syncState, useIssueSync } from "./use-issue-sync.ts";
 import { EpicBand, EpicReturn } from "./epic-band.tsx";
 import { useFocus } from "./use-focus.ts";
@@ -87,7 +88,24 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
   const syncProblem =
     syncStatus === null ? null : syncFailing(syncStatus);
   // Whether the sync log's window is open.
+  // The tracker the project uses, for the menu's first line and the switch
+  // beside it. From the list where there is one; else from the folder's
+  // setup, so that a project switched to a tracker that is not ready yet
+  // (not signed in, no database) still says which it is and can be
+  // switched back.
+  const shownTracker =
+    result?.state === "ok" && result.tracker !== null
+      ? { name: result.tracker, repository: result.trackerRepository }
+      : typeof setup.status?.tracker === "string"
+        ? { name: setup.status.tracker, repository: null }
+        : null;
   const [showingSyncLog, setShowingSyncLog] = useState(false);
+  // The window that switches the project's tracker (bead-bb-c9l.18): open
+  // while it holds the tracker in use.
+  const [switchingFrom, setSwitchingFrom] = useState<{
+    name: string;
+    repository: string | null;
+  } | null>(null);
   // Whether the log opens on only the runs that did not work (from the
   // trouble bar) or on all of them (from the menu).
   const [syncLogFailed, setSyncLogFailed] = useState(false);
@@ -441,9 +459,14 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
               workflow={ok ? result.workflow : null}
               // Which tracker the project uses, said at the top of the
               // menu; nothing where none is chosen yet.
-              tracker={
-                ok && result.tracker !== null
-                  ? { name: result.tracker, repository: result.trackerRepository }
+              tracker={shownTracker ?? undefined}
+              // Not while a setup step runs in a terminal: it may be the
+              // very thing that sets the tracker up.
+              onSwitchTracker={
+                shownTracker !== null &&
+                setup.status?.bend === "ready" &&
+                setup.status.running === null
+                  ? () => setSwitchingFrom(shownTracker)
                   : undefined
               }
               // Beads' own mirroring of its issues to GitHub: nothing to
@@ -684,6 +707,19 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
             </>
           )}
         </div>
+        <TrackerSwitch
+          from={switchingFrom}
+          scope={scope}
+          // Changes made here that a hosted tracker has not been sent yet.
+          waiting={(result?.issues ?? []).reduce((sum, issue) => sum + issue.unsent, 0)}
+          onClose={() => setSwitchingFrom(null)}
+          onSwitched={() => {
+            // Everything on the tab is about the other tracker now.
+            refresh(true);
+            setup.reload();
+            issueSync.reload();
+          }}
+        />
         <SetupDialog
           step={confirmingStep}
           status={setup.status}

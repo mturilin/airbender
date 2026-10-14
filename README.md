@@ -222,6 +222,14 @@ issues, recorded in `.bend.json`. The tab lists and changes the issues of
 either; with GitHub issues the beads steps below are not needed, and
 "Prepare the issues" is signing in to GitHub.
 
+Later the tracker is switched from the first line of the "⋯" menu
+("This project uses … · Switch…"). The window (`app/tracker-switch.tsx`)
+says what copying the issues across would do, worked out by the server
+(`switchPreview` in `server/github.ts`), and then copies with the same
+`bd github sync` as "Import / export GitHub issues" and runs `bend setup
+tracker`. Nothing is deleted on either side, so switching back shows the
+first tracker's issues as before.
+
 1. **Install beads** — pick a method (install script, mise, Homebrew, npm).
    **Build bend** comes with it: the tab reads and changes issues with the
    `bend` program, built from the `bend` folder of the plugin with Go into

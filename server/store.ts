@@ -288,6 +288,13 @@ export function createStore({
       queued: about?.queued ?? false,
     };
     const current = issues.find((issue) => issue.id === currentBeadId);
+    // Not among the folder's issues: the repository's tracker was switched
+    // (bead-bb-c9l.18), and the id is an issue of the other one. It is not
+    // shown as current; what is stored is left, so that switching back
+    // shows it again.
+    if (currentBeadId !== null && current === undefined) {
+      return { ...ok, currentBeadId: null };
+    }
     if (
       input.threadId !== null &&
       current !== undefined &&

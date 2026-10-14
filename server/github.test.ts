@@ -10,7 +10,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { linkedNumber, parseSyncOutput, repositoryOf } from "./github.ts";
+import { linkedNumber, parseSyncOutput, repositoryOf, switchLists } from "./github.ts";
 
 test("a github.com remote is read as owner and name, in each form git accepts", () => {
   const want = { owner: "mturilin", name: "airbender" };
@@ -116,4 +116,44 @@ test("nothing to do reads as nothing, and unknown wording is kept as text", () =
   assert.deepEqual(parseSyncOutput("Something new in a later version\n", "").notes, [
     "Something new in a later version",
   ]);
+});
+
+test("what a switch of tracker would copy: only on the side being left and open; linked ones are brought up to date", () => {
+  const mine = [
+    { id: "t-1", status: "open", externalRef: null },
+    { id: "t-2", status: "in_progress", externalRef: null },
+    { id: "t-3", status: "closed", externalRef: null },
+    { id: "t-4", status: "open", externalRef: "https://github.com/o/n/issues/7" },
+    { id: "t-5", status: "closed", externalRef: "github:8" },
+  ];
+  const remote = [
+    { number: 7, closed: false, linkedId: "t-4" },
+    { number: 8, closed: true, linkedId: "t-5" },
+    { number: 9, closed: false, linkedId: null },
+    { number: 10, closed: true, linkedId: null },
+    { number: 11, closed: true, linkedId: null },
+  ];
+  const links = [
+    { id: "t-4", number: 7 },
+    { id: "t-5", number: 8 },
+  ];
+  assert.deepEqual(switchLists("github", mine, remote, links), {
+    update: ["t-4", "t-5"],
+    createIds: ["t-1", "t-2"],
+    createNumbers: [],
+    closedLeft: 1,
+  });
+  assert.deepEqual(switchLists("beads", mine, remote, links), {
+    update: ["t-4", "t-5"],
+    createIds: [],
+    createNumbers: [9],
+    closedLeft: 2,
+  });
+  // Nothing on either side.
+  assert.deepEqual(switchLists("github", [], [], []), {
+    update: [],
+    createIds: [],
+    createNumbers: [],
+    closedLeft: 0,
+  });
 });

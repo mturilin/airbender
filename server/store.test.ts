@@ -23,7 +23,7 @@
 //   are grouped to keep the run short.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
@@ -352,6 +352,41 @@ test("comments, closing and reopening", async (t) => {
   assert.deepEqual(await store.issuesIn(here, "t-nope"), {
     message: "Issue t-nope is no longer in the list.",
   });
+});
+
+test("a current issue that is not among the folder's issues is not shown, and is kept", async (t) => {
+  if (skip) return t.skip(skip);
+  const store = storeIn(root);
+  const id = await create(store, "Current here");
+  current = id;
+  assert.equal((await store.listIssues(here)).currentBeadId, id);
+  // As after a switch of tracker: the id is an issue of the other one.
+  current = "424242";
+  assert.equal((await store.listIssues(here)).currentBeadId, null);
+  assert.equal(current, "424242", "what is stored is left for the way back");
+  current = null;
+});
+
+test("the beads issues can be read whichever tracker the repository is on", async (t) => {
+  if (skip) return t.skip(skip);
+  const trackers = createTrackers({
+    findBd: async () => "bd",
+    findBend: async () => bend ?? "missing",
+    notFoundMessage: "no bd here",
+    bendMessages: { missing: "no bend here", old: "an old bend here" },
+    warn: () => {},
+  });
+  const id = await create(storeIn(root), "Seen from the other tracker");
+  // The repository says GitHub issues; the beads ones are read all the
+  // same, and GitHub is not asked anything.
+  writeFileSync(join(root, ".bend.json"), JSON.stringify({ tracker: "github", repository: "nobody/nothing" }));
+  try {
+    const found = await trackers.beadsIssues(root);
+    assert.ok(found !== null && found.some((issue) => issue.id === id));
+  } finally {
+    rmSync(join(root, ".bend.json"), { force: true });
+  }
+  assert.equal(await trackers.beadsIssues(empty), null, "no beads database: nothing to read");
 });
 
 test("a folder without beads and a machine without bd are told apart", async (t) => {

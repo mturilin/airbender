@@ -198,6 +198,74 @@ export interface RemoteIssue {
 }
 
 /** How an issue changed on both sides is settled; the command's three ways. */
+/** What is needed of a beads issue to tell whether it is on GitHub too. */
+export interface OwnIssue {
+  id: string;
+  status: string;
+  externalRef: string | null;
+}
+
+/** What `switchPreview` answers; see there. */
+export interface SwitchPreview {
+  /** Why no copy can be made, in one sentence; null when one can. */
+  cannot: string | null;
+  /** "owner/name"; null when it could not be told. */
+  repository: string | null;
+  /** Beads ids to create on GitHub (switching to GitHub issues). */
+  createIds: string[];
+  /** GitHub issue numbers to bring into beads (switching to beads). */
+  createNumbers: number[];
+  /** Beads ids of the issues that are on both sides already. */
+  update: string[];
+  /** Closed issues that exist only on the side being left: not copied. */
+  closedLeft: number;
+  /** GitHub has more issues than were read: the numbers are "at least". */
+  truncated: boolean;
+  /**
+   * The folder's git remote does not name a repository on github.com, so
+   * a switch to GitHub issues has to be told which repository is meant.
+   */
+  needsRepository: boolean;
+}
+
+/**
+ * The lists a switch of tracker would copy by: pure, for `switchPreview`.
+ *
+ * @param to The tracker being switched to.
+ * @param mine The beads issues; `remote` the GitHub issues, each with the
+ *   beads issue it is linked to; `links` every link the beads issues carry.
+ * @returns What exists only on the side being left and is open (to be
+ *   created on the other), what is on both sides (to be brought up to
+ *   date), and how many closed issues exist only on the side being left.
+ */
+export function switchLists(
+  to: "beads" | "github",
+  mine: readonly OwnIssue[],
+  remote: readonly Pick<RemoteIssue, "number" | "closed" | "linkedId">[],
+  links: readonly { id: string; number: number }[],
+): Pick<SwitchPreview, "createIds" | "createNumbers" | "update" | "closedLeft"> {
+  const linkedIds = new Set(links.map((link) => link.id));
+  const update = mine.filter((issue) => linkedIds.has(issue.id)).map((issue) => issue.id);
+  if (to === "github") {
+    const only = mine.filter((issue) => !linkedIds.has(issue.id));
+    return {
+      update,
+      createIds: only
+        .filter((issue) => issue.status !== CLOSED_STATUS)
+        .map((issue) => issue.id),
+      createNumbers: [],
+      closedLeft: only.filter((issue) => issue.status === CLOSED_STATUS).length,
+    };
+  }
+  const only = remote.filter((issue) => issue.linkedId === null);
+  return {
+    update,
+    createIds: [],
+    createNumbers: only.filter((issue) => !issue.closed).map((issue) => issue.number),
+    closedLeft: only.filter((issue) => issue.closed).length,
+  };
+}
+
 export const PREFER = ["newer", "github", "local"] as const;
 export type Prefer = (typeof PREFER)[number];
 
@@ -280,10 +348,16 @@ export function createGithub({
   store,
   readToken,
   readGhToken = ghToken,
+  readBeads = async () => null,
 }: {
   bb: BbPluginApi;
   folders: Folders;
   store: Store;
+  /**
+   * The issues a folder has in beads, whichever tracker its repository is
+   * on; null when it has no beads database. For `switchPreview`.
+   */
+  readBeads?: (path: string) => Promise<OwnIssue[] | null>;
   readToken: () => Promise<string>;
   readGhToken?: () => Promise<string>;
 }) {
@@ -337,7 +411,15 @@ export function createGithub({
    *   message. `truncated` when there are more than were read.
    * Side effects: read requests to GitHub; one read of the beads issues.
    */
-  async function issues(input: FolderRef): Promise<{
+  async function issues(
+    input: FolderRef,
+    /**
+     * The beads issues to go by, for a caller that has read them itself
+     * (the folder's tracker may not be beads); the folder's own list when
+     * left out.
+     */
+    own?: OwnIssue[],
+  ): Promise<{
     state: "ok" | "unavailable" | "no-repository" | "no-token" | "error";
     message: string | null;
     repository: string | null;
@@ -352,13 +434,21 @@ export function createGithub({
     const { path, repository, token } = start;
     const name = `${repository.owner}/${repository.name}`;
     // Which GitHub issue each beads issue is linked to.
-    const read = await store.readIssues(path);
     const linked = new Map<number, string>();
-    if (read.state === "ok") {
-      for (const issue of read.issues) {
-        const number = linkedNumber(issue.externalRef, repository);
-        if (number !== null) linked.set(number, issue.id);
-      }
+    // Every link, also where two issues here name the same GitHub issue:
+    // the second is linked too, and must not be taken for one that is only
+    // here and created on GitHub again.
+    const links: { id: string; number: number }[] = [];
+    let mine = own;
+    if (mine === undefined) {
+      const read = await store.readIssues(path);
+      mine = read.state === "ok" ? read.issues : [];
+    }
+    for (const issue of mine) {
+      const number = linkedNumber(issue.externalRef, repository);
+      if (number === null) continue;
+      links.push({ id: issue.id, number });
+      if (!linked.has(number)) linked.set(number, issue.id);
     }
     const found: RemoteIssue[] = [];
     let truncated = false;
@@ -422,7 +512,7 @@ export function createGithub({
       message: null,
       repository: name,
       issues: found,
-      links: [...linked].map(([number, id]) => ({ id, number })),
+      links,
       truncated,
     };
   }
@@ -766,6 +856,73 @@ export function createGithub({
   }
 
   /**
+   * What copying the issues across would do when the repository's tracker
+   * is switched: which exist only on the side being left and would be
+   * created on the other, and which are on both sides already and would be
+   * brought up to date. Nothing is changed.
+   *
+   * The window that offers the switch says this before anything is done
+   * (bead-bb-c9l.18; the owner: "UI that doesn't ask you wrong questions
+   * ... it will update issues that ... are linked ... and it will copy
+   * over the issues that exist in a current and doesn't exist in a
+   * target"). Only open issues are created on the other side: closed ones
+   * by the hundred, on GitHub, could never be deleted again. Closed ones
+   * that are linked are still brought up to date, so a close is carried.
+   *
+   * @param to The tracker being switched to.
+   * @returns `cannot` null with the lists, or one sentence saying why no
+   *   copy can be made (the lists are then empty).
+   * Side effects: read requests to GitHub; one read of the beads issues.
+   */
+  async function switchPreview(
+    input: FolderRef,
+    to: "beads" | "github",
+  ): Promise<SwitchPreview> {
+    const none = {
+      repository: null,
+      createIds: [],
+      createNumbers: [],
+      update: [],
+      closedLeft: 0,
+      truncated: false,
+      needsRepository: false,
+    };
+    const start = await ready(input);
+    if ("state" in start) {
+      return {
+        cannot: start.message,
+        ...none,
+        needsRepository: start.state === "no-repository",
+      };
+    }
+    const mine = await readBeads(start.path);
+    if (mine === null) {
+      return {
+        cannot:
+          to === "beads"
+            ? "This folder has no beads database yet, so nothing can be copied into it now. After the switch the tab offers to set beads up; the issues can then be brought in with \"Import / export GitHub issues\"."
+            : "This folder's beads issues could not be read, so nothing can be copied.",
+        ...none,
+      };
+    }
+    const remote = await issues(input, mine);
+    if (remote.state !== "ok") {
+      return {
+        cannot: remote.message ?? "The GitHub issues could not be read.",
+        ...none,
+        repository: remote.repository,
+      };
+    }
+    return {
+      cannot: null,
+      repository: remote.repository,
+      truncated: remote.truncated,
+      needsRepository: false,
+      ...switchLists(to, mine, remote.issues, remote.links),
+    };
+  }
+
+  /**
    * How a sync is getting on.
    *
    * @param stop Ask it to stop: it finishes the issues it is on (a batch)
@@ -821,7 +978,7 @@ export function createGithub({
     };
   }
 
-  return { issues, sync, progress };
+  return { issues, sync, progress, switchPreview };
 }
 
 /** What createGithub returns. */

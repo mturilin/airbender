@@ -363,7 +363,7 @@ function setupSteps(status: SetupStatus): SetupStep[] {
         ]),
     // Switching the issue sync on, while the source offers it: listed
     // only then, since what it is called is the source's to say. Once on,
-    // the "Issue sync" row above the steps says how it stands.
+    // the "Sync log…" row above the steps says how it stands.
     ...(status.syncSteps.on === null
       ? []
       : [
@@ -592,6 +592,7 @@ export function SetupMenu({
   workflow,
   onChooseWorkflow,
   tracker,
+  onSwitchTracker,
   onSyncGithub,
   issueSync,
 }: {
@@ -607,6 +608,11 @@ export function SetupMenu({
    * the repository as "owner/name". Left out where none is chosen yet.
    */
   tracker?: { name: string; repository: string | null };
+  /**
+   * Opens the window that switches the tracker (bead-bb-c9l.18); left out
+   * where it cannot be switched now.
+   */
+  onSwitchTracker?: () => void;
   /**
    * Opens the "Import / export GitHub issues" window; left out where there are no
    * issues to sync (no folder with beads).
@@ -662,9 +668,8 @@ export function SetupMenu({
           {/* Which tracker the project uses (bead-bb-c9l.21). First in the
               menu, where the owner looks it up when they want to know; it
               used to stand in the toolbar, in the path's own hand, and read
-              as part of the path. It only informs for now: the switch to
-              the other tracker is to go in this same spot
-              (bead-bb-c9l.18). */}
+              as part of the path. The switch to the other tracker is in
+              this same spot (bead-bb-c9l.18), as the owner placed it. */}
           {tracker === undefined ? null : (
             <>
               <div className="flex items-start gap-2 px-2 py-1 text-sm">
@@ -672,7 +677,7 @@ export function SetupMenu({
                   name={tracker.name}
                   className="mt-0.5 size-4 shrink-0 text-muted-foreground"
                 />
-                <span className="min-w-0">
+                <span className="min-w-0 flex-1">
                   This project uses{" "}
                   {tracker.name === "github"
                     ? "GitHub issues"
@@ -691,7 +696,62 @@ export function SetupMenu({
                     </a>
                   )}
                 </span>
+                {/* The line height of the sentence beside it: smaller type
+                    alone would sit above or below its line. */}
+                {onSwitchTracker === undefined ? null : (
+                  <button
+                    type="button"
+                    className="shrink-0 rounded px-1.5 text-xs leading-5 text-muted-foreground underline-offset-2 hover:bg-state-hover hover:text-foreground hover:underline"
+                    title={`Keep this project's issues in ${tracker.name === "github" ? "beads" : "GitHub issues"} instead`}
+                    onClick={() => {
+                      setOpen(false);
+                      onSwitchTracker();
+                    }}
+                  >
+                    Switch…
+                  </button>
+                )}
               </div>
+              {/* The sync's row follows at once, in the same group: it
+                  is about the tracker (the owner: "sync should be the
+                  second menu item -- close to the tracker selection"). */}
+              {issueSync === undefined ? (
+                <div className="my-1 border-t border-border" />
+              ) : null}
+            </>
+          )}
+          {/* The issues' own sync with the repository's remote
+              (bead-bb-0bz): when it last happened, or what went wrong. Only
+              said here: syncing runs by itself, and the refresh button
+              asks for one (the user: "the rest is in the menu"). */}
+          {issueSync === undefined ? null : (
+            <>
+              {/* One row: the way to the sync log, with how the sync
+                  stands at its right, like a setup step's "done" (the
+                  user: "issue sync, it was synced one minute ago"). They
+                  were two rows, "Issue sync" with the state and "Sync
+                  log…" under it; the owner had them made one
+                  (bead-bb-c9l.18). Syncing runs by itself, and refresh
+                  asks for one, so the row does not start a sync. */}
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setOpen(false);
+                  issueSync.onLog();
+                }}
+                className="flex w-full cursor-pointer items-baseline justify-between gap-3 rounded px-2 py-1 text-left text-sm hover:bg-state-hover"
+              >
+                <span className="min-w-0">Sync log…</span>
+                <span className="shrink-0 text-xs text-muted-foreground">
+                  {issueSync.state}
+                </span>
+              </button>
+              {issueSync.message === null ? null : (
+                <p className="whitespace-pre-wrap px-2 pb-1 text-xs text-muted-foreground">
+                  {issueSync.message}
+                </p>
+              )}
               <div className="my-1 border-t border-border" />
             </>
           )}
@@ -729,42 +789,6 @@ export function SetupMenu({
                   </span>
                 </button>
               ))}
-              <div className="my-1 border-t border-border" />
-            </>
-          )}
-          {/* The issues' own sync with the repository's remote
-              (bead-bb-0bz): when it last happened, or what went wrong. Only
-              said here: syncing runs by itself, and the refresh button
-              asks for one (the user: "the rest is in the menu"). */}
-          {issueSync === undefined ? null : (
-            <>
-              {/* One row, the state at the right like a setup step's
-                  "done" (the user: "Similar to how setup works, install
-                  beads, it says installed. The same: issue sync, it was
-                  synced one minute ago"). Not a button: syncing runs by
-                  itself, and refresh asks for one. */}
-              <div className="flex items-baseline justify-between gap-3 px-2 py-1 text-sm">
-                <span className="min-w-0">Issue sync</span>
-                <span className="shrink-0 text-xs text-muted-foreground">
-                  {issueSync.state}
-                </span>
-              </div>
-              {issueSync.message === null ? null : (
-                <p className="whitespace-pre-wrap px-2 pb-1 text-xs text-muted-foreground">
-                  {issueSync.message}
-                </p>
-              )}
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  setOpen(false);
-                  issueSync.onLog();
-                }}
-                className="flex w-full cursor-pointer items-start rounded px-2 py-1 text-left text-sm hover:bg-state-hover"
-              >
-                Sync log…
-              </button>
               <div className="my-1 border-t border-border" />
             </>
           )}
@@ -1175,7 +1199,7 @@ export function SetupDialog({
             {(
               [
                 ["beads", "beads", "A database inside the repository. This tab lists and changes the issues."],
-                ["github", "GitHub issues", "On the repository's page on github.com. Agents work them with bend; this tab cannot list them yet."],
+                ["github", "GitHub issues", "On the repository's page on github.com. This tab lists and changes them through a copy kept on this computer."],
               ] as const
             ).map(([id, label, note]) => (
               <label
