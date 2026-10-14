@@ -348,11 +348,12 @@ const setupStatusSchema = z.object({
    */
   bend: z.enum(["ready", "missing", "old"]),
   /**
-   * Building bend from the source that comes with the plugin: the command,
-   * shown before it is run, or why it cannot be built here (Go is not
-   * installed, the source is not with the plugin).
+   * Installing a verified release binary, or building from source: the
+   * method and command shown before execution, or why neither is available.
+   * The existing field name is retained for the setup RPC.
    */
   bendBuild: z.object({
+    method: z.enum(["download", "build"]).nullable(),
     command: z.string().nullable(),
     unavailable: z.string().nullable(),
   }),

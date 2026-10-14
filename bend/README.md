@@ -11,8 +11,22 @@ cd bend && go build -o ~/.local/bin/bend ./cmd/bend
 bend --help
 ```
 
-The tab's setup step "Build bend" runs exactly that. This file is the long
-form; the repository's [README](../README.md) has the short one.
+On Linux and macOS, on amd64 or arm64, the tab's "Install bend" step downloads
+the binary from the GitHub release matching the plugin version, verifies its
+SHA-256 checksum, and installs it into `~/.local/bin`. It needs `curl` and
+`sha256sum` or `shasum`, not Go. A failed download or checksum check leaves
+an existing binary untouched. Other platforms retain "Build bend", using
+Go 1.24 or later and the source command above. The same source command can
+also be run manually on supported platforms.
+
+Release tags `vX.Y.Z` must match the plugin's `package.json` version. The
+release workflow tests bend and builds four CGO-free binaries:
+`bend-linux-amd64`, `bend-linux-arm64`, `bend-darwin-amd64` and
+`bend-darwin-arm64`, each with a `.sha256` file. The installer never selects
+"latest" and never replaces a binary before its checksum is verified.
+
+This file is the long form; the repository's [README](../README.md) has the
+short one.
 
 
 `bend setup` gets a repository ready with no BB:

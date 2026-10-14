@@ -52,8 +52,8 @@ export function createFolders({
   /** What the tab says when there is no bend program, or only an old one. */
   const BEND_MESSAGES = {
     missing:
-      "BB could not find the bend command, which Airbender reads and changes issues with. Build it with the setup step \"Build bend\", or set its full path under this plugin's settings (bend command) and reload the plugin.",
-    old: "The bend command on this machine is older than this version of Airbender needs. Build it again with the setup step \"Build bend\".",
+      "BB could not find the bend command, which Airbender reads and changes issues with. Install it with the bend setup step, or set its full path under this plugin's settings (bend command) and reload the plugin.",
+    old: "The bend command on this machine is older than this version of Airbender needs. Update it with the bend setup step.",
   };
 
   /**

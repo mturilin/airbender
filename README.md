@@ -61,10 +61,12 @@ Your agent got fast. Your process is still a terminal tab and a good memory.
 
 ## Install
 
-You need BB 0.44 or later on the machine that has the repository, and Go
-1.24 or later, which builds the `bend` program. The tab offers everything
-else when it is missing: beads, the build of `bend`, the rules for your
-agent.
+You need BB 0.44 or later on the machine that has the repository. On Linux
+and macOS, on Intel/AMD or ARM64, setup downloads the matching `bend` release
+and verifies its SHA-256 checksum before installing it. Go is not required.
+The download needs `curl` and `sha256sum` or `shasum`. Other platforms can
+build from source with Go 1.24 or later. The tab offers the missing tools
+and the rules for your agent.
 
 1. **Install the plugin** where BB is installed:
 

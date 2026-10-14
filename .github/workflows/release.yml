@@ -1,0 +1,59 @@
+# What: builds and publishes bend binaries when a plugin release tag is pushed.
+# Why: Linux/macOS users should not need Go to install Airbender (bead-bb-bk2).
+# Design: raw, CGO-free binaries and individual SHA-256 files; setup pins the
+# download to package.json. Releases are immutable: a rerun never clobbers one.
+# Gotchas: tag vX.Y.Z must match package.json, and the reviewed commit must be
+# tagged only after the owner approves publication. GitHub hosts the assets.
+name: Release bend
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      BEND_TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: bend/go.mod
+          cache: false
+      - name: Check the tag against the plugin version
+        run: |
+          set -eu
+          test "$BEND_TAG" = "v$(node -p 'require("./package.json").version')"
+      - name: Test bend
+        working-directory: bend
+        run: go test ./...
+      - name: Build release assets
+        run: |
+          set -eu
+          mkdir -p release
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
+            target_os=${target%/*}
+            target_arch=${target#*/}
+            asset="bend-$target_os-$target_arch"
+            CGO_ENABLED=0 GOOS="$target_os" GOARCH="$target_arch" \
+              go build -C bend -trimpath -ldflags='-s -w' -o "$GITHUB_WORKSPACE/release/$asset" ./cmd/bend
+            (cd release && sha256sum "$asset" > "$asset.sha256")
+          done
+          release/bend-linux-amd64 --json version
+      - name: Publish binaries and checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$BEND_TAG" release/* --verify-tag \
+            --title "Airbender $BEND_TAG" \
+            --notes "Precompiled bend for Linux and macOS on amd64 and arm64. Airbender setup downloads the matching binary and verifies its SHA-256 checksum."

@@ -197,7 +197,7 @@ export default async function plugin(bb: BbPluginApi) {
   // issue first, the watcher, the store of issue operations on top of those,
   // then work (moving issues through their workflow) and setup on top of the
   // store.
-  // The setup step "Build bend" puts it in the first of the extra places.
+  // Installing or building bend puts it in the first of the extra places.
   const bendCandidates = [
     bendCommand.trim() || "bend",
     join(homedir(), ".local", "bin", "bend"),

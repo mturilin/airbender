@@ -102,10 +102,13 @@ When something the panel needs is missing, the panel offers to set it up.
   1. **Install beads**, when the tracker's program is not on the computer.
      The owner **chooses the way of installing each time**, from the ways
      available on that computer.
-     **Build bend** goes with it: when the `bend` program is missing, the
+     **Install bend** goes with it: when the `bend` program is missing, the
      panel says so, because without it there are no issues, and offers to
-     build it from source and put it where commands are found. It runs in
-     a terminal the owner can watch, when the owner presses it. `[c9l.4]`
+     install it where commands are found. On Linux and macOS, on Intel/AMD
+     or ARM64, setup downloads the matching release and verifies its
+     SHA-256 checksum before installation; Go is not required. Source
+     builds remain available for other platforms. It runs in a terminal
+     the owner can watch, when the owner presses it. `[c9l.4]` `[bk2]`
   2. **Set up beads in this folder**, when the folder has no issue database.
      This is the most important one. **It sets up the issues only, and none
      of the tracker's own instructions for agents.** `[c9l.8]`
@@ -1559,13 +1562,17 @@ breaking a requirement above.
   words. Status warns that commands take a moment, that there is an hourly
   limit, and that search runs behind. `[c9l.1]`
 - bend: it is written in Go with no packages beyond the standard ones.
-  The setup step builds it into the owner's own commands folder
-  (`~/.local/bin`); a setting names another place. Where Go is not
-  installed, or the source did not come with the plugin, the step is greyed
-  out and says why. `[c9l.4]`
+  Setup installs it into the owner's own commands folder (`~/.local/bin`);
+  a setting names another place. On Linux and macOS amd64/arm64, it
+  downloads the release matching the plugin version, using curl and
+  sha256sum or shasum. A failed download or checksum check leaves an
+  existing installation untouched. Where no matching binary is offered,
+  or the download tools are missing, setup offers a source build if Go and
+  the source are available; otherwise it says why. `[c9l.4]` `[bk2]`
 - bend: it has a version number that goes up when its commands or its
   output for programs change; the panel treats a `bend` older than it needs
-  as missing and offers "Build bend again". `[c9l.4]`
+  as missing and offers "Update bend", or "Build bend again" for a source
+  build. `[c9l.4]` `[bk2]`
 - bend: for programs, a failure says which kind it is: refused, asked
   wrongly, not supported, the tracker's program is missing, the folder has
   no tracker, or there is no login. A quick form of status says the

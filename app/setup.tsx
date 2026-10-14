@@ -191,7 +191,7 @@ function setupSteps(status: SetupStatus): SetupStep[] {
       blocked: status.trackerChosen
         ? (status.tracker ?? "chosen")
         : !bendReady
-          ? "build bend first"
+          ? "install bend first"
           : running,
     },
     {
@@ -211,14 +211,16 @@ function setupSteps(status: SetupStatus): SetupStep[] {
           : status.installMethods.length === 0 && bendReady
             ? "no installer found"
             : !bendReady
-              ? "build bend first"
+              ? "install bend first"
               : running,
     },
     {
       key: "bend",
       action: "bend",
       option: null,
-      label: status.bend === "old" ? "Build bend again" : "Build bend",
+      label: status.bendBuild.method === "download"
+        ? status.bend === "old" ? "Update bend" : "Install bend"
+        : status.bend === "old" ? "Build bend again" : "Build bend",
       // Where it cannot be built the reason is said here, in the step's
       // own words: a step that cannot be started opens no confirmation.
       why:
@@ -231,15 +233,17 @@ function setupSteps(status: SetupStatus): SetupStep[] {
       needed: status.bend !== "ready",
       blocked:
         status.bend === "ready"
-          ? "built"
+          ? "installed"
           : status.bendBuild.command === null
-            ? "cannot be built here"
+            ? "cannot be installed here"
             : running,
       explain: {
         lead:
           status.bendBuild.command === null
-            ? (status.bendBuild.unavailable ?? "bend cannot be built here.")
-            : "Builds bend from the source that comes with Airbender, and puts it in your own commands folder:",
+            ? (status.bendBuild.unavailable ?? "bend cannot be installed here.")
+            : status.bendBuild.method === "download"
+              ? "Downloads bend from this Airbender version's GitHub release, verifies its SHA-256 checksum, and installs it in your own commands folder. Go is not required:"
+              : "Builds bend from the source that comes with Airbender, and puts it in your own commands folder:",
         points:
           status.bendBuild.command === null
             ? []
@@ -266,7 +270,7 @@ function setupSteps(status: SetupStatus): SetupStep[] {
           blocked: !status.bdInstalled
             ? "install beads first"
             : !bendReady
-              ? "build bend first"
+              ? "install bend first"
               : running,
           explain: status.syncSteps.fetch.explain,
         }
@@ -288,7 +292,7 @@ function setupSteps(status: SetupStatus): SetupStep[] {
           blocked: status.folderReady
             ? "done"
             : !bendReady
-              ? "build bend first"
+              ? "install bend first"
               : !status.trackerChosen
                 ? "choose the tracker first"
                 : !status.bdInstalled

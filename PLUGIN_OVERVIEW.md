@@ -37,8 +37,11 @@ when that step finishes.
 
 ## Getting started
 
-You need BB 0.44 or later on the machine that holds the repository, and
-Go 1.24 or later to build `bend`.
+You need BB 0.44 or later on the machine that holds the repository.
+On Linux and macOS, on Intel/AMD or ARM64, setup installs a precompiled
+`bend` from the matching GitHub release after checking its SHA-256 checksum.
+Go is not required; the download needs `curl` and `sha256sum` or `shasum`.
+Other platforms can build from source with Go 1.24 or later.
 
 Open the Airbender tab and choose beads or GitHub issues. Setup offers the
 missing tools and repository instructions in a terminal you can watch.

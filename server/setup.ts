@@ -3,7 +3,7 @@
 // What: says what is and is not in place for a folder, and starts the step
 // that sets one thing up. Both are `bend setup`'s: this file asks bend for
 // the state, puts it into the shape the tab draws, and runs bend's steps.
-// One step is this file's own: building bend, which bend cannot do itself.
+// One step is this file's own: installing bend, which bend cannot do itself.
 //
 // Why: when something the tab needs is missing, the tab offers to set it up
 // instead of leaving the user at a dead end (bead-bb-80e). Setting a
@@ -30,7 +30,7 @@
 //   the kept answer has run out.
 
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { CHANGED_CHANNEL } from "../shared/constants.ts";
@@ -40,6 +40,7 @@ import type { Trackers } from "./bend.ts";
 import type { SetupStatus } from "./contract.ts";
 import type { Folders } from "./folder.ts";
 import type { Store } from "./store.ts";
+import { planBendInstall } from "./bend-install.ts";
 
 /** How often a running setup terminal is checked, and for how long at most. */
 const SETUP_POLL_MS = 1500;
@@ -210,8 +211,8 @@ export function createSetup({
   }
 
   /**
-   * How bend is built on this machine: the command for a terminal, or why
-   * it cannot be built here.
+   * How bend is installed on this machine: a verified pinned release
+   * download, or the source-build fallback, shown before either is run.
    *
    * The source is the `bend` folder that comes with the plugin, found from
    * where this file is (it may be run from the plugin's folder or from its
@@ -219,39 +220,29 @@ export function createSetup({
    * commands folder, which is where the plugin looks for it next to the
    * PATH.
    *
-   * Side effects: looks for the Go program and reads the file system.
+   * Side effects: reads package/source locations and looks for tools.
+   * No download or build happens until the owner starts the setup step.
    */
   function bendBuild(): SetupStatus["bendBuild"] {
     let source: string | null = null;
+    let version: string | null = null;
     for (let folder = import.meta.dirname; ; folder = dirname(folder)) {
       if (existsSync(join(folder, "bend", "go.mod"))) {
         source = join(folder, "bend");
-        break;
+      }
+      try {
+        const manifest = JSON.parse(readFileSync(join(folder, "package.json"), "utf8")) as { name?: unknown; version?: unknown };
+        if (manifest.name === "bb-plugin-airbender") {
+          version = typeof manifest.version === "string" ? manifest.version : null;
+          break;
+        }
+      } catch {
+        // Source and the dist bundle both walk up to the plugin manifest.
       }
       if (dirname(folder) === folder) break;
     }
-    if (source === null) {
-      return {
-        command: null,
-        unavailable:
-          "bend's source did not come with this copy of the plugin. Build bend from the Airbender repository (go build ./cmd/bend in its bend folder) and put it on the PATH.",
-      };
-    }
-    if (!programExists("go")) {
-      return {
-        command: null,
-        unavailable:
-          "bend is built with Go, which is not on this computer. Install Go (go.dev/dl), then come back to this step.",
-      };
-    }
-    const target = join(homedir(), ".local", "bin");
-    return {
-      // GOROOT is cleared for the build: Go finds its own files without
-      // it, and one left pointing at a version that is no longer installed
-      // (a version manager does that) makes every go command fail.
-      command: `mkdir -p ${shellQuote(target)} && env -u GOROOT go build -C ${shellQuote(source)} -o ${shellQuote(join(target, "bend"))} ./cmd/bend && echo ${shellQuote(`bend is built: ${join(target, "bend")}`)}`,
-      unavailable: null,
-    };
+    return planBendInstall({ platform: process.platform, arch: process.arch, version, source,
+      target: join(homedir(), ".local", "bin"), hasProgram: programExists });
   }
 
   /** How the last setup terminal ended, per folder. */
@@ -273,7 +264,7 @@ export function createSetup({
       bdInstalled: false,
       installMethods: [],
       bend: "missing" as const,
-      bendBuild: { command: null, unavailable: null },
+      bendBuild: { method: null, command: null, unavailable: null },
       folderReady: false,
       issuesBlocked: null,
       rulesPresent: false,
@@ -331,7 +322,7 @@ export function createSetup({
       path,
       unavailable: null,
       bend: "ready",
-      bendBuild: { command: null, unavailable: null },
+      bendBuild: { method: null, command: null, unavailable: null },
       ...fromBend(state),
       running,
       lastRun,
@@ -469,13 +460,13 @@ export function createSetup({
       return { message: `"${status.running.title}" is still running.` };
     }
     if (action === "bend") {
-      if (status.bend === "ready") return { message: "bend is already built." };
+      if (status.bend === "ready") return { message: "bend is already installed." };
       if (status.bendBuild.command === null) {
-        return { message: status.bendBuild.unavailable ?? "bend cannot be built here." };
+        return { message: status.bendBuild.unavailable ?? "bend cannot be installed here." };
       }
-      return inTerminal(threadId, path, action, "Build bend", status.bendBuild.command);
+      return inTerminal(threadId, path, action, status.bendBuild.method === "download" ? "Install bend" : "Build bend", status.bendBuild.command);
     }
-    if (status.bend !== "ready") return { message: "Build bend first." };
+    if (status.bend !== "ready") return { message: "Install bend first." };
 
     /** Runs a step that only writes files, and tells the tabs. */
     const direct = async (args: string[]) => {
@@ -545,7 +536,7 @@ export function createSetup({
 
     // The rest run an outside program, in a terminal.
     const bend = await findBend(path);
-    if (bend === "missing" || bend === "old") return { message: "Build bend first." };
+    if (bend === "missing" || bend === "old") return { message: "Install bend first." };
     const bd = await findBd(path);
     /** bend, told which beads program the plugin found. */
     const bendCommand = `env ${bd === null ? "" : `BEND_BD=${shellQuote(bd)} `}${shellQuote(bend)} setup`;

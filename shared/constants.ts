@@ -92,8 +92,8 @@ export const SETUP_ACTIONS = [
   // (bead-bb-c9l.9). The option is the tracker's name.
   "tracker",
   "install",
-  // Build bend, the program the tab reads and changes issues with, from
-  // the source that comes with the plugin (bead-bb-c9l.4).
+  // Install a verified bend release, or build from the included source
+  // (bead-bb-c9l.4, bead-bb-bk2).
   "bend",
   "init",
   // Get the issues of a repository that already has them on its remote

@@ -224,7 +224,7 @@ test("a repository set up the old way is switched over by the tab's actions", as
     assert.match((await setup.runSetup({ ...here, action: "sync", option: null })).message ?? "", /already synced/u);
     assert.match((await setup.runSetup({ ...here, action: "install", option: "script" })).message ?? "", /already installed/u);
     assert.match((await setup.runSetup({ ...here, action: "tracker", option: "linear" })).message ?? "", /not understood/u);
-    assert.match((await setup.runSetup({ ...here, action: "bend", option: null })).message ?? "", /already built/u);
+    assert.match((await setup.runSetup({ ...here, action: "bend", option: null })).message ?? "", /already installed/u);
 
     // The owner changes the rules by hand, and they are from an earlier
     // version: the step is offered again, and needs to be told which.
