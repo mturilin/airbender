@@ -58,7 +58,7 @@
     <!-- ───────────────────────── Hero ───────────────────────── -->
     <section class="hero" id="top">
       <div class="hero__copy">
-        <p class="eyebrow"><span class="dot"></span>Open source · for <a href="https://getbb.app">BB</a> · beads or GitHub issues</p>
+        <p class="eyebrow"><span class="dot"></span>Open source · for <a href="https://getbb.app">BB</a> · <a href="https://github.com/gastownhall/beads">beads</a> or GitHub issues</p>
         <h1 class="display hero__title">
           <span class="line">Never get</span>
           <span class="line">lost in</span>
@@ -213,6 +213,26 @@
           </div>
           <p class="demo__foot"><span data-demo-count>You are asked three times on this path.</span> Click the main button, or any step, to walk it.</p>
         </div>
+
+        <!-- The two workflow modes. Standard is the path in the demo above;
+             Simple has no steps. The choice belongs to the repository. -->
+        <div class="modes">
+          <div class="modes__head">
+            <span class="journey__no">Two modes</span>
+            <h4 class="display display--sm">Or skip the steps <em>altogether.</em></h4>
+          </div>
+          <div class="mode mode--on">
+            <span class="mode__tag">Standard · the default</span>
+            <h5>Every issue walks the path.</h5>
+            <p>The steps above, only as many as the issue's size needs. The agent does the work; you approve at each review, and nothing closes until its work is in git.</p>
+          </div>
+          <div class="mode">
+            <span class="mode__tag">Simple</span>
+            <h5>No steps at all.</h5>
+            <p>Each issue gets three buttons: make it current, release it, close it. You direct the agent yourself, in the conversation. For quick work that needs no ceremony.</p>
+          </div>
+          <p class="modes__note">Chosen per repository, from the tab's menu, and changed whenever you like. Switch back to Standard and every issue is at the step where it was.</p>
+        </div>
       </article>
 
       <!-- Journey 3 -->
@@ -331,9 +351,9 @@
          The two trackers Airbender works on, and which job each is for:
          beads for many agents at once, GitHub issues for projects that
          move at human pace. The owner's positioning; keep it that way. -->
-    <section class="engines" id="trackers">
+    <section class="paper engines" id="trackers">
       <header class="section-head">
-        <p class="eyebrow">Two trackers</p>
+        <p class="eyebrow eyebrow--ink">Two trackers</p>
         <h2 class="display display--lg">Two engines. <em>Pick your speed.</em></h2>
       </header>
       <div class="engines__grid">
@@ -347,6 +367,7 @@
             <li>Agents filing what they discover as they go</li>
             <li>Synced to your own git remote</li>
           </ul>
+          <a class="engine__link" href="https://github.com/gastownhall/beads">Learn about beads <span aria-hidden="true">↗</span></a>
         </article>
         <article class="engine" data-reveal>
           <p class="engine__tag">For the slow-moving stuff</p>
