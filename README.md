@@ -133,7 +133,7 @@ step where it was.
 While a conversation has a current issue, one line above the message box
 shows the issue, its step and what is needed now, and the step's moves are
 buttons inside the box: approve, or send back with the reason you just
-typed. A grey "Agree & continue" button is always there. Hover the line for
+typed. A grey "LGTM" button, agree and continue, is always there. Hover the line for
 the whole issue.
 
 ### Branches, work trees and epics

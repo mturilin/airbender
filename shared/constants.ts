@@ -73,10 +73,14 @@ export type LinkKind = (typeof LINK_KINDS)[number];
  * frontend shows the same text in the buttons' tooltips.
  */
 export const QUICK_REPLIES = {
-  // The user's wording (bead-bb-7jd), the third they tried: after
-  // "Confirmed. Go ahead." and "Recommendations confirmed. Go ahead." It
-  // was "I agree with your recommendations. Go ahead." before.
-  agree: "Sounds good. Please proceed.",
+  // The user's wording (bead-bb-ahs), with "your" added and the
+  // exclamation mark dropped. "Recommendations" makes it an answer to an
+  // agent's question that came with a recommendation, which the previous
+  // "Sounds good. Please proceed." (bead-bb-7jd) was not; "LGTM" makes it
+  // read as approval at a review step. Earlier tries: "I agree with your
+  // recommendations. Go ahead.", "Confirmed. Go ahead.", "Recommendations
+  // confirmed. Go ahead."
+  agree: "LGTM. Agreed with your recommendations. Go ahead.",
 } as const;
 
 /**

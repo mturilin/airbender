@@ -765,9 +765,10 @@ agent's messages. `[3l4]` `[eg0]`
   is expected. `[eg0]`
 - **During the agent's stages no workflow buttons are shown there.** `[eg0]`
 - **"Agree & continue"** tells the agent the owner agrees with its
-  recommendations and it should go ahead. It is **an icon** with a tooltip,
-  on a **gray, square background** like the app's own send button, not on
-  white and not round. `[eg0]` `[lit]` **It is shown all the
+  recommendations and it should go ahead. It is **a check mark with the
+  word "LGTM"** `[ahs]` and a tooltip, on a **gray background with square
+  corners** like the app's own send button, not on white and not round.
+  `[eg0]` `[lit]` **It is shown all the
   time, not depending on the workflow**: also beside the accept and
   send-back buttons. `[7jd]`
 - **There is no "Go" button.** `[eg0]`
@@ -1830,11 +1831,11 @@ breaking a requirement above.
 - Workflow: whether work is "on its own branch" is read from the folder: its
   current branch compared with the repository's main one. When that cannot
   be told, the button reads "Commit".
-- "Agree & continue" sends "Sounds good. Please proceed." (the owner's
-  wording, shortened from "I agree with your recommendations. Go
-  ahead."). Beside a step's own buttons it makes no move in the workflow
-  by itself: the agent reads the sentence, records the approval and goes
-  on; at the review of finished work it does not say whether to commit.
+- "Agree & continue" sends "LGTM. Agreed with your recommendations. Go
+  ahead." (the owner's wording `[ahs]`). Beside a step's own buttons it
+  makes no move in the workflow by itself: the agent reads the sentence,
+  records the approval and goes on; at the review of finished work it
+  does not say whether to commit.
   Its tooltip shows its name and its message. It is disabled while the
   agent is working.
 - On the line above the message box the step chip carries the person or

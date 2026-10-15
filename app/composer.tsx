@@ -3,7 +3,7 @@
 // What: the controls around a thread's message box. Above it, one line: the
 // step the current issue is at, its id, and what is asked now; hovering it
 // opens the issue's card. Inside it: the current step's buttons as text,
-// and the "Agree & continue" icon.
+// and the "Agree & continue" button (a check mark and "LGTM").
 //
 // Why: the user reads the agent's work in the chat, so the state of that
 // work and the decision about it belong there, not only in the side panel
@@ -67,9 +67,10 @@ function useComposerThreadId(): string | null {
  * working or a send is under way: a go-ahead queued behind a running turn
  * would answer a question the agent has not asked yet.
  *
- * An icon with a tooltip, not a text button: the user asked for that, to
- * keep the message box's row quiet. The tooltip names the button and shows
- * the exact message, since an icon alone cannot say what will be sent.
+ * An icon with a tooltip, the user's first request, to keep the message
+ * box's row quiet; with a short word after the icon when `text` is given
+ * ("LGTM", the user's later request, bead-bb-ahs). The tooltip names the
+ * button and shows the exact message, which the button itself cannot.
  *
  * Side effects: one RPC per click, which sends a message to the thread; a
  * toast if that fails.
@@ -78,12 +79,15 @@ export function QuickReplyButton({
   kind,
   label,
   icon,
+  text,
 }: {
   kind: keyof typeof QUICK_REPLIES;
   /** The button's name, for the tooltip and for screen readers. */
   label: string;
   /** A BB icon name; an unknown one shows BB's fallback icon. */
   icon: string;
+  /** A short word shown after the icon; without it, the icon alone. */
+  text?: string;
 }) {
   const rpc = useRpc<typeof rpcContract>();
   const threadId = useComposerThreadId();
@@ -99,8 +103,11 @@ export function QuickReplyButton({
       // A gray filled square button (the user's request: gray like BB's own
       // send button, and square, not round).
       variant="secondary"
-      size="icon"
-      className="size-8 shrink-0 rounded-md bg-foreground/10 text-foreground hover:bg-foreground/20"
+      size={text === undefined ? "icon" : "sm"}
+      className={cn(
+        "h-8 shrink-0 rounded-md bg-foreground/10 text-foreground hover:bg-foreground/20",
+        text === undefined ? "w-8" : "gap-1.5 px-2.5",
+      )}
       aria-label={label}
       tip={`${label}: sends "${QUICK_REPLIES[kind]}"`}
       disabled={sending || typing || run.isRunning || run.isSubmitting}
@@ -117,6 +124,7 @@ export function QuickReplyButton({
       }}
     >
       <Icon name={icon} className="size-4" />
+      {text}
     </Button>
   );
 }
@@ -271,7 +279,12 @@ function StepButton({ threadId }: { threadId: string }) {
   // "Accept" and "Send back". Beside them it makes no move in the workflow
   // itself: it sends its sentence, and the agent records the approval.
   const agree = (
-    <QuickReplyButton kind="agree" label="Agree & continue" icon="Check" />
+    <QuickReplyButton
+      kind="agree"
+      label="Agree & continue"
+      icon="Check"
+      text="LGTM"
+    />
   );
   if (issue === null || result === null) return agree;
   // No steps, so no answers to a step, on the simple workflow.
