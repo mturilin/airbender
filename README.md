@@ -256,5 +256,7 @@ built, `bend ready` lists what is open.
 
 ## Licence
 
-No licence has been chosen yet, so for now the code is published to read
-and not yet to reuse. A licence file will follow.
+Copyright (c) 2026 Mikhail Turilin. Airbender, `bend` included, is free
+software under the [GNU General Public License, version 3](LICENSE): you
+may use, change and share it, and a changed version you share must be
+published under the same licence, with its source.
