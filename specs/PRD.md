@@ -1274,7 +1274,10 @@ breaking a requirement above.
   counts as a failed sync towards giving up. A stop after a conflict or a
   stuck state holds until a sync ends well; one that merely fails after it
   does not lift it. Asking how the helper stands (`bend helper`) and
-  stopping it do not count as `bend` being used, and start none. `BEND_NO_BACKGROUND` set keeps
+  stopping it do not count as `bend` being used, and start none. A helper
+  asked about in the moment after it starts, before it has written down
+  when it started, is said to be starting, not running since a time.
+  `[p1z]` `BEND_NO_BACKGROUND` set keeps
   `bend` from starting it (and from syncing behind a command);
   `BEND_NO_HELPER` keeps it from starting the helper alone.
 - What counts as trouble with the syncing: a conflict or a stuck state, at

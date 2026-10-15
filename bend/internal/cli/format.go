@@ -425,6 +425,11 @@ func helperWords(state kept.HelperState) string {
 	switch {
 	case state.Disabled:
 		return "disabled in this repository (bend helper enable)"
+	case state.Running && state.Since == 0:
+		// A helper takes its lock first and writes when it started a moment
+		// later; a look in between has no start time, which would read as
+		// 1970 (bead-bb-p1z).
+		return "starting"
 	case state.Running:
 		return "running since " + when(state.Since)
 	case state.HeldBackUntil > 0:
