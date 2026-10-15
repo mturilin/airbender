@@ -906,6 +906,36 @@ func (beads *Tracker) Reopen(id string) error {
 	return err
 }
 
+// Defer puts an issue in Someday with beads' own defer, which beads' ready
+// list leaves out. Refused for a closed issue; nothing for a deferred one.
+func (beads *Tracker) Defer(id string) error {
+	_, row, err := beads.needIn(id)
+	if err != nil {
+		return err
+	}
+	switch row.Status {
+	case closed:
+		return tracker.Refused("%s is closed. Reopen it before setting it aside.", id)
+	case tracker.DeferredStatus:
+		return nil
+	}
+	_, err = beads.bd([]string{"defer", id, "--json"}, nil)
+	return err
+}
+
+// Undefer brings a deferred issue back to open; any other is left alone.
+func (beads *Tracker) Undefer(id string) error {
+	_, row, err := beads.needIn(id)
+	if err != nil {
+		return err
+	}
+	if row.Status != tracker.DeferredStatus {
+		return nil
+	}
+	_, err = beads.bd([]string{"undefer", id, "--json"}, nil)
+	return err
+}
+
 // Move puts an issue under a parent, or with nil back at the top level.
 func (beads *Tracker) Move(id string, parentID *string) error {
 	all, row, err := beads.needIn(id)

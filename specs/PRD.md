@@ -235,6 +235,9 @@ In this order: `[02g]` `[a28]`
 - **In progress** — work has started.
 - **Ready** — open, and not waiting on any unfinished issue.
 - **Blocked** — waiting on at least one unfinished issue.
+- **Someday** — set aside for later: neither ready nor closed, to be
+  revisited. An issue in Someday stays there even when it waits on
+  another. `[26g]`
 - **Other** — any other status.
 - **Closed** — "Finished or cancelled."
 
@@ -245,6 +248,8 @@ Rules:
 - The Closed heading is always shown, with its count. Its issues are hidden
   by default. A Show / Hide button on the heading reveals and hides them.
   `[a28]`
+- **Someday is folded away the same way**, collapsed with a Show / Hide
+  button, and shown only when it holds issues. `[26g]`
 
 ## Categories
 
@@ -305,7 +310,8 @@ its category.
 - **Besides that button, a row has one "more" menu, three dots**, and
   nothing else, because closing is not the most frequent thing done to an
   issue. The menu holds: make current (or release), edit, add sub-issue,
-  move to, link and close. `[l3m]`
+  move to, link and close. `[l3m]` It also holds **"Move to Someday"**,
+  or **"Back to Ready"** for an issue in Someday. `[26g]`
 - **The button that opens an issue with its sub-issues stays on the row**,
   next to the menu; it is not moved into the menu. `[l3m]`
 - **Edit, move to and link, chosen from the menu, open the issue** and are
@@ -472,6 +478,8 @@ that epic's issues, and the current issue is picked from among them. `[ha9]`
   - It is turned on in epic mode, for that epic in that conversation.
   - Whenever the conversation is on no issue, the epic's next ready issue
     is started; when that issue is closed, the next one starts by itself.
+  - **It never starts an issue in Someday**, and an epic whose only open
+    sub-issues are in Someday has nothing left to do. `[26g]`
   - **A stuck issue makes it fail fast**: it stops and tells the owner that
     it could not do it, and the owner goes on by hand. It is deliberately
     not persistent for now.
@@ -485,7 +493,8 @@ that epic's issues, and the current issue is picked from among them. `[ha9]`
 - **Tags typed in the title set type, priority and category**, without
   opening the rest of the form: `#` and a type (`#task`, `#bug` and so on)
   sets the type, `#p0` to `#p4` sets the priority, and `$` and a name sets
-  the category. `[ky8]`
+  the category. `[ky8]` **`#someday` creates the issue in Someday.**
+  `[26g]`
 - **The tags auto-complete.** Typing `#` or `$` offers the matching types,
   priorities, or categories in use, and one can be picked to complete the
   tag. `[ky8]`
@@ -851,7 +860,8 @@ panel. `[bwr]`
   otherwise in a way a person reading the issue on GitHub can see: `[c9l.1]`
   - GitHub's own: title, description, comments, assignee, closing,
     sub-issues, and "blocked by".
-  - As labels: type, priority, category, and "in progress".
+  - As labels: type, priority, category, "in progress", and Someday
+    (`someday`) `[26g]`.
   - As marked sections of the description: requirements, done, plan and
     notes.
   - As a marked "Links" section of the description: "discovered from" and
@@ -959,7 +969,8 @@ panel. `[bwr]`
 - **What it can do:** list issues, list those ready to work on, show one,
   show its comments, search; create, edit, write one of an issue's parts
   (description, requirements, done, plan, notes), comment, record a
-  decision, close, reopen; move an issue under another or to the top level;
+  decision, close, reopen, put in Someday and bring back `[26g]`; move an
+  issue under another or to the top level;
   link and unlink two issues (blocked by, discovered from, related); hand an
   issue over; report the repository's status; save and recall standing
   facts.
@@ -1575,6 +1586,15 @@ breaking a requirement above.
 - bend on GitHub: "ready" means open, not in progress, and waiting for
   nothing. An issue waits for what the issues it sits inside wait for, up
   to four levels up. `[c9l.1]`
+- Someday: the status is beads' own `deferred` on beads and the label
+  `someday` on an open GitHub issue; bend reads both as `deferred` and
+  the tab calls it Someday. `bend defer` and `bend undefer` set and clear
+  it; starting or closing an issue takes it out of Someday. The default
+  `bend list` leaves Someday out (`--status deferred` or `all` shows it),
+  and `bend ready` never lists it. Moving to Someday and back asks no
+  confirmation. In the opened issue the button sits beside Close. Elsewhere
+  an issue in Someday still counts as unfinished: in sub-issue counts, and
+  among the open sub-issues offered for closing with an epic. `[26g]`
 - bend on GitHub: the login is the one the `gh` program holds, or a token
   in `GH_TOKEN` or `GITHUB_TOKEN`. Not signed in, no access, a limit
   reached (with the time it lifts) and no network are each said in plain

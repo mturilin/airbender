@@ -208,6 +208,11 @@ export interface IssueCommands {
   addSubIssue: (parentId: string) => void;
   /** Reopens a closed issue; no confirmation. */
   reopen: (beadId: string) => void;
+  /**
+   * Puts an issue in Someday (true) or brings it back to Ready (false); no
+   * confirmation (bead-bb-26g).
+   */
+  setSomeday: (beadId: string, someday: boolean) => void;
 }
 
 /** Everything a row can ask and do: the lookups and the commands together. */
@@ -274,6 +279,8 @@ export interface IssueActionsView {
       type: IssueType | null;
       priority: number | null;
       category: string | null;
+      /** Create it straight into Someday (`#someday`, bead-bb-26g). */
+      someday?: boolean;
     },
   ) => Promise<string | null>;
   /**
@@ -506,6 +513,11 @@ export function useIssueActions({
       applyMove(beadId, moveId, note);
     },
     reopen: (beadId) => applyOpen(beadId, true),
+    setSomeday: (beadId, someday) => {
+      rpc
+        .call(someday ? "issue_defer" : "issue_undefer", { threadId, projectId, beadId })
+        .then(settle, reportProblem);
+    },
     requestSizing: (beadId) => {
       rpc
         .call("issue_request_sizing", { threadId, projectId, beadId })
@@ -664,6 +676,7 @@ export function useIssueActions({
       type: IssueType | null;
       priority: number | null;
       category: string | null;
+      someday?: boolean;
     },
   ) => {
     try {

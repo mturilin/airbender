@@ -37,7 +37,7 @@ import { Icon } from "@/components/ui/icon";
 import { usePortalScopeProps } from "@/lib/portal-scope";
 import { cn } from "@/lib/utils";
 import type { Issue } from "../server/contract.ts";
-import { CLOSED_STATUS } from "../shared/constants.ts";
+import { CLOSED_STATUS, DEFERRED_STATUS } from "../shared/constants.ts";
 import { stateOf } from "../shared/workflow.ts";
 import { useActions } from "./actions.ts";
 import { LinkIcon } from "./bits.tsx";
@@ -143,6 +143,7 @@ export function RowMenu({
     style: CSSProperties;
   } | null>(null);
   const closed = issue.status === CLOSED_STATUS;
+  const someday = issue.status === DEFERRED_STATUS;
   const workflow = useWorkflow();
   const sizes = workflow?.sizes;
   const notStarted =
@@ -323,9 +324,23 @@ export function RowMenu({
                     icon={<LinkIcon />}
                     onPick={pick(() => onAsk("link"))}
                   >Link…</Entry>
+                  <div className="my-1 border-t border-border" />
+                  {/* Set aside for later, or back to the work in hand
+                      (bead-bb-26g); in the lean menu too, where Close is a
+                      button on the row. */}
+                  <Entry
+                    icon={
+                      <Icon
+                        name={someday ? "Undo2" : "Archive"}
+                        className="size-4 shrink-0 text-muted-foreground"
+                      />
+                    }
+                    onPick={pick(() => actions.setSomeday(issue.id, !someday))}
+                  >
+                    {someday ? "Back to Ready" : "Move to Someday"}
+                  </Entry>
                   {lean ? null : (
                     <>
-                      <div className="my-1 border-t border-border" />
                       <Entry
                         icon={<Icon name="CircleX" className="size-4 shrink-0 text-muted-foreground" />}
                         onPick={pick(() => actions.close(issue.id))}

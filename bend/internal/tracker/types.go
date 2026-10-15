@@ -72,12 +72,17 @@ type Link struct {
 	Direction string `json:"direction"`
 }
 
+// DeferredStatus is the status of an issue set aside for later: Someday in
+// the tab. Beads' own word; on GitHub issues it is the label "someday" on an
+// open issue (bead-bb-26g).
+const DeferredStatus = "deferred"
+
 // Issue is an issue in the shape that is the same for every tracker.
 type Issue struct {
 	ID    string `json:"id"`
 	Title string `json:"title"`
-	// Status is "open", "in_progress", "closed", or another status of the
-	// tracker's.
+	// Status is "open", "in_progress", "deferred" (Someday), "closed", or
+	// another status of the tracker's.
 	Status string  `json:"status"`
 	Type   *string `json:"type"`
 	// Priority is 0 (most urgent) to 4; nil when the tracker holds none.
@@ -330,6 +335,13 @@ type Tracker interface {
 	// Close closes an issue; reason may be "".
 	Close(id, reason string) error
 	Reopen(id string) error
+	// Defer puts an open or in-progress issue in Someday (DeferredStatus):
+	// set aside for later, not ready and not closed. One already deferred
+	// is left as it is; refused for a closed one (bead-bb-26g).
+	Defer(id string) error
+	// Undefer brings a deferred issue back to open; any other is left as
+	// it is.
+	Undefer(id string) error
 	// Move puts an issue under a parent, or with nil back at the top level.
 	Move(id string, parentID *string) error
 	// Link records "id <kind> otherID", e.g. id is blocked by otherID. kind

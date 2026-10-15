@@ -475,6 +475,39 @@ func TestStoppingTakesInProgressOffAndLeavesTheAssignee(t *testing.T) {
 	wantRefused(t, adapter.Stop(id), `is closed`)
 }
 
+func TestSomedayIsALabelThatStartingAndClosingTakeOff(t *testing.T) {
+	// bead-bb-26g.
+	github, adapter := fresh("")
+	id := create(t, adapter, tracker.Draft{Title: "Maybe later"})
+	must(t, adapter.Edit(id, tracker.Changes{AddLabels: []string{"ui"}}))
+	must(t, adapter.Start(id))
+	must(t, adapter.Defer(id))
+	same(t, show(t, adapter, id).Status, tracker.DeferredStatus)
+	same(t, github.LabelsOf(1), []string{"ui", "someday"})
+	same(t, show(t, adapter, id).Labels, []string{"ui"})
+	// Twice changes nothing: nothing is sent.
+	before := github.Requests()
+	must(t, adapter.Defer(id))
+	same(t, github.Requests(), before+1)
+	ready, err := adapter.Ready()
+	must(t, err)
+	same(t, len(ready), 0)
+	listed, err := adapter.List(tracker.ListFilter{})
+	must(t, err)
+	same(t, len(listed), 0)
+	must(t, adapter.Undefer(id))
+	same(t, show(t, adapter, id).Status, "open")
+	same(t, github.LabelsOf(1), []string{"ui"})
+	// Starting takes it out of Someday; so does closing.
+	must(t, adapter.Defer(id))
+	must(t, adapter.Start(id))
+	same(t, github.LabelsOf(1), []string{"ui", "in-progress"})
+	must(t, adapter.Defer(id))
+	must(t, adapter.Close(id, ""))
+	same(t, github.LabelsOf(1), []string{"ui"})
+	wantRefused(t, adapter.Defer(id), `is closed`)
+}
+
 func TestKeptDataIsAHiddenLineAtTheEndOfTheDescription(t *testing.T) {
 	github, adapter := fresh("")
 	id := create(t, adapter, tracker.Draft{Title: "Epic", Description: tracker.Ptr("What is wanted.")})

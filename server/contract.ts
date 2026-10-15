@@ -517,6 +517,8 @@ export const rpcContract = defineRpcContract({
        * then takes its parent's category, a top-level issue gets none.
        */
       category: z.string().nullable(),
+      /** Create it straight into Someday (the #someday tag, bead-bb-26g). */
+      someday: z.boolean().optional(),
     }),
     // `id` is set on success; `message` explains a failure in plain words.
     output: z.object({ id: z.string().nullable(), message: z.string().nullable() }),
@@ -615,6 +617,24 @@ export const rpcContract = defineRpcContract({
     output: z.object({ message: z.string().nullable() }),
   },
   issue_reopen: {
+    input: z.object({
+      threadId: z.string().nullable(),
+      projectId: z.string().nullable(),
+      beadId: z.string(),
+    }),
+    output: z.object({ message: z.string().nullable() }),
+  },
+  issue_defer: {
+    // Puts an issue in Someday: set aside for later (bead-bb-26g).
+    input: z.object({
+      threadId: z.string().nullable(),
+      projectId: z.string().nullable(),
+      beadId: z.string(),
+    }),
+    output: z.object({ message: z.string().nullable() }),
+  },
+  issue_undefer: {
+    // Brings an issue back from Someday to Ready.
     input: z.object({
       threadId: z.string().nullable(),
       projectId: z.string().nullable(),

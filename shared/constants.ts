@@ -31,6 +31,13 @@ export type IssueType = (typeof ISSUE_TYPES)[number];
 export const CLOSED_STATUS = "closed";
 
 /**
+ * The status of an issue set aside for later, shown as "Someday": beads'
+ * own deferred status, and on GitHub issues the label someday, read by bend
+ * as this status (bead-bb-26g).
+ */
+export const DEFERRED_STATUS = "deferred";
+
+/**
  * What a beads issue id may look like. Checked before an id is handed to
  * `bd`, so nothing that could be read as an option reaches its command line.
  */

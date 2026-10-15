@@ -21,6 +21,8 @@ interface QuickTags {
   type: IssueType | null;
   priority: number | null;
   category: string | null;
+  /** `#someday`: create it straight into Someday (bead-bb-26g). */
+  someday: boolean;
 }
 
 /**
@@ -28,6 +30,7 @@ interface QuickTags {
  *
  * - `#task`, `#bug` and the other issue types set the type;
  * - `#p0` to `#p4` set the priority;
+ * - `#someday` files it in Someday (bead-bb-26g);
  * - `$name` sets the category.
  *
  * A tag counts only as a word of its own (at the start, or after a space),
@@ -45,6 +48,7 @@ export function parseQuickTags(typed: string): QuickTags {
     type: null,
     priority: null,
     category: null,
+    someday: false,
   };
   const kept: string[] = [];
   for (const word of typed.split(/\s+/u)) {
@@ -52,6 +56,8 @@ export function parseQuickTags(typed: string): QuickTags {
     const priority = /^#p([0-4])$/u.exec(lower);
     if (priority !== null) {
       found.priority = Number(priority[1]);
+    } else if (lower === "#someday") {
+      found.someday = true;
     } else if (
       lower.startsWith("#") &&
       (ISSUE_TYPES as readonly string[]).includes(lower.slice(1))
@@ -71,8 +77,8 @@ export function parseQuickTags(typed: string): QuickTags {
 export interface TagSuggestion {
   /** What is shown, e.g. "#bug" or "$ux polish". */
   label: string;
-  /** A word saying what kind of thing it sets: type, priority or category. */
-  kind: "type" | "priority" | "category";
+  /** A word saying what kind of thing it sets: type, priority, category or state. */
+  kind: "type" | "priority" | "category" | "state";
   /** The value it sets, without the `#` or `$`. */
   value: string;
 }
@@ -123,6 +129,7 @@ export function suggestTags(token: string, categories: string[]): TagSuggestion[
             kind: "priority" as const,
             value: `p${priority}`,
           })),
+          { label: "#someday", kind: "state" as const, value: "someday" },
         ]
       : categories.map((category) => ({
           label: `$${category}`,

@@ -17,6 +17,7 @@ import { Tip } from "@/components/ui/tip";
 import { cn } from "@/lib/utils";
 import type { Issue } from "../server/contract.ts";
 import { isBlocked } from "./issue-model.ts";
+import { DEFERRED_STATUS } from "../shared/constants.ts";
 
 /**
  * A dropdown that looks like one of the small tags on an issue row, so the
@@ -74,6 +75,9 @@ export function Tag({
  * before, and rows that had no status tag still have none.
  */
 export function StatusTag({ issue }: { issue: Issue }) {
+  // Someday reads as such, blocked or not: the owner set it aside
+  // (bead-bb-26g).
+  if (issue.status === DEFERRED_STATUS) return <Tag>someday</Tag>;
   if (!isBlocked(issue)) {
     return (
       <Tag strong={issue.status === "in_progress"}>

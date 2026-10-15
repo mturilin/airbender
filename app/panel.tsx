@@ -248,6 +248,9 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
   // own button shows them. Deliberately not remembered, so the tab always
   // starts with the short list.
   const [showClosed, setShowClosed] = useState(false);
+  // Someday is folded away the same way, and for the same reason
+  // (bead-bb-26g): set-aside issues are not the work in hand.
+  const [showSomeday, setShowSomeday] = useState(false);
   const { openSections, closedSection } = useMemo(() => {
     const sections = toSections(
       others.filter((issue) => matchesFilters(issue, filters)),
@@ -640,6 +643,7 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
                 <SectionBlock
                   key={section.id}
                   section={section}
+                  collapsed={section.id === "someday" && !showSomeday}
                
                   // Only Ready is divided (the user's choice): it is the long
                   // group, the backlog to choose from.
@@ -666,7 +670,16 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
                   // choice). Group only affects Ready; Filter still narrows
                   // every group below Current.
                   headerActions={
-                    section.id !== "ready" ? null : (
+                    section.id === "someday" ? (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        aria-expanded={showSomeday}
+                        onClick={() => setShowSomeday((current) => !current)}
+                      >
+                        {showSomeday ? "Hide" : "Show"}
+                      </Button>
+                    ) : section.id !== "ready" ? null : (
                       <div className="flex shrink-0 items-center gap-1">
                         <GroupMenu
                           groupBy={filters.groupBy}

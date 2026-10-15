@@ -19,7 +19,7 @@ import { Icon } from "@/components/ui/icon";
 import { Tip } from "@/components/ui/tip";
 import { cn } from "@/lib/utils";
 import type { Issue } from "../server/contract.ts";
-import { CLOSED_STATUS } from "../shared/constants.ts";
+import { CLOSED_STATUS, DEFERRED_STATUS } from "../shared/constants.ts";
 import { useActions } from "./actions.ts";
 import { LinkIcon, Tag } from "./bits.tsx";
 import { IssueFacts } from "./issue-facts.tsx";
@@ -248,6 +248,7 @@ export function IssueDetails({
         )}
         {issue.status === "open" ||
         issue.status === "in_progress" ||
+        issue.status === DEFERRED_STATUS ||
         closed ? null : (
           <p className="text-xs text-muted-foreground">Status: {issue.status}</p>
         )}
@@ -401,6 +402,23 @@ export function IssueDetails({
             user: "you can access those actions through two parts"). Closing
             asks for confirmation first; reopening does not, since it only
             puts an issue back on the list. */}
+        {closed ? null : (
+          // Someday, here as in the row's menu (bead-bb-26g).
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-muted-foreground"
+            tip={
+              issue.status === DEFERRED_STATUS
+                ? "Bring this issue back to Ready"
+                : "Set this issue aside for later, in Someday"
+            }
+            onClick={() => actions.setSomeday(issue.id, issue.status !== DEFERRED_STATUS)}
+          >
+            <Icon name={issue.status === DEFERRED_STATUS ? "Undo2" : "Archive"} className="size-4" />
+            {issue.status === DEFERRED_STATUS ? "Back to Ready" : "Move to Someday"}
+          </Button>
+        )}
         {closed ? (
           <Button
             variant="ghost"

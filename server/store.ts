@@ -404,6 +404,7 @@ export function createStore({
       priority: number | null;
       parentId: string | null;
       category: string | null;
+      someday?: boolean;
     },
   ): Promise<{ id: string | null; message: string | null }> {
     const fail = (message: string) => ({ id: null, message });
@@ -423,6 +424,8 @@ export function createStore({
         parentId: input.parentId ?? undefined,
         category: input.category ?? undefined,
       });
+      // Into Someday right away: no tracker takes a status when creating.
+      if (input.someday === true) await found.tracker.defer(id);
       touched(folder.path);
       changed(input.threadId);
       return { id, message: null };
@@ -433,6 +436,27 @@ export function createStore({
       changed(input.threadId);
       return fail(problem(folder.path, cause, "create").message);
     }
+  }
+
+  /**
+   * Puts one issue in Someday, or brings it back (bead-bb-26g).
+   *
+   * @param command "defer" or "undefer".
+   * @returns `{ message: null }` on success, else the reason in plain words.
+   * Side effects: writes to the tracker; tells open tabs to reload.
+   */
+  async function setIssueSomeday(
+    command: "defer" | "undefer",
+    input: FolderRef & { beadId: string },
+  ): Promise<Outcome> {
+    if (!BEAD_ID_PATTERN.test(input.beadId)) {
+      return { message: notAnId(input.beadId) };
+    }
+    const folder = await folderFor(input);
+    if ("message" in folder) return { message: folder.message };
+    return applyIn(folder.path, input.threadId, command, (tracker) =>
+      command === "defer" ? tracker.defer(input.beadId) : tracker.undefer(input.beadId),
+    );
   }
 
   /**
@@ -883,6 +907,7 @@ export function createStore({
     issuesIn,
     createIssue,
     setIssueOpen,
+    setIssueSomeday,
     updateIssue,
     setParent,
     setCategory,

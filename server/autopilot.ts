@@ -41,7 +41,7 @@
 //   autopilot off.
 
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
-import { CLOSED_STATUS } from "../shared/constants.ts";
+import { CLOSED_STATUS, DEFERRED_STATUS } from "../shared/constants.ts";
 import { stateOf } from "../shared/workflow.ts";
 import type { Issue } from "./contract.ts";
 import type { CurrentBead } from "./current-bead.ts";
@@ -79,7 +79,8 @@ export type Pick_ =
 
 /**
  * The epic's next issue to work on: among its direct sub-issues that are
- * open, not blocked and not being worked on elsewhere, the most urgent,
+ * open (not closed and not in Someday), not blocked and not being worked
+ * on elsewhere, the most urgent,
  * and among equals the oldest (the user's review accepted this order; the
  * tab's own list puts the most recently changed first, which would make a
  * run jump around).
@@ -93,8 +94,13 @@ export function nextIssue(
   epicId: string,
   heldElsewhere: ReadonlySet<string>,
 ): Pick_ {
+  // Someday issues are set aside: not to be started, and not left to do
+  // (bead-bb-26g).
   const open = issues.filter(
-    (issue) => issue.parentId === epicId && issue.status !== CLOSED_STATUS,
+    (issue) =>
+      issue.parentId === epicId &&
+      issue.status !== CLOSED_STATUS &&
+      issue.status !== DEFERRED_STATUS,
   );
   if (open.length === 0) return { kind: "finished" };
   const ready = open
@@ -271,7 +277,10 @@ export async function createAutopilot({
         return;
       }
       const open = issues.filter(
-        (issue) => issue.parentId === epicId && issue.status !== CLOSED_STATUS,
+        (issue) =>
+          issue.parentId === epicId &&
+          issue.status !== CLOSED_STATUS &&
+          issue.status !== DEFERRED_STATUS,
       );
       const { projectId } = await bb.sdk.threads.get({ threadId });
       const held = new Set(

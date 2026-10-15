@@ -17,7 +17,7 @@ test("type and priority tags are taken out of the title", () => {
     title: "Fix login",
     type: "bug",
     priority: 1,
-    category: null,
+    category: null, someday: false,
   });
 });
 
@@ -26,7 +26,7 @@ test("a word after # that is not a tag stays in the title", () => {
     title: "Fix #login now",
     type: null,
     priority: null,
-    category: null,
+    category: null, someday: false,
   });
 });
 
@@ -35,7 +35,7 @@ test("tags work anywhere, in any case; the last of a kind wins", () => {
     title: "thing",
     type: "feature",
     priority: 0,
-    category: null,
+    category: null, someday: false,
   });
 });
 
@@ -44,7 +44,7 @@ test("a title without tags is unchanged", () => {
     title: "plain title",
     type: null,
     priority: null,
-    category: null,
+    category: null, someday: false,
   });
 });
 
@@ -72,5 +72,19 @@ test("suggestions complete types and priorities after #, categories after $", ()
   assert.deepEqual(
     suggestTags("$", ["ux", "api"]).map((suggestion) => suggestion.value),
     ["ux", "api"],
+  );
+});
+
+test("#someday files the issue in Someday (bead-bb-26g)", () => {
+  assert.deepEqual(parseQuickTags("Idea for later #someday #p3"), {
+    title: "Idea for later",
+    type: null,
+    priority: 3,
+    category: null,
+    someday: true,
+  });
+  assert.deepEqual(
+    suggestTags("#so", []).map((entry) => entry.label),
+    ["#someday"],
   );
 });

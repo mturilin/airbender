@@ -81,9 +81,17 @@ test("each issue lands in the group for what can be done about it", () => {
       issue("doing", { status: "in_progress" }),
       issue("done", { status: "closed" }),
       issue("later", { status: "deferred" }),
+      issue("custom", { status: "review" }),
       issue("stuck", { blockedBy: [{ id: "x", title: "x" }] }),
     ]),
-    "in_progress:doing ready:ready blocked:stuck other:later closed:done",
+    "in_progress:doing ready:ready blocked:stuck someday:later other:custom closed:done",
+  );
+});
+
+test("an issue in Someday stays there even when it waits on something (bead-bb-26g)", () => {
+  assert.equal(
+    grouped([issue("a", { status: "deferred", blockedBy: [{ id: "x", title: "x" }] })]),
+    "someday:a",
   );
 });
 

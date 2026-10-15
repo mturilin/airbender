@@ -11,6 +11,11 @@ cd bend && go build -o ~/.local/bin/bend ./cmd/bend
 bend --help
 ```
 
+An issue set aside for later is in **Someday**: `bend defer <id>` puts it
+there and `bend undefer <id>` brings it back. It is beads' own `deferred`
+status, and on GitHub issues the label `someday`. `bend ready` and the
+default `bend list` leave it out; `bend list --status deferred` shows it.
+
 On Linux and macOS, on amd64 or arm64, the tab's "Install bend" step downloads
 the binary from the GitHub release matching the plugin version, verifies its
 SHA-256 checksum, and installs it into `~/.local/bin`. It needs `curl` and

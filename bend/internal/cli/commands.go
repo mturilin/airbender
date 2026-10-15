@@ -54,9 +54,9 @@ var Commands = []Command{
 	{
 		Name:    "list",
 		Usage:   "[options]",
-		Summary: "List issues (open ones unless --status says otherwise)",
+		Summary: "List issues (open ones, not in Someday, unless --status says otherwise)",
 		Options: [][2]string{
-			{"--status <status>", "open | in_progress | closed | … | all"},
+			{"--status <status>", "open | in_progress | deferred | closed | … | all"},
 			{"--type <type>", "Only this type"},
 			{"--priority <0-4>", "Only this priority"},
 			{"--category <name>", "Only this category"},
@@ -202,6 +202,19 @@ var Commands = []Command{
 		Name:    "reopen",
 		Usage:   "<id>",
 		Summary: "Reopen a closed issue",
+		Group:   groupChange,
+	},
+	{
+		Name:    "defer",
+		Usage:   "<id>",
+		Summary: "Put an issue in Someday, set aside for later",
+		Details: "A deferred issue is neither ready nor closed: `bend ready` and the default\n`bend list` leave it out, and nothing starts it by itself. `bend undefer`\nbrings it back. On beads it is beads' own deferred status; on GitHub\nissues, the label someday.",
+		Group:   groupChange,
+	},
+	{
+		Name:    "undefer",
+		Usage:   "<id>",
+		Summary: "Bring an issue back from Someday",
 		Group:   groupChange,
 	},
 	{

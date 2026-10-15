@@ -1036,6 +1036,46 @@ func TestStoppingShowsAtOnceAndIsSentInItsTurn(t *testing.T) {
 	}
 }
 
+func TestSomedayShowsAtOnceAndIsSentInItsTurn(t *testing.T) {
+	// bead-bb-26g.
+	w := newWorld(t)
+	one := w.desk(t.TempDir())
+	_, err := one.tracker.Create(tracker.Draft{Title: "Maybe later"})
+	must(t, err)
+	// Not in Someday: bringing it back changes nothing, and nothing waits.
+	must(t, one.tracker.Undefer("1"))
+	if waiting := one.copy.Status().Waiting; waiting != 0 {
+		t.Fatalf("%d changes wait after undeferring an issue that was not deferred", waiting)
+	}
+	must(t, one.tracker.Defer("#1"))
+	if status := w.desk(one.dir).show("1").Status; status != tracker.DeferredStatus {
+		t.Fatalf("while it waits it shows %s", status)
+	}
+	// Twice: one change waits, not two.
+	must(t, one.tracker.Defer("1"))
+	if result := one.sync(); result.Sent != 1 || result.Refused != 0 {
+		t.Fatalf("got %+v", result)
+	}
+	if labels := w.github.LabelsOf(1); len(labels) != 1 || labels[0] != "someday" {
+		t.Fatalf("GitHub holds %v", labels)
+	}
+	must(t, one.tracker.Undefer("1"))
+	if status := w.desk(one.dir).show("1").Status; status != "open" {
+		t.Fatalf("while it waits it shows %s", status)
+	}
+	if result := one.sync(); result.Sent != 1 || result.Refused != 0 {
+		t.Fatalf("got %+v", result)
+	}
+	if labels := w.github.LabelsOf(1); len(labels) != 0 {
+		t.Fatalf("GitHub holds %v", labels)
+	}
+	// A closed issue is refused at once.
+	must(t, one.tracker.Close("1", ""))
+	if err := w.desk(one.dir).tracker.Defer("1"); err == nil {
+		t.Fatal("a closed issue was deferred")
+	}
+}
+
 func TestANoteIsAddedToWhatTheTrackerHoldsWhenItIsSent(t *testing.T) {
 	w := newWorld(t)
 	one, other := w.desk(t.TempDir()), w.desk(t.TempDir())

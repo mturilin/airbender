@@ -56,6 +56,16 @@ test("only the epic's own open sub-issues are looked at", () => {
   assert.deepEqual(nextIssue(issues, "e", NONE), { kind: "next", id: "mine" });
 });
 
+test("an issue in Someday is never started, and is not left to do (bead-bb-26g)", () => {
+  assert.deepEqual(
+    nextIssue([sub("later", { status: "deferred", priority: 0 }), sub("now", { priority: 3 })], "e", NONE),
+    { kind: "next", id: "now" },
+  );
+  assert.deepEqual(nextIssue([sub("later", { status: "deferred" })], "e", NONE), {
+    kind: "finished",
+  });
+});
+
 test("blocked issues, and ones being worked on in another conversation, are passed over", () => {
   const issues = [
     sub("blocked", { priority: 0, blockedBy: [{ id: "x", title: "X" }] }),

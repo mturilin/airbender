@@ -11,7 +11,7 @@ Usage:
   bend <command> [arguments] [options]
 
 Find and read:
-  list [options]           List issues (open ones unless --status says otherwise)
+  list [options]           List issues (open ones, not in Someday, unless --status says otherwise)
   ready [options]          List issues that can be worked on now
   show <id> [options]      Show one issue in full, with its links and sub-issues
   comments <id>            Show an issue's comments, oldest first
@@ -28,6 +28,8 @@ Create and change:
   stop <id>                 Put an issue that is in progress back to open
   close <id> [options]      Close an issue
   reopen <id>               Reopen a closed issue
+  defer <id>                Put an issue in Someday, set aside for later
+  undefer <id>              Bring an issue back from Someday
 
 Structure:
   move <id> (--under <parent> | --top)  Put an issue under a parent, or back at the top level
@@ -82,7 +84,7 @@ Usage:
   bend <command> [arguments] [options]
 
 Find and read:
-  list [options]           List issues (open ones unless --status says otherwise)
+  list [options]           List issues (open ones, not in Someday, unless --status says otherwise)
   ready [options]          List issues that can be worked on now
   show <id> [options]      Show one issue in full, with its links and sub-issues
   comments <id>            Show an issue's comments, oldest first
@@ -99,6 +101,8 @@ Create and change:
   stop <id>                 Put an issue that is in progress back to open
   close <id> [options]      Close an issue
   reopen <id>               Reopen a closed issue
+  defer <id>                Put an issue in Someday, set aside for later
+  undefer <id>              Bring an issue back from Someday
 
 Structure:
   move <id> (--under <parent> | --top)  Put an issue under a parent, or back at the top level
@@ -142,13 +146,13 @@ Run `bend <command> --help` for one command.
 
 $ bend list --help
 [exit 0]
-List issues (open ones unless --status says otherwise).
+List issues (open ones, not in Someday, unless --status says otherwise).
 
 Usage:
   bend list [options]
 
 Options:
-  --status <status>       open | in_progress | closed | … | all
+  --status <status>       open | in_progress | deferred | closed | … | all
   --type <type>           Only this type
   --priority <0-4>        Only this priority
   --category <name>       Only this category
@@ -414,6 +418,39 @@ Reopen a closed issue.
 
 Usage:
   bend reopen <id>
+
+Options for every command:
+  -C, --dir <path>     Run as if started in <path>
+      --json           Print machine-readable JSON
+      --text-file <f>  Read the text argument from a file ("-" for stdin)
+      --as <name>      Who is acting, for the tracker's history
+  -h, --help           Help for bend or for one command
+
+$ bend defer --help
+[exit 0]
+Put an issue in Someday, set aside for later.
+
+Usage:
+  bend defer <id>
+
+A deferred issue is neither ready nor closed: `bend ready` and the default
+`bend list` leave it out, and nothing starts it by itself. `bend undefer`
+brings it back. On beads it is beads' own deferred status; on GitHub
+issues, the label someday.
+
+Options for every command:
+  -C, --dir <path>     Run as if started in <path>
+      --json           Print machine-readable JSON
+      --text-file <f>  Read the text argument from a file ("-" for stdin)
+      --as <name>      Who is acting, for the tracker's history
+  -h, --help           Help for bend or for one command
+
+$ bend undefer --help
+[exit 0]
+Bring an issue back from Someday.
+
+Usage:
+  bend undefer <id>
 
 Options for every command:
   -C, --dir <path>     Run as if started in <path>
@@ -712,12 +749,12 @@ Options for every command:
 
 $ bend version
 [exit 0]
-bend 9
+bend 10
 
 $ bend version --json
 [exit 0]
 {
-  "version": 9
+  "version": 10
 }
 
 $ bend status

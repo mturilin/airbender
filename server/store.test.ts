@@ -324,6 +324,28 @@ test("links of every kind, what blocks what, and moving", async (t) => {
   assert.equal((await listed(store)).get(b)!.parentId, null);
 });
 
+test("Someday: set aside, brought back, and created straight into it (bead-bb-26g)", async (t) => {
+  if (skip) return t.skip(skip);
+  const store = storeIn(root);
+  const id = await create(store, "Maybe later");
+  assert.equal((await store.setIssueSomeday("defer", { ...here, beadId: id })).message, null);
+  assert.equal((await listed(store)).get(id)!.status, "deferred");
+  assert.equal((await store.setIssueSomeday("undefer", { ...here, beadId: id })).message, null);
+  assert.equal((await listed(store)).get(id)!.status, "open");
+  const made = await store.createIssue({
+    ...here,
+    title: "An idea",
+    description: "",
+    type: null,
+    priority: null,
+    parentId: null,
+    category: null,
+    someday: true,
+  });
+  assert.equal(made.message, null);
+  assert.equal((await listed(store)).get(made.id!)!.status, "deferred");
+});
+
 test("comments, closing and reopening", async (t) => {
   if (skip) return t.skip(skip);
   const store = storeIn(root);

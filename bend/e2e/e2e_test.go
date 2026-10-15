@@ -359,6 +359,33 @@ func TestCommentsDecisionsStartingHandingOverAndClosing(t *testing.T) {
 	same(t, text(repo.show(id).Assignee), "agent-7", "assignee after starting with --as")
 }
 
+func TestSomedaySetsAnIssueAsideAndBringsItBack(t *testing.T) {
+	// bead-bb-26g: beads' own deferred status, out of ready and the
+	// default list, back to open with undefer.
+	repo := newRepository(t)
+	idea := repo.ok("create", "An idea for later")
+	work := repo.ok("create", "Work in hand")
+	repo.ok("start", idea)
+	repo.ok("defer", idea)
+	same(t, repo.show(idea).Status, "deferred", "status after defer")
+	repo.ok("defer", idea)
+	for _, args := range [][]string{{"list"}, {"ready"}} {
+		if listed := repo.ok(args...); strings.Contains(listed, idea) || !strings.Contains(listed, work) {
+			t.Fatalf("bend %v:\n%s", args, listed)
+		}
+	}
+	for _, status := range []string{"deferred", "all"} {
+		if !strings.Contains(repo.ok("list", "--status", status), idea) {
+			t.Fatalf("not listed with --status %s", status)
+		}
+	}
+	repo.ok("undefer", idea)
+	same(t, repo.show(idea).Status, "open", "status after undefer")
+	repo.ok("undefer", idea)
+	repo.ok("close", idea)
+	same(t, repo.status("defer", idea), 1, "deferring a closed issue")
+}
+
 func TestProblemsHaveTheRightExitStatus(t *testing.T) {
 	repo := newRepository(t)
 	missing := repo.bend("show", "t-nope")

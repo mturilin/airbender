@@ -231,7 +231,7 @@ func oneOf(typed string, allowed []string, what string) (string, error) {
 // first and says so plainly when the bend it found is older than it needs,
 // instead of failing on an option that bend does not know. Raise it with
 // every such change.
-const Version = 9
+const Version = 10
 
 // statusWithCopy is what `bend status --json` prints: what the tracker
 // supports, and how the copy on this machine stands; null where the tracker
@@ -804,6 +804,26 @@ func carryOut(command *Command, parsed *Parsed, surroundings Surroundings) (answ
 			return answer{}, err
 		}
 		return did("Reopened "+id+".", field{"id", id}), nil
+
+	case "defer":
+		id, err := need(parsed, 0, "the issue id")
+		if err != nil {
+			return answer{}, err
+		}
+		if err := issues.Defer(id); err != nil {
+			return answer{}, err
+		}
+		return did("Moved "+id+" to Someday.", field{"id", id}), nil
+
+	case "undefer":
+		id, err := need(parsed, 0, "the issue id")
+		if err != nil {
+			return answer{}, err
+		}
+		if err := issues.Undefer(id); err != nil {
+			return answer{}, err
+		}
+		return did("Brought "+id+" back from Someday.", field{"id", id}), nil
 
 	case "move":
 		id, err := need(parsed, 0, "the issue id")

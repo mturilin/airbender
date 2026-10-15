@@ -60,7 +60,9 @@ func Narrow(issues []Issue, filter ListFilter) ([]Issue, error) {
 	for _, issue := range issues {
 		switch {
 		case filter.Status == nil:
-			if issue.Status == "closed" {
+			// The default list is the work in hand: neither finished nor
+			// set aside for later (bead-bb-26g).
+			if issue.Status == "closed" || issue.Status == DeferredStatus {
 				continue
 			}
 		case *filter.Status != "all" && issue.Status != *filter.Status:

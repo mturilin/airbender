@@ -14,8 +14,9 @@
 //   - Where things are kept. GitHub's own: title, description, comments,
 //     assignee, open and closed, sub-issues, and "blocked by". As labels:
 //     type (`type:<name>`), priority (`priority:<0-4>`), category
-//     (`category:<name>`, the same convention as with beads) and "in
-//     progress" (`in-progress`, on an open issue). GitHub makes a label the
+//     (`category:<name>`, the same convention as with beads), "in
+//     progress" (`in-progress`, on an open issue) and Someday (`someday`,
+//     on an open issue; bead-bb-26g). GitHub makes a label the
 //     first time it is applied. As marked sections at the end of the
 //     description (see tracker/parts.go): requirements, done, plan, notes.
 //   - Free-form data kept with an issue (the Airbender tab keeps an epic's
@@ -64,6 +65,7 @@ package github
 import (
 	"encoding/json"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -80,6 +82,10 @@ const (
 
 // inProgress is the label on an open issue that is being worked on.
 const inProgress = "in-progress"
+
+// someday is the label on an open issue set aside for later: the status
+// tracker.DeferredStatus (bead-bb-26g).
+const someday = "someday"
 
 // sections are the marked sections of a description, name and visible
 // heading, in the order they are written.
@@ -237,10 +243,21 @@ func labelValue(labels []string, prefix string) string {
 // holdsField says whether a label holds one of the fields above, so is not
 // a plain label.
 func holdsField(label string) bool {
-	return label == inProgress ||
+	return label == inProgress || label == someday ||
 		strings.HasPrefix(label, typePrefix) ||
 		strings.HasPrefix(label, priorityPrefix) ||
 		strings.HasPrefix(label, categoryPrefix)
+}
+
+// without gives the labels with these taken out.
+func without(labels []string, unwanted ...string) []string {
+	kept := []string{}
+	for _, label := range labels {
+		if !slices.Contains(unwanted, label) {
+			kept = append(kept, label)
+		}
+	}
+	return kept
 }
 
 // has says whether a list of labels holds one.
@@ -343,7 +360,10 @@ func toIssue(issue Issue, known map[int]Ref) tracker.Issue {
 	status := "closed"
 	if open {
 		status = "open"
-		if has(issue.Labels, inProgress) {
+		switch {
+		case has(issue.Labels, someday):
+			status = tracker.DeferredStatus
+		case has(issue.Labels, inProgress):
 			status = "in_progress"
 		}
 	}
@@ -670,6 +690,11 @@ func (github *adapter) Capabilities() (tracker.Capabilities, error) {
 				Note:  "kept as the label in-progress on an open issue",
 			},
 			{
+				Name:  "someday",
+				Level: "another way",
+				Note:  "kept as the label someday on an open issue",
+			},
+			{
 				Name:  "requirements, done, plan, notes",
 				Level: "another way",
 				Note:  "kept as marked sections at the end of the description",
@@ -741,6 +766,11 @@ func (github *adapter) List(filter tracker.ListFilter) ([]tracker.Issue, error) 
 	picked := []tracker.Issue{}
 	for _, issue := range found {
 		if filter.Status != nil && *filter.Status != "all" && issue.Status != *filter.Status {
+			continue
+		}
+		// The default list leaves Someday out, as tracker.Narrow does
+		// (bead-bb-26g).
+		if filter.Status == nil && issue.Status == tracker.DeferredStatus {
 			continue
 		}
 		if filter.Type != nil && !same(issue.Type, *filter.Type) {
@@ -1080,8 +1110,9 @@ func (github *adapter) Start(id string) error {
 		return tracker.Refused("%s is closed. Reopen it before starting work on it.", id)
 	}
 	update := Changes{}
-	if !has(issue.Labels, inProgress) {
-		labels := append(append([]string{}, issue.Labels...), inProgress)
+	if !has(issue.Labels, inProgress) || has(issue.Labels, someday) {
+		// Started is no longer set aside.
+		labels := append(without(issue.Labels, someday, inProgress), inProgress)
 		update.Labels = &labels
 	}
 	viewer, err := github.client.Viewer()
@@ -1135,22 +1166,17 @@ func (github *adapter) Close(id, reason string) error {
 			return err
 		}
 	}
-	if issue.State == "closed" && !has(issue.Labels, inProgress) {
+	if issue.State == "closed" && !has(issue.Labels, inProgress) && !has(issue.Labels, someday) {
 		if body == "" {
 			return nil
 		}
 		return github.client.AddComment(issue.Number, body)
 	}
 	update := Changes{State: "closed", StateReason: "completed"}
-	// A closed issue is not being worked on; without this it would come
-	// back as "in progress" when reopened.
-	if has(issue.Labels, inProgress) {
-		labels := []string{}
-		for _, label := range issue.Labels {
-			if label != inProgress {
-				labels = append(labels, label)
-			}
-		}
+	// A closed issue is neither worked on nor set aside; without this it
+	// would come back "in progress" or in Someday when reopened.
+	if has(issue.Labels, inProgress) || has(issue.Labels, someday) {
+		labels := without(issue.Labels, inProgress, someday)
 		update.Labels = &labels
 	}
 	if err := github.client.Update(issue.Number, update); err != nil {
@@ -1172,6 +1198,37 @@ func (github *adapter) Reopen(id string) error {
 		return nil
 	}
 	return github.client.Update(issue.Number, Changes{State: "open", StateReason: "reopened"})
+}
+
+// Defer puts an open issue in Someday: the label someday, and in-progress
+// taken off. One already there is left alone; refused for a closed issue.
+func (github *adapter) Defer(id string) error {
+	issue, err := github.need(id)
+	if err != nil {
+		return err
+	}
+	if issue.State == "closed" {
+		return tracker.Refused("%s is closed. Reopen it before setting it aside.", id)
+	}
+	if has(issue.Labels, someday) && !has(issue.Labels, inProgress) {
+		return nil
+	}
+	labels := append(without(issue.Labels, someday, inProgress), someday)
+	return github.client.Update(issue.Number, Changes{Labels: &labels})
+}
+
+// Undefer brings an issue back from Someday: the label someday is taken
+// off. One without it is left alone.
+func (github *adapter) Undefer(id string) error {
+	issue, err := github.need(id)
+	if err != nil {
+		return err
+	}
+	if !has(issue.Labels, someday) {
+		return nil
+	}
+	labels := without(issue.Labels, someday)
+	return github.client.Update(issue.Number, Changes{Labels: &labels})
 }
 
 // Move puts an issue under a parent, or with nil back at the top level.

@@ -19,12 +19,12 @@
 // - Types from the backend are imported as types only.
 
 import type { Issue } from "../server/contract.ts";
-import { CLOSED_STATUS, ISSUE_TYPES } from "../shared/constants.ts";
+import { CLOSED_STATUS, DEFERRED_STATUS, ISSUE_TYPES } from "../shared/constants.ts";
 import { descendantsOf } from "../shared/tree.ts";
 
 /** A titled group of issues, in the order the tab shows them. */
 export interface Section {
-  id: "current" | "in_progress" | "ready" | "blocked" | "other" | "closed";
+  id: "current" | "in_progress" | "ready" | "blocked" | "someday" | "other" | "closed";
   title: string;
   /** One short line explaining what belongs in the group. */
   hint: string;
@@ -57,8 +57,9 @@ export function byUrgency(left: Issue, right: Issue): number {
  * Splits issues into the groups the tab shows.
  *
  * "Blocked" wins over the issue's own status, because an issue that waits on
- * unfinished work cannot be picked up whatever its status says. "Other"
- * catches statuses such as deferred or any custom one.
+ * unfinished work cannot be picked up whatever its status says; except
+ * Someday, which the owner chose (bead-bb-26g): a set-aside issue stays in
+ * Someday whatever it waits on. "Other" catches any custom status.
  */
 export function toSections(issues: Issue[]): Section[] {
   const sections: Section[] = [
@@ -81,9 +82,15 @@ export function toSections(issues: Issue[]): Section[] {
       issues: [],
     },
     {
+      id: "someday",
+      title: "Someday",
+      hint: "Set aside for later.",
+      issues: [],
+    },
+    {
       id: "other",
       title: "Other",
-      hint: "Deferred, or in a status of your own.",
+      hint: "In a status of your own.",
       issues: [],
     },
     { id: "closed", title: "Closed", hint: "Finished or cancelled.", issues: [] },
@@ -92,6 +99,7 @@ export function toSections(issues: Issue[]): Section[] {
     sections.find((section) => section.id === id)!;
   for (const issue of issues) {
     if (issue.status === CLOSED_STATUS) find("closed").issues.push(issue);
+    else if (issue.status === DEFERRED_STATUS) find("someday").issues.push(issue);
     else if (isBlocked(issue)) find("blocked").issues.push(issue);
     else if (issue.status === "in_progress")
       find("in_progress").issues.push(issue);

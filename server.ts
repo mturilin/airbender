@@ -316,6 +316,8 @@ export default async function plugin(bb: BbPluginApi) {
     // the simple workflow it is the one way to close.
     issue_close: (input) => work.close(input),
     issue_reopen: (input) => store.setIssueOpen("reopen", input),
+    issue_defer: (input) => store.setIssueSomeday("defer", input),
+    issue_undefer: (input) => store.setIssueSomeday("undefer", input),
     issue_update: (input) => store.updateIssue(input),
     issue_set_parent: (input) => store.setParent(input),
     issue_set_category: (input) => store.setCategory(input),

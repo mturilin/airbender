@@ -95,6 +95,8 @@ const (
 	opStop    = "stop"
 	opClose   = "close"
 	opReopen  = "reopen"
+	opDefer   = "defer"
+	opUndefer = "undefer"
 	opMove    = "move"
 	opLink    = "link"
 	opUnlink  = "unlink"
@@ -342,6 +344,15 @@ func lay(issues []tracker.Issue, one change, touch bool) {
 		if issue.Status == closedStatus {
 			issue.Status, issue.CloseReason = "open", ""
 		}
+	case opDefer:
+		// As the adapters do: a closed issue stays closed.
+		if issue.Status != closedStatus {
+			issue.Status = tracker.DeferredStatus
+		}
+	case opUndefer:
+		if issue.Status == tracker.DeferredStatus {
+			issue.Status = "open"
+		}
 	case opMove:
 		issue.ParentID = one.Parent
 	case opLink:
@@ -413,6 +424,10 @@ func describe(one change) (what, text string) {
 		return "closing it", one.Reason
 	case opReopen:
 		return "reopening it", ""
+	case opDefer:
+		return "moving it to Someday", ""
+	case opUndefer:
+		return "bringing it back from Someday", ""
 	case opMove:
 		if one.Parent == nil {
 			return "moving it to the top level", ""
@@ -825,6 +840,10 @@ func (kept *Tracker) send(one change) error {
 		return inner.Close(one.ID, one.Reason)
 	case opReopen:
 		return inner.Reopen(one.ID)
+	case opDefer:
+		return inner.Defer(one.ID)
+	case opUndefer:
+		return inner.Undefer(one.ID)
 	case opMove:
 		return inner.Move(one.ID, one.Parent)
 	case opLink:

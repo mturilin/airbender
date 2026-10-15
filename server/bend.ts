@@ -49,7 +49,7 @@ import { join } from "node:path";
 import type { SyncEntry, SyncState } from "../sync/types.ts";
 
 /** The bend this plugin needs at least; see `Version` in bend's cli. */
-export const NEEDED_VERSION = 9;
+export const NEEDED_VERSION = 10;
 
 /** How long one run of bend may take. */
 const BEND_TIMEOUT_MS = 60_000;
@@ -331,6 +331,10 @@ export interface Tracker {
   comment(id: string, text: string, author?: string): Promise<void>;
   close(id: string): Promise<void>;
   reopen(id: string): Promise<void>;
+  /** Puts an issue in Someday (bead-bb-26g). */
+  defer(id: string): Promise<void>;
+  /** Brings an issue back from Someday. */
+  undefer(id: string): Promise<void>;
   /** Puts an issue under a parent, or with null back at the top level. */
   move(id: string, parentId: string | null): Promise<void>;
   link(id: string, otherId: string, kind: string): Promise<void>;
@@ -437,6 +441,12 @@ export function trackerOver(run: Run): Tracker {
     },
     async reopen(id) {
       await run(["reopen", "--", id]);
+    },
+    async defer(id) {
+      await run(["defer", "--", id]);
+    },
+    async undefer(id) {
+      await run(["undefer", "--", id]);
     },
     async move(id, parentId) {
       await run(["move", ...(parentId === null ? ["--top"] : ["--under", parentId]), "--", id]);

@@ -55,6 +55,7 @@ export function CreateIssue({
     type: IssueType | null;
     priority: number | null;
     category: string | null;
+    someday?: boolean;
   }) => Promise<string | null>;
   /** The issue the new one will be created inside; null for the top level. */
   parent: Issue | null;
@@ -150,6 +151,7 @@ export function CreateIssue({
       type: tags.type ?? (type === "" ? null : type),
       priority: tags.priority ?? (priority === "" ? null : Number(priority)),
       category: tags.category ?? category,
+      ...(tags.someday ? { someday: true } : {}),
     });
     setPending(false);
     setProblem(reason);

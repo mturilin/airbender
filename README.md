@@ -203,6 +203,7 @@ bend show app-1x2                 # one issue in full
 bend create "Remember the last shipping address" --type feature --priority 2
 bend write app-1x2 plan "..."     # write the plan onto the issue
 bend decide app-1x2 "X, because Y"
+bend defer app-1x2                # set it aside in Someday; bend undefer brings it back
 bend setup                        # what this repository still needs
 ```
 

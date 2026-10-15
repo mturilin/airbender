@@ -629,6 +629,42 @@ func (kept *Tracker) Reopen(id string) error {
 	return kept.record(change{Kind: opReopen, ID: id})
 }
 
+// Defer puts an issue in Someday (bead-bb-26g).
+func (kept *Tracker) Defer(id string) error {
+	if !kept.isQueued() {
+		return kept.changed(kept.inner.Defer(id))
+	}
+	id = kept.canon(id)
+	issue, err := kept.known(id)
+	if err != nil {
+		return err
+	}
+	switch issue.Status {
+	case closedStatus:
+		return tracker.Refused("%s is closed. Reopen it before setting it aside.", id)
+	case tracker.DeferredStatus:
+		return nil
+	}
+	return kept.record(change{Kind: opDefer, ID: id})
+}
+
+// Undefer brings an issue back from Someday.
+func (kept *Tracker) Undefer(id string) error {
+	if !kept.isQueued() {
+		return kept.changed(kept.inner.Undefer(id))
+	}
+	id = kept.canon(id)
+	issue, err := kept.known(id)
+	if err != nil {
+		return err
+	}
+	// Nothing would change: nothing waits to be sent.
+	if issue.Status != tracker.DeferredStatus {
+		return nil
+	}
+	return kept.record(change{Kind: opUndefer, ID: id})
+}
+
 // Move puts an issue under a parent, or with nil back at the top level.
 func (kept *Tracker) Move(id string, parentID *string) error {
 	if kept.isQueued() {

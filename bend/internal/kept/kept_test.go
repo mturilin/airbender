@@ -134,6 +134,8 @@ func (s *standIn) Start(string) error                                 { return n
 func (s *standIn) Stop(string) error                                  { return nil }
 func (s *standIn) Close(string, string) error                         { return nil }
 func (s *standIn) Reopen(string) error                                { return nil }
+func (s *standIn) Defer(string) error                                 { return nil }
+func (s *standIn) Undefer(string) error                               { return nil }
 func (s *standIn) Move(string, *string) error                         { return nil }
 func (s *standIn) Link(string, string, string) error                  { return nil }
 func (s *standIn) Unlink(string, string, tracker.UnlinkOptions) error { return nil }
