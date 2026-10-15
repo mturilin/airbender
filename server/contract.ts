@@ -353,6 +353,13 @@ const setupStatusSchema = z.object({
   elsewhere: z.boolean(),
   /** What setting up beads runs, while that step is to do; else null. */
   initRuns: z.string().nullable(),
+  /**
+   * Why setup may not change the repository from this folder: a worktree,
+   * or a branch other than main (bead-bb-25p); null where it may.
+   */
+  notHere: z.string().nullable(),
+  /** Committing the files setup wrote, while that is to do; else null. */
+  commitStep: syncStepSchema.nullable(),
   /** Whether the tracker's program is there, or none is needed. */
   bdInstalled: z.boolean(),
   /**
@@ -427,6 +434,11 @@ const setupStatusSchema = z.object({
     beadsBlocks: z.array(z.string()),
     /** The coding agents beads' own hooks are installed for, by label. */
     beadsHooks: z.array(z.string()),
+    /**
+     * Files beads' agent setup left that hold nothing of the owner's, to be
+     * deleted (bead-bb-cnv).
+     */
+    beadsFiles: z.array(z.string()),
     /**
      * The coding agents beads' hooks are installed for on the whole
      * computer, in the owner's home folder, by label. The step does not

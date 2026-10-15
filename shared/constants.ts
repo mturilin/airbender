@@ -119,6 +119,9 @@ export const SETUP_ACTIONS = [
   "facts",
   // Give the folder's issues a remote and sync them for the first time.
   "sync",
+  // Commit the files setup wrote (.bend.json, AGENTS.md, CLAUDE.md,
+  // FACTS.md), and nothing else (bead-bb-25p).
+  "commit",
 ] as const;
 export type SetupAction = (typeof SETUP_ACTIONS)[number];
 

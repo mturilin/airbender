@@ -80,6 +80,7 @@ export interface BendSetup {
   savedFacts: { key: string; text: string }[];
   foreign: SetupStatus["foreign"];
   elsewhere: boolean;
+  notHere: string;
 }
 
 /** The reason in something thrown, without the word "Error:". */
@@ -132,6 +133,11 @@ export function fromBend(state: BendSetup) {
     savedFacts: step("facts")?.state === "missing" ? state.savedFacts : [],
     foreign: state.foreign ?? null,
     elsewhere: state.elsewhere ?? false,
+    // Why setup may not change the repository from this folder (a
+    // worktree, another branch); null where it may (bead-bb-25p).
+    notHere: state.notHere === undefined || state.notHere === "" ? null : state.notHere,
+    // Committing the files setup wrote, while that is to do.
+    commitStep: offered("commit"),
     // What setting up beads runs, for the tab to show before it does.
     initRuns:
       state.issuesHow === "init" && issues?.state === "missing" ? issues.runs : null,
@@ -284,12 +290,15 @@ export function createSetup({
         imports: false,
         beadsBlocks: [],
         beadsHooks: [],
+        beadsFiles: [],
         machineWide: [],
         leftovers: [],
       },
       savedFacts: [],
       foreign: null,
       elsewhere: false,
+      notHere: null,
+      commitStep: null,
       initRuns: null,
       running: null,
       lastRun: null,
@@ -588,6 +597,18 @@ export function createSetup({
             ? "Sign in to GitHub"
             : "Set up beads in this folder",
         `${bendCommand} issues --yes`,
+      );
+    }
+    if (action === "commit") {
+      if (status.commitStep === null) {
+        return { message: "There is nothing of Airbender's to commit here." };
+      }
+      return inTerminal(
+        threadId,
+        path,
+        action,
+        status.commitStep.label,
+        `${bendCommand} commit --yes`,
       );
     }
     if (action === "sync") {

@@ -47,7 +47,11 @@ The steps are `tracker` (beads or GitHub issues, recorded in `.bend.json`),
 clone, or start a database; with GitHub issues, sign in), `instructions`
 (the rules for agents in `AGENTS.md`, what a `CLAUDE.md` is to be, `FACTS.md`;
 beads' own blocks and hooks taken out), `facts` (carry facts saved in beads
-over) and `publish` (the issue database to the repository's remote).
+over), `commit` (commit the files setup wrote or removed, beads' settings
+included, and nothing else) and
+`publish` (the issue database to the repository's remote). Setup changes a
+repository only from its main folder, on the main branch; in a worktree or
+on another branch it says where to go instead.
 
 A step asks what it needs and shows what it will do, with the exact outside
 command, before doing it. Options answer in advance: `-y` for a yes, and one

@@ -177,10 +177,15 @@ func Tracker(dir string, terminal Terminal, answers Answers, options Options) (*
 		current = *state.Tracker
 	}
 	foreignHere := state.Foreign != nil || state.Elsewhere
+	if use == "" && current != "" {
+		return &Outcome{Step: StepTracker, Message: "Already done: this repository uses " + trackerWords(current) + "."}, nil
+	}
+	// Choosing or switching the tracker writes .bend.json: only from the
+	// main folder on the main branch (bead-bb-25p).
+	if state.NotHere != "" {
+		return nil, tracker.Refused("%s", state.NotHere)
+	}
 	if use == "" {
-		if current != "" {
-			return &Outcome{Step: StepTracker, Message: "Already done: this repository uses " + trackerWords(current) + "."}, nil
-		}
 		if !terminal.Interactive {
 			return nil, missingAnswer("Which tracker?", "--use beads or --use github")
 		}
@@ -366,12 +371,28 @@ func Issues(dir string, terminal Terminal, answers Answers, options Options) (*O
 		if err := ran(terminal.Run(state.Root, state.bd, "bootstrap", "--yes"), "Getting the issues"); err != nil {
 			return nil, err
 		}
+		switchJournalOn(state)
 		return &Outcome{Step: StepIssues, Changed: true, Message: "The repository's issues are in this folder now."}, nil
 	}
 	if err := ran(terminal.Run(state.Root, state.bd, initArgs...), "Setting up beads"); err != nil {
 		return nil, err
 	}
+	switchJournalOn(state)
 	return &Outcome{Step: StepIssues, Changed: true, Message: "This folder has an issue database now."}, nil
+}
+
+// switchJournalOn has beads keep the journal bend's sync reads, now, while
+// the repository is being set up: the setting is in .beads/config.yaml, a
+// tracked file, which setup's commit then takes, so no later sync changes a
+// tracked file (bead-bb-cnv). bend's sync still switches it on where it is
+// off; failing here is not setup's failure.
+//
+// Side effects: runs `bd config set events-journal true` when it is off.
+func switchJournalOn(state *State) {
+	if said, ok := quiet(state.Root, 30*time.Second, state.bd, "config", "get", "events-journal"); ok && strings.TrimSpace(said) == "true" {
+		return
+	}
+	quiet(state.Root, 30*time.Second, state.bd, "config", "set", "events-journal", "true")
 }
 
 // writeFile replaces a file's content, as a refusal in plain words when it
@@ -588,9 +609,17 @@ func Instructions(dir string, terminal Terminal, answers Answers, options Option
 	// Beads' hooks, with beads' own way of removing them. After the files,
 	// so that a failure here leaves the instructions right.
 	for _, one := range state.hooks {
-		status := -1
-		if state.bd != "" {
-			status = terminal.Run(state.home, state.bd, "setup", one.id, "--remove")
+		status := 0
+		if one.installedIn(state.home) {
+			status = -1
+			if state.bd != "" {
+				status = terminal.Run(state.home, state.bd, "setup", one.id, "--remove")
+			}
+		}
+		// What beads' removal leaves, or an older beads' hook it does not
+		// know, when the whole file is beads' (bead-bb-cnv).
+		if err := removeLeftovers(state.home, beadsLeftovers(state.home)[one.id]); err != nil {
+			return nil, tracker.Refused("What beads' setup for %s left could not be deleted: %s", one.label, err)
 		}
 		// Believed only when the hook is really gone from its file.
 		for _, left := range beadsHooksIn(state.home) {
@@ -749,6 +778,7 @@ var run = map[string]func(string, Terminal, Answers, Options) (*Outcome, error){
 	StepIssues:       Issues,
 	StepInstructions: Instructions,
 	StepFacts:        Facts,
+	StepCommit:       Commit,
 	StepPublish:      Publish,
 }
 

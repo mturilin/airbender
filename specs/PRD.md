@@ -95,6 +95,30 @@ When something the panel needs is missing, the panel offers to set it up.
   be run from a plain terminal with `bend setup`; the panel's setup shows
   the state that command reports and runs its steps, so the two never
   disagree. `[c9l.9]`
+- **Airbender is set up only from the repository's main folder, on the
+  main branch.** In a worktree, or in the main folder on another branch,
+  setup changes nothing in the repository and says where to set it up
+  instead; in a worktree whose main folder has Airbender's instructions
+  but has not committed them, it says to commit them there. Installing
+  beads still works anywhere. `[25p]`
+- **Setup offers to commit the files it writes** (`.bend.json`,
+  `AGENTS.md`, `CLAUDE.md`, `FACTS.md`) right away, as a step of its own,
+  confirmed first. It commits those files only, and nothing else; it does
+  not push. `[25p]`
+- **Every file Airbender or beads touches is in exactly one of three
+  groups, and setup leaves nothing in between**: once a repository is set
+  up, git shows nothing of Airbender's or beads'. `[cnv]`
+  - **Committed**, part of the repository: `.bend.json`, `AGENTS.md`,
+    `CLAUDE.md`, `FACTS.md`, beads' tracked files (`.beads/config.yaml`,
+    `metadata.json`, `README.md`, `.beads/hooks/`, `.beads/.gitignore`)
+    and the lines beads adds to `.gitignore`.
+  - **Ignored**, this computer's only: the issue database, locks, sync
+    state, bend's copy inside `.git`, `.claude/settings.local.json`.
+  - **Removed**: beads' own setup for the coding agents (its hooks for
+    Claude Code and Codex, the files they leave empty, its Codex skill)
+    and its blocks in the instructions files.
+- **Beads' journal is switched on while setting up**, so a later sync
+  changes no tracked file. `[cnv]`
 - **The first step is choosing where the issues are kept**, beads or GitHub
   issues, where nothing says so yet. The choice is recorded in the
   repository. The panel offers it like any other step. `[c9l.9]`
@@ -1633,6 +1657,31 @@ breaking a requirement above.
   answer. The panel keeps its own confirmation windows and hands bend the
   answers; it keeps bend's answer about a folder for a short while, and
   "everything is in place" until something is run. `[c9l.9]`
+- Where setup may run: the main branch is the remote's default where git
+  knows it, else a local `main` or `master`; where neither can be told,
+  only the worktree rule applies. A step already done stays done
+  anywhere; only a step still to do is held back, and signing in to
+  GitHub is not. The commit step is called "Commit Airbender's files",
+  comes after the facts and before publishing, commits in one commit with
+  the message "Set up Airbender: <files>", runs in a terminal so the
+  repository's hooks show, and says beforehand that the whole of each file
+  goes in, a change made to it by hand included. It is not offered where
+  setup has written nothing, outside git, or where the issues are kept in
+  another repository (someone else's project). Only setup's own work
+  counts: `.bend.json` changed, `FACTS.md` new, `AGENTS.md` or `CLAUDE.md`
+  new or with Airbender's rules block changed (or `CLAUDE.md` made a
+  link); an agent's other edits to those files while working an issue do
+  not. A worktree whose branch was made before Airbender was set up on
+  main is told to bring the branch up to date with main. `[25p]`
+- Removing beads' agent setup: beads' Codex hook is recognised in both
+  its forms (`bd codex-hook`, and an older beads' `bd prime`). After
+  beads' own removal, setup deletes what is left only where the whole
+  file is beads': a hooks file with nothing but beads' hooks or none, a
+  `.codex/config.toml` with nothing but beads' `[features]` switch,
+  `.agents/skills/beads/`, then the folders left empty. A file that holds
+  anything else of the owner's is kept. Setup's commit takes
+  `.beads/config.yaml` when it differs from the last commit, and the
+  deletion of any of those files that had been committed. `[cnv]`
 - Someone else's project: the check asks GitHub once per reading of the
   setup state, only while no tracker is chosen, and gives up silently after
   five seconds; no GitHub login counts as "cannot tell". `bend setup

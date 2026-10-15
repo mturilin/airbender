@@ -689,7 +689,7 @@ Alone, it only reads: every step, whether it is done, and the command for
 each one that is missing. With a step's name it does that step; `all` does
 every missing one in order.
 
-Steps: tracker | program | issues | instructions | facts | publish.
+Steps: tracker | program | issues | instructions | facts | commit | publish.
   tracker       choose beads or GitHub issues, recorded in .bend.json
   program       install the tracker's own program (beads)
   issues        beads: get the repository's issues, or start a database;
@@ -697,12 +697,18 @@ Steps: tracker | program | issues | instructions | facts | publish.
   instructions  write the rules for agents into AGENTS.md, and take out
                 what beads wrote
   facts         carry facts saved in beads over to FACTS.md
+  commit        commit the files setup wrote or removed (.bend.json,
+                AGENTS.md, CLAUDE.md, FACTS.md, beads' settings and what
+                beads' agent setup left), and nothing else
   publish       publish the issue database to the repository's remote
 
 A step asks what it needs to know, and shows what it will do before it
 does it. Give the answers as options to run it without questions. Where
 nobody is at the keyboard a step never waits: it changes nothing and says
 which option was missing. A step that is already done changes nothing.
+
+Setup changes a repository only from its main folder, on the main branch:
+in a worktree, or on another branch, it says where to go instead.
 
 Airbender is for repositories of your own. Where origin is a fork, or a
 GitHub repository you cannot push to, choosing the tracker warns: its files
@@ -749,12 +755,12 @@ Options for every command:
 
 $ bend version
 [exit 0]
-bend 10
+bend 12
 
 $ bend version --json
 [exit 0]
 {
-  "version": 10
+  "version": 12
 }
 
 $ bend status
@@ -1880,7 +1886,7 @@ bend: Unknown tracker "linear". Use one of: beads, github.
 $ bend setup nonsense
 [exit 2]
 [standard error]
-bend: Unknown setup step "nonsense". There are: tracker, program, issues, instructions, facts, publish.
+bend: Unknown setup step "nonsense". There are: tracker, program, issues, instructions, facts, commit, publish.
 
 $ bend setup tracker issues
 [exit 2]
@@ -1903,6 +1909,8 @@ Folder    <empty>
                 Choose the tracker first.
 - facts         Carry saved facts over
                 There is no issue database to hold saved facts.
+- commit        Commit Airbender's files
+                This folder is not a git repository.
 … publish       Sync issues to the repository's remote
                 Choose the tracker first.
 

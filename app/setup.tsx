@@ -74,7 +74,19 @@ export interface SetupStep {
    * backticks is a command or a file name.
    */
   explain?: { lead: string; points: string[] };
+  /**
+   * Would be offered, but this folder is not where Airbender is set up (a
+   * worktree, another branch; bead-bb-25p): the card says where to go.
+   */
+  heldBack?: boolean;
 }
+
+/**
+ * The steps that change the repository, so are only offered from its main
+ * folder on the main branch (bead-bb-25p). Installing beads or bend is for
+ * the whole computer; signing in to GitHub is the owner's.
+ */
+const CHANGES_REPOSITORY: readonly SetupAction[] = ["tracker", "init", "fetch", "rules", "facts", "commit", "sync"];
 
 /** A sentence with its `backticked` parts in the code font. */
 function Marked({ text }: { text: string }) {
@@ -170,7 +182,18 @@ const onlyClaudeOpen = (status: SetupStatus | null) =>
 const replacesBeads = (status: SetupStatus | null) =>
   status !== null &&
   (status.instructions.beadsBlocks.length > 0 ||
-    status.instructions.beadsHooks.length > 0);
+    status.instructions.beadsHooks.length > 0 ||
+    status.instructions.beadsFiles.length > 0);
+
+/**
+ * All that is left of beads' agent setup is files that do nothing now
+ * (bead-bb-cnv): said as such, not as instructions that steer the agents.
+ */
+const onlyBeadsFiles = (status: SetupStatus | null) =>
+  status !== null &&
+  status.instructions.beadsBlocks.length === 0 &&
+  status.instructions.beadsHooks.length === 0 &&
+  status.instructions.beadsFiles.length > 0;
 
 /** The setup steps for a folder, in the order they make sense. */
 function setupSteps(status: SetupStatus): SetupStep[] {
@@ -323,7 +346,9 @@ function setupSteps(status: SetupStatus): SetupStep[] {
       option: null,
       // Named for what it will do here: a repository set up the old way
       // has beads' instructions to take out, a new one only gets ours.
-      label: replacesBeads(status)
+      label: onlyBeadsFiles(status)
+        ? "Remove what beads' agent setup left"
+        : replacesBeads(status)
         ? "Replace beads' instructions with Airbender's"
         : rulesUpdate(status)
           ? "Update Airbender's instructions for agents"
@@ -332,7 +357,9 @@ function setupSteps(status: SetupStatus): SetupStep[] {
             : "Add Airbender's instructions for agents",
       // An update, not a first setup: said differently on the card.
       update: !replacesBeads(status) && (rulesUpdate(status) || onlyClaudeOpen(status)),
-      why: replacesBeads(status)
+      why: onlyBeadsFiles(status)
+        ? "Beads' setup for the coding agents left files here that do nothing now. Airbender's instructions replace that setup, so they go."
+        : replacesBeads(status)
         ? "Beads wrote instructions of its own into this folder. They tell agents to close issues themselves, which is the opposite of how this tab works. This takes them out and leaves Airbender's."
         : rulesBehind(status) && status.instructions.rules !== "behind"
           ? "The rules for agents in CLAUDE.md were changed by hand here, and Airbender's own rules have changed since. Agents that read that file work by the earlier rules until you choose."
@@ -385,8 +412,31 @@ function setupSteps(status: SetupStatus): SetupStep[] {
             explain: status.syncSteps.on.explain,
           },
         ]),
+    // Committing the files setup wrote, while there are any (bead-bb-25p):
+    // said in bend's words, like the sync's steps.
+    ...(status.commitStep === null
+      ? []
+      : [
+          {
+            key: "commit",
+            action: "commit" as const,
+            option: null,
+            label: status.commitStep.label,
+            why: status.commitStep.why,
+            needed: true,
+            blocked: running,
+            explain: status.commitStep.explain,
+          },
+        ]),
   ];
-  return steps;
+  if (status.notHere === null) return steps;
+  // Not the place to set Airbender up: what would change the repository is
+  // held back, and the card says where to go instead.
+  return steps.map((step) =>
+    !CHANGES_REPOSITORY.includes(step.action) || !step.needed
+      ? step
+      : { ...step, needed: false, heldBack: true, blocked: "only from the main folder, on main" },
+  );
 }
 
 /**
@@ -490,18 +540,31 @@ export function SetupCard({
   /** Opens the confirmation for a step. */
   onStart: (step: SetupStep) => void;
 }) {
-  const offered = setupSteps(status).filter(
+  const all = setupSteps(status);
+  const offered = all.filter(
     (step) => step.needed && !skipped.includes(step.key),
   );
+  // Something to set up, held back here (bead-bb-25p): said instead.
+  const heldBack =
+    status.notHere !== null &&
+    all.some((step) => step.heldBack === true && !skipped.includes(step.key))
+      ? status.notHere
+      : null;
   const failed =
     status.lastRun !== null && status.lastRun.exitCode !== 0
       ? status.lastRun
       : null;
-  if (offered.length === 0 && status.running === null && failed === null) {
+  if (offered.length === 0 && status.running === null && failed === null && heldBack === null) {
     return null;
   }
   return (
     <div className="space-y-3 rounded-lg border border-border bg-card p-4">
+      {heldBack === null ? null : (
+        <div className="space-y-1.5">
+          <div className="text-sm font-medium">Airbender's setup isn't done from here</div>
+          <p className="text-sm text-muted-foreground">{heldBack}</p>
+        </div>
+      )}
       {offered.length === 0 ? null : (
         <div className="text-sm font-medium">
           {/* Nothing but updates to offer: the folder is ready, and is
@@ -1008,6 +1071,9 @@ function InstructionsBody({
   }
   for (const agent of found.beadsHooks) {
     done.push(<>beads' own setup for {agent} is removed, with beads' command for that</>);
+  }
+  for (const file of found.beadsFiles) {
+    done.push(<>{mono(file)}, left by beads' setup and holding nothing of yours, is deleted</>);
   }
   done.push(<>{mono("FACTS.md")} is created if there is none</>);
   // What is left as it is, said so that nobody wonders.

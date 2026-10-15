@@ -46,6 +46,7 @@ type setupState struct {
 		ClaudeRules string   `json:"claudeRules"`
 		BeadsBlocks []string `json:"beadsBlocks"`
 		BeadsHooks  []string `json:"beadsHooks"`
+		BeadsFiles  []string `json:"beadsFiles"`
 		Leftovers   []string `json:"leftovers"`
 	} `json:"instructions"`
 	SavedFacts []struct {
@@ -81,7 +82,13 @@ func bare(t *testing.T) *repository {
 	if _, err := exec.LookPath("bd"); err != nil {
 		t.Skip("bd is not available")
 	}
-	repo := &repository{t: t, root: root}
+	// bend's own runs get the same git as repo.run: no user settings or
+	// hooks, a fixed name; setup's commit step commits (bead-bb-25p).
+	repo := &repository{t: t, root: root, env: []string{
+		"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1",
+		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.com",
+		"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.com",
+	}}
 	repo.run("git", "init", "-q")
 	return repo
 }
@@ -92,7 +99,7 @@ func (repo *repository) run(name string, args ...string) string {
 	repo.t.Helper()
 	command := exec.Command(name, args...)
 	command.Dir = repo.root
-	command.Env = append(os.Environ(), "BD_ACTOR=tester",
+	command.Env = append(append(os.Environ(), repo.env...), "BD_ACTOR=tester",
 		"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1",
 		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.com",
 		"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.com")
@@ -113,7 +120,7 @@ func TestSetupOfANewRepository(t *testing.T) {
 	newOnly(t)
 	repo := bare(t)
 	first := repo.setup()
-	same(t, first.states(), "tracker=missing program=blocked issues=blocked instructions=blocked facts=not-needed publish=blocked", "a new repository")
+	same(t, first.states(), "tracker=missing program=blocked issues=blocked instructions=blocked facts=not-needed commit=not-needed publish=blocked", "a new repository")
 	same(t, first.Root, repo.root, "root")
 	same(t, first.Ready, false, "ready")
 	same(t, first.Steps[0].Command, "bend setup tracker", "the command for the missing step")
@@ -142,7 +149,7 @@ func TestSetupOfANewRepository(t *testing.T) {
 	// all stops at the first step that lacks its yes, having changed nothing.
 	same(t, repo.fails("setup", "all").Kind, "usage", "all without a yes")
 	chosen := repo.setup()
-	same(t, chosen.states(), "tracker=done program=done issues=missing instructions=blocked facts=not-needed publish=blocked", "after choosing beads")
+	same(t, chosen.states(), "tracker=done program=done issues=missing instructions=blocked facts=not-needed commit=missing publish=blocked", "after choosing beads")
 	// Beads is set up without questions, as the maintainer (bead-bb-dof).
 	if !strings.HasSuffix(chosen.Steps[2].Runs, " init --skip-agents --non-interactive --role maintainer") {
 		t.Fatalf("the issues step runs %q", chosen.Steps[2].Runs)
@@ -150,13 +157,17 @@ func TestSetupOfANewRepository(t *testing.T) {
 
 	repo.ok("setup", "all", "-y")
 	done := repo.setup()
-	same(t, done.states(), "tracker=done program=done issues=done instructions=done facts=not-needed publish=not-needed", "after all")
+	same(t, done.states(), "tracker=done program=done issues=done instructions=done facts=not-needed commit=done publish=not-needed", "after all")
 	same(t, done.Ready, true, "ready")
 	same(t, done.Instructions.Rules, "current", "the rules")
 	if !strings.HasPrefix(repo.file("AGENTS.md"), "<!-- airbender:rules:start -->") || !strings.HasPrefix(repo.file("FACTS.md"), "# Facts\n") {
 		t.Fatal("the instructions or the facts file are not there")
 	}
 	same(t, repo.file("CLAUDE.md"), "", "no CLAUDE.md is made where there was none")
+	// Setup's files are committed, in one commit of their own, and nothing
+	// is left over (bead-bb-25p).
+	same(t, strings.TrimSpace(repo.run("git", "log", "-1", "--format=%s")), "Set up Airbender: .bend.json, AGENTS.md, FACTS.md, .beads/config.yaml", "setup's commit")
+	same(t, strings.TrimSpace(repo.run("git", "status", "--porcelain")), "", "git status after setup")
 	// The repository works: an issue can be made and read.
 	id := repo.ok("create", "First")
 	same(t, repo.show(id).Title, "First", "an issue in the new repository")
@@ -190,7 +201,7 @@ func TestSetupSwitchesARepositorySetUpTheOldWay(t *testing.T) {
 	os.WriteFile(filepath.Join(repo.root, "AGENTS.md"), []byte(repo.file("AGENTS.md")+"\n## Mine\n\nMy own rules.\n"), 0o644)
 
 	found := repo.setup()
-	same(t, found.states(), "tracker=done program=done issues=done instructions=missing facts=missing publish=not-needed", "set up the old way")
+	same(t, found.states(), "tracker=done program=done issues=done instructions=missing facts=missing commit=done publish=not-needed", "set up the old way")
 	same(t, found.Steps[3].Title, "Replace beads' instructions with Airbender's", "the step's name")
 	same(t, strings.Join(found.Instructions.BeadsBlocks, " "), "AGENTS.md CLAUDE.md", "beads' blocks")
 	same(t, strings.Join(found.Instructions.BeadsHooks, ", "), "Claude Code, Codex", "beads' hooks")
@@ -229,9 +240,11 @@ func TestSetupSwitchesARepositorySetUpTheOldWay(t *testing.T) {
 	if !strings.Contains(facts, "- **build** — Run npm test before handing over") || strings.Contains(facts, "no-close") {
 		t.Fatalf("the facts file is not as chosen:\n%s", facts)
 	}
-	last := repo.setup()
-	same(t, last.Steps[4].State, "done", "the facts step")
-	same(t, last.Ready, true, "ready")
+	same(t, repo.setup().Steps[4].State, "done", "the facts step")
+	// Ready once setup's files are committed (bead-bb-25p).
+	same(t, repo.setup().Ready, false, "ready before committing setup's files")
+	repo.ok("setup", "commit", "-y")
+	same(t, repo.setup().Ready, true, "ready")
 	// Still in beads: carrying over copies, it does not move.
 	if !strings.Contains(repo.run("bd", "memories"), "no-close") {
 		t.Fatal("the fact left behind is gone from beads")
@@ -252,14 +265,14 @@ func TestSetupGetsTheIssuesOnAFreshClone(t *testing.T) {
 	first.ok("setup", "issues", "-y")
 	id := first.ok("create", "Made on the first computer")
 	// The issues are on this computer only, and there is a remote: offered.
-	publish := first.setup().Steps[5]
+	publish := first.setup().Steps[6]
 	same(t, publish.State, "missing", "publish before publishing")
 	if !strings.Contains(publish.Runs, "dolt push --yes") {
 		t.Fatalf("the command is not shown: %q", publish.Runs)
 	}
 	same(t, first.fails("setup", "publish").Kind, "usage", "publishing without a yes")
 	first.ok("setup", "publish", "-y")
-	same(t, first.setup().Steps[5].State, "done", "publish after publishing")
+	same(t, first.setup().Steps[6].State, "done", "publish after publishing")
 
 	second := bare(t)
 	second.run("git", "remote", "add", "origin", remote)
@@ -291,7 +304,7 @@ func TestSetupForGitHubIssuesWithoutALogin(t *testing.T) {
 	repo.ok("setup", "tracker", "--use", "github", "--repository", "someone/thing")
 	same(t, repo.file(".bend.json"), "{\"tracker\": \"github\", \"repository\": \"someone/thing\"}\n", "the setting")
 	found := repo.setup()
-	same(t, found.states(), "tracker=done program=not-needed issues=missing instructions=blocked facts=not-needed publish=not-needed", "GitHub issues, not signed in")
+	same(t, found.states(), "tracker=done program=not-needed issues=missing instructions=blocked facts=not-needed commit=missing publish=not-needed", "GitHub issues, not signed in")
 	same(t, found.Steps[2].Runs, "gh auth login", "what signing in runs")
 	// Signing in is a conversation; without a keyboard it is refused with
 	// how to do it, and nothing is run.
@@ -579,4 +592,189 @@ func TestSetupAndClaudeFile(t *testing.T) {
 	same(t, repo.setup().Steps[3].State, "missing", "the step, with earlier rules in CLAUDE.md")
 	repo.ok("setup", "instructions", "-y")
 	same(t, repo.file("CLAUDE.md"), "# Claude only\n\nUse the long context.\n\n"+rules, "CLAUDE.md brought up to date")
+}
+
+// commitAll makes a first commit, so the folder has a branch.
+func (repo *repository) commitAll(message string) {
+	repo.t.Helper()
+	repo.run("git", "commit", "-q", "--allow-empty", "-m", message)
+}
+
+func TestSetupCommitsItsFilesAndNothingElse(t *testing.T) {
+	// bead-bb-25p: only setup's files go in; what else is staged stays so.
+	newOnly(t)
+	repo := bare(t)
+	repo.commitAll("first")
+	if err := os.WriteFile(filepath.Join(repo.root, "other.txt"), []byte("mine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	repo.run("git", "add", "other.txt")
+	repo.ok("setup", "tracker", "--use", "beads")
+	commit := repo.setup().Steps[5]
+	same(t, commit.Name+"="+commit.State, "commit=missing", "the commit step after choosing beads")
+	if !strings.Contains(commit.Runs, "git commit -m \"Set up Airbender: .bend.json\" -- .bend.json") {
+		t.Fatalf("the commit step runs %q", commit.Runs)
+	}
+	same(t, repo.fails("setup", "commit").Kind, "usage", "the commit without a yes")
+	repo.ok("setup", "commit", "-y")
+	same(t, strings.TrimSpace(repo.run("git", "show", "--name-only", "--format=%s", "HEAD")), "Set up Airbender: .bend.json\n\n.bend.json", "what the commit holds")
+	same(t, strings.TrimSpace(repo.run("git", "status", "--porcelain")), "A  other.txt", "what else was staged")
+	same(t, repo.setup().Steps[5].State, "done", "the commit step afterwards")
+}
+
+func TestSetupIsHeldBackInAWorktreeAndOnAnotherBranch(t *testing.T) {
+	// bead-bb-25p: setup changes a repository only from its main folder, on
+	// the main branch.
+	newOnly(t)
+	repo := bare(t)
+	repo.commitAll("first")
+	main := strings.TrimSpace(repo.run("git", "branch", "--show-current"))
+	tree := filepath.Join(filepath.Dir(repo.root), filepath.Base(repo.root)+"-tree")
+	repo.run("git", "worktree", "add", "-q", "-b", "feature", tree)
+	other := &repository{t: t, root: tree, env: repo.env}
+	state := other.setup()
+	same(t, state.Steps[0].State, "blocked", "the tracker step in a worktree")
+	same(t, state.Steps[0].Why, "Set up Airbender from the main folder, "+repo.root+", on "+main+".", "why, in a worktree")
+	same(t, other.fails("setup", "tracker", "--use", "beads").Kind, "refused", "choosing the tracker in a worktree")
+	same(t, other.file(".bend.json"), "", "the setting in the worktree")
+
+	// The main folder on another branch.
+	repo.run("git", "switch", "-q", "-c", "topic")
+	state = repo.setup()
+	same(t, state.Steps[0].Why, "Set up Airbender on "+main+": this folder is on topic.", "why, on another branch")
+	same(t, repo.fails("setup", "tracker", "--use", "beads").Kind, "refused", "choosing the tracker on another branch")
+
+	// Back on main: allowed.
+	repo.run("git", "switch", "-q", main)
+	same(t, repo.setup().Steps[0].State, "missing", "the tracker step on main")
+}
+
+func TestAWorktreeSaysToCommitTheMainFoldersInstructions(t *testing.T) {
+	// The minisaba case (bead-bb-25p): the main folder has Airbender's rules
+	// but has not committed them; a worktree points there.
+	newOnly(t)
+	repo := bare(t)
+	repo.commitAll("first")
+	repo.ok("setup", "tracker", "--use", "beads")
+	repo.ok("setup", "issues", "-y")
+	repo.ok("setup", "instructions", "-y")
+	tree := filepath.Join(filepath.Dir(repo.root), filepath.Base(repo.root)+"-tree")
+	repo.run("git", "worktree", "add", "-q", "-b", "feature", tree)
+	other := &repository{t: t, root: tree, env: repo.env}
+	instructions := other.setup().Steps[3]
+	same(t, instructions.State, "blocked", "the instructions step in the worktree")
+	if why := instructions.Why; !strings.Contains(why, "Airbender's instructions are in the main folder, "+repo.root+", but not committed") {
+		t.Fatalf("the worktree says %q", why)
+	}
+}
+
+func TestAnIssuesOwnEditsAreNotSetupsToCommit(t *testing.T) {
+	// bead-bb-25p, from review: agents edit AGENTS.md and FACTS.md while
+	// working issues; only what setup wrote is its to commit.
+	newOnly(t)
+	repo := bare(t)
+	repo.commitAll("first")
+	repo.ok("setup", "all", "-y", "--use", "beads")
+	same(t, repo.setup().Steps[5].State, "done", "the commit step after setting up")
+	write := func(name, text string) {
+		if err := os.WriteFile(filepath.Join(repo.root, name), []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("AGENTS.md", repo.file("AGENTS.md")+"\n## Build\n\nRun make.\n")
+	write("FACTS.md", repo.file("FACTS.md")+"- **build** — Run make.\n")
+	same(t, repo.setup().Steps[5].State, "done", "the commit step with an issue's own edits")
+	// A change inside Airbender's rules block is setup's.
+	write("AGENTS.md", strings.Replace(repo.file("AGENTS.md"), "## Working with issues through Airbender", "## Working with issues, changed", 1))
+	step := repo.setup().Steps[5]
+	same(t, step.State, "missing", "the commit step with the rules changed")
+	if !strings.Contains(step.Why, "AGENTS.md") || strings.Contains(step.Why, "FACTS.md") {
+		t.Fatalf("the commit step names: %s", step.Why)
+	}
+}
+
+func TestAWorktreeMadeBeforeSetupIsToldToCatchUp(t *testing.T) {
+	// bead-bb-25p: a branch made before Airbender was set up and committed
+	// on main needs only to be brought up to date.
+	newOnly(t)
+	repo := bare(t)
+	repo.commitAll("first")
+	main := strings.TrimSpace(repo.run("git", "branch", "--show-current"))
+	tree := filepath.Join(filepath.Dir(repo.root), filepath.Base(repo.root)+"-tree")
+	repo.run("git", "worktree", "add", "-q", "-b", "feature", tree)
+	repo.ok("setup", "all", "-y", "--use", "beads")
+	other := &repository{t: t, root: tree, env: repo.env}
+	instructions := other.setup().Steps[3]
+	same(t, instructions.State, "blocked", "the instructions step in the old worktree")
+	same(t, instructions.Why, "Airbender is set up on "+main+", but this branch was made before that. Bring it up to date with "+main+" to get Airbender's instructions.", "why")
+}
+
+func TestSetupLeavesNothingForGit(t *testing.T) {
+	// bead-bb-cnv: a new repository set up and published shows nothing of
+	// Airbender's or beads' to git, and its sync changes no tracked file.
+	newOnly(t)
+	origin := bare(t)
+	origin.run("git", "init", "-q", "--bare", "remote.git")
+	repo := bare(t)
+	repo.commitAll("first")
+	repo.run("git", "remote", "add", "origin", filepath.Join(origin.root, "remote.git"))
+	repo.run("git", "push", "-q", "origin", "HEAD")
+	repo.ok("setup", "all", "-y", "--use", "beads")
+	same(t, strings.TrimSpace(repo.run("git", "status", "--porcelain")), "", "git status after setting up")
+	if !strings.Contains(repo.run("git", "show", "HEAD:.beads/config.yaml")+repo.run("git", "log", "-p", "--format=", "--", ".beads/config.yaml"), "events-journal: true") {
+		t.Fatal("beads' journal setting is not committed")
+	}
+	repo.ok("create", "Something")
+	repo.ok("sync")
+	same(t, strings.TrimSpace(repo.run("git", "status", "--porcelain")), "", "git status after a sync")
+}
+
+func TestBeadsAgentSetupIsRemovedWithWhatItLeaves(t *testing.T) {
+	// bead-bb-cnv: beads' Codex and Claude Code setup, and an older beads'
+	// Codex hook, go entirely; a file of the owner's is kept.
+	newOnly(t)
+	repo := bare(t)
+	repo.commitAll("first")
+	repo.ok("setup", "tracker", "--use", "beads")
+	repo.ok("setup", "issues", "-y")
+	repo.run("bd", "setup", "codex")
+	repo.run("bd", "setup", "claude")
+	found := repo.setup()
+	same(t, strings.Join(found.Instructions.BeadsHooks, ", "), "Claude Code, Codex", "beads' hooks found")
+	repo.ok("setup", "instructions", "-y", "--claude", "link")
+	for _, gone := range []string{".codex", ".agents", ".claude/settings.json"} {
+		if _, err := os.Stat(filepath.Join(repo.root, gone)); err == nil {
+			t.Fatalf("%s is still there", gone)
+		}
+	}
+	repo.ok("setup", "commit", "-y")
+	same(t, strings.TrimSpace(repo.run("git", "status", "--porcelain")), "", "git status afterwards")
+
+	// Only a leftover, doing nothing: named as such, and removed.
+	os.MkdirAll(filepath.Join(repo.root, ".claude"), 0o755)
+	os.WriteFile(filepath.Join(repo.root, ".claude/settings.json"), []byte(`{"hooks": {}}`), 0o644)
+	left := repo.setup()
+	same(t, left.Steps[3].Title, "Remove what beads' agent setup left", "the step for a leftover alone")
+	same(t, strings.Join(left.Instructions.BeadsFiles, " ")+"|"+strings.Join(left.Instructions.BeadsHooks, " "), ".claude/settings.json|", "the leftover, and no hook")
+	repo.ok("setup", "instructions", "-y")
+	if _, err := os.Stat(filepath.Join(repo.root, ".claude")); err == nil {
+		t.Fatal("the leftover's folder is still there")
+	}
+
+	// An older beads' Codex hook, alone in its file, is found and removed;
+	// a Codex config with a setting of the owner's is kept.
+	if err := os.MkdirAll(filepath.Join(repo.root, ".codex"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	old := `{"hooks": {"SessionStart": [{"matcher": "", "hooks": [{"type": "command", "command": "bd prime --hook-json"}]}]}}`
+	os.WriteFile(filepath.Join(repo.root, ".codex/hooks.json"), []byte(old), 0o644)
+	os.WriteFile(filepath.Join(repo.root, ".codex/config.toml"), []byte("model = \"o3\"\n\n[features]\nhooks = true\n"), 0o644)
+	same(t, strings.Join(repo.setup().Instructions.BeadsHooks, ", "), "Codex", "the older hook found")
+	repo.ok("setup", "instructions", "-y")
+	if _, err := os.Stat(filepath.Join(repo.root, ".codex/hooks.json")); err == nil {
+		t.Fatal("the older hook file is still there")
+	}
+	if !strings.Contains(repo.file(".codex/config.toml"), "model = \"o3\"") {
+		t.Fatal("the owner's Codex config was not kept")
+	}
 }

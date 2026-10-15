@@ -111,6 +111,14 @@ func VersionIn(agentsFile string) int {
 	return versionOf(block)
 }
 
+// RulesBlock gives the rules block of a text, markers included; "" when it
+// has none. For telling whether Airbender's rules themselves changed, apart
+// from the rest of the file (bead-bb-25p).
+func RulesBlock(text string) string {
+	block, _ := rulesBlock(text)
+	return block
+}
+
 // rulesBlock gives the rules block of an AGENTS.md, markers included; ok is
 // false when there is none.
 func rulesBlock(agentsFile string) (block string, ok bool) {

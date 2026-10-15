@@ -44,6 +44,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -75,7 +76,7 @@ const (
 )
 
 // StepNames is every step in order.
-var StepNames = []string{StepTracker, StepProgram, StepIssues, StepInstructions, StepFacts, StepPublish}
+var StepNames = []string{StepTracker, StepProgram, StepIssues, StepInstructions, StepFacts, StepCommit, StepPublish}
 
 // Step is one setup step as it stands for a folder.
 type Step struct {
@@ -145,6 +146,9 @@ type InstructionsState struct {
 	// BeadsHooks are the coding agents beads' hooks are installed for in
 	// this repository, by name.
 	BeadsHooks []string `json:"beadsHooks"`
+	// BeadsFiles are the files beads' agent setup left that hold nothing of
+	// the owner's, to be deleted (bead-bb-cnv).
+	BeadsFiles []string `json:"beadsFiles"`
 	// MachineWide are the agents beads' hooks are installed for under the
 	// owner's home folder: not the repository's, so only named.
 	MachineWide []string `json:"machineWide"`
@@ -181,6 +185,10 @@ type State struct {
 	// Elsewhere says the owner keeps this clone's issues in a repository of
 	// their own, because it is someone else's project.
 	Elsewhere bool `json:"elsewhere"`
+	// NotHere says why setup may not change the repository from this
+	// folder (a worktree, or a branch other than main); "" where it may
+	// (bead-bb-25p). Steps it holds back are blocked with these words.
+	NotHere string `json:"notHere"`
 
 	// What the steps need and a caller does not: the beads program found,
 	// the repository's main folder, and the agents with beads' hooks.
@@ -256,24 +264,35 @@ type agent struct {
 // installs them for the whole computer (`bd setup <agent> --global`).
 var agents = []agent{
 	{"claude", "Claude Code", []string{".claude/settings.json", ".claude/settings.local.json"}, regexp.MustCompile(`\bbd prime\b`)},
-	{"codex", "Codex", []string{".codex/hooks.json"}, regexp.MustCompile(`\bbd codex-hook\b`)},
+	// Both forms: `bd codex-hook` (beads 1.3) and `bd prime --hook-json`, an
+	// older beads' (found in minisaba, bead-bb-cnv).
+	{"codex", "Codex", []string{".codex/hooks.json"}, regexp.MustCompile(`\bbd (codex-hook|prime)\b`)},
 }
 
 // beadsHooksIn gives the coding agents beads' own hooks are installed for
-// under a folder.
+// under a folder, or whose setup by beads left files behind (bead-bb-cnv).
 //
-// Side effects: reads up to three small files.
+// Side effects: reads a few small files.
 func beadsHooksIn(home string) []agent {
 	found := []agent{}
+	left := beadsLeftovers(home)
 	for _, one := range agents {
-		for _, file := range one.files {
-			if one.sign.MatchString(textOf(filepath.Join(home, file))) {
-				found = append(found, one)
-				break
-			}
+		if one.installedIn(home) || len(left[one.id]) > 0 {
+			found = append(found, one)
 		}
 	}
 	return found
+}
+
+// installedIn says whether beads' hook for this agent is in one of its
+// files under home.
+func (one agent) installedIn(home string) bool {
+	for _, file := range one.files {
+		if one.sign.MatchString(textOf(filepath.Join(home, file))) {
+			return true
+		}
+	}
+	return false
 }
 
 // labels gives the names of some agents.
@@ -363,7 +382,7 @@ func Read(dir string, options Options) (*State, error) {
 	state := &State{
 		Root:           root,
 		InstallMethods: []Method{},
-		Instructions:   InstructionsState{Rules: "none", BeadsBlocks: []string{}, BeadsHooks: []string{}, MachineWide: []string{}, Leftovers: []string{}},
+		Instructions:   InstructionsState{Rules: "none", BeadsBlocks: []string{}, BeadsHooks: []string{}, BeadsFiles: []string{}, MachineWide: []string{}, Leftovers: []string{}},
 		SavedFacts:     []facts.Fact{},
 		home:           mainFolderOf(root),
 		bd:             strings.TrimSpace(options.BdCommand),
@@ -409,7 +428,20 @@ func Read(dir string, options Options) (*State, error) {
 	issuesReady := issues.State == Done
 	state.Steps = append(state.Steps, state.instructionsStep(chosen, issuesReady))
 	state.Steps = append(state.Steps, state.factsStep(chosen, issuesReady))
+	state.Steps = append(state.Steps, state.commitStep())
 	state.Steps = append(state.Steps, state.publishStep(chosen, issuesReady))
+
+	// Only from the main folder, on the main branch, does setup change the
+	// repository (bead-bb-25p): elsewhere a step still to do is held back,
+	// saying where to go.
+	if state.NotHere = state.notHere(); state.NotHere != "" {
+		for index := range state.Steps {
+			one := &state.Steps[index]
+			if one.State == Missing && changesRepository(one.Name, chosen) {
+				one.State, one.Why, one.Command, one.Runs = Blocked, state.NotHere, "", ""
+			}
+		}
+	}
 
 	state.Ready = true
 	for _, one := range state.Steps {
@@ -599,7 +631,16 @@ func (state *State) instructionsStep(chosen string, issuesReady bool) Step {
 	if instructions.HasBeadsBlocks(claudeText) {
 		found.BeadsBlocks = append(found.BeadsBlocks, instructions.ClaudeFile)
 	}
-	found.BeadsHooks = labels(state.hooks)
+	found.BeadsHooks = []string{}
+	for _, one := range state.hooks {
+		if one.installedIn(state.home) {
+			found.BeadsHooks = append(found.BeadsHooks, one.label)
+		}
+	}
+	for _, files := range beadsLeftovers(state.home) {
+		found.BeadsFiles = append(found.BeadsFiles, files...)
+	}
+	sort.Strings(found.BeadsFiles)
 	// Not the repository's, so not removed and not part of "done"; only
 	// named. Not asked when the repository's main folder is the home folder
 	// itself, where the two are the same files.
@@ -607,7 +648,7 @@ func (state *State) instructionsStep(chosen string, issuesReady bool) Step {
 		found.MachineWide = labels(beadsHooksIn(userHome))
 	}
 	found.Leftovers = instructions.BeadsLeftovers(instructions.WithoutBeadsBlocks(agentsText))
-	replaces := len(found.BeadsBlocks) > 0 || len(found.BeadsHooks) > 0
+	replaces := len(found.BeadsBlocks) > 0 || len(found.BeadsHooks) > 0 || len(found.BeadsFiles) > 0
 	if replaces {
 		step.Title = "Replace beads' instructions with Airbender's"
 	}
@@ -633,6 +674,12 @@ func (state *State) instructionsStep(chosen string, issuesReady bool) Step {
 		step.Why = "The rules agents work by here: they take an issue one step at a time, leave closing to you, and commit when you accept it."
 		if replaces {
 			step.Why = "Beads wrote instructions of its own into this folder. They tell agents to close issues themselves, which is the opposite of how the workflow goes. This takes them out and leaves Airbender's."
+			// Only files beads' agent setup left, doing nothing now
+			// (bead-bb-cnv): said as such, not as instructions that steer.
+			if len(found.BeadsBlocks) == 0 && len(found.BeadsHooks) == 0 {
+				step.Title = "Remove what beads' agent setup left"
+				step.Why = "Beads' setup for the coding agents left files here that do nothing now. Airbender's instructions replace that setup, so they go."
+			}
 		}
 		switch found.Rules {
 		case "none":
@@ -724,8 +771,14 @@ func (state *State) instructionsStep(chosen string, issuesReady bool) Step {
 		for _, file := range found.BeadsBlocks {
 			step.Explain = append(step.Explain, "Takes beads' generated block out of `"+file+"`; nothing else in the file changes.")
 		}
+		left := beadsLeftovers(state.home)
 		for _, one := range state.hooks {
-			step.Explain = append(step.Explain, "Removes beads' hook for "+one.label+" with beads' own command: `bd setup "+one.id+" --remove`.")
+			if one.installedIn(state.home) {
+				step.Explain = append(step.Explain, "Removes beads' hook for "+one.label+" with beads' own command: `bd setup "+one.id+" --remove`.")
+			}
+			if files := left[one.id]; len(files) > 0 {
+				step.Explain = append(step.Explain, "Deletes what beads' setup for "+one.label+" left, which holds nothing of yours: `"+strings.Join(files, "`, `")+"`.")
+			}
 		}
 		step.Explain = append(step.Explain, "Makes sure `"+instructions.FactsFile+"` is there, for facts and memories.")
 		for _, name := range found.Leftovers {

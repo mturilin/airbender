@@ -35,6 +35,7 @@ const bendState = (steps: BendSetup["steps"], over: Partial<BendSetup> = {}): Be
   issuesHow: "",
   foreign: null,
   elsewhere: false,
+  notHere: "",
   instructions: {
     rules: "none",
     rulesVersion: 0,
@@ -44,6 +45,7 @@ const bendState = (steps: BendSetup["steps"], over: Partial<BendSetup> = {}): Be
     imports: false,
     beadsBlocks: [],
     beadsHooks: [],
+    beadsFiles: [],
     machineWide: [],
     leftovers: [],
   },
@@ -119,6 +121,22 @@ test("the steps whose words are bend's come through with what they run", () => {
   // Facts are offered only while their step is missing.
   const looked = steps.map((one) => (one.name === "facts" ? step("facts", "done") : one));
   assert.deepEqual(fromBend(bendState(looked, { savedFacts: saved })).savedFacts, []);
+});
+
+test("where setup may not run, and committing its files, reach the tab (bead-bb-25p)", () => {
+  const steps = [
+    step("tracker", "done"),
+    step("commit", "missing", { title: "Commit Airbender's files", runs: "git add -- AGENTS.md && git commit -m \"Set up Airbender: AGENTS.md\" -- AGENTS.md" }),
+  ];
+  const here = fromBend(bendState(steps));
+  assert.equal(here.notHere, null);
+  assert.equal(here.commitStep?.label, "Commit Airbender's files");
+  assert.match(here.commitStep?.explain.lead ?? "", /^Runs `git add -- AGENTS\.md/u);
+  const away = fromBend(
+    bendState([step("tracker", "done"), step("commit", "blocked")], { notHere: "Set up Airbender from the main folder, /r, on main." }),
+  );
+  assert.equal(away.notHere, "Set up Airbender from the main folder, /r, on main.");
+  assert.equal(away.commitStep, null);
 });
 
 test("someone else's project and the command that sets up beads reach the tab (bead-bb-dof)", () => {
@@ -217,7 +235,9 @@ test("a repository set up the old way is switched over by the tab's actions", as
     assert.equal(readlinkSync(join(root, "CLAUDE.md")), "AGENTS.md");
     assert.doesNotMatch(after, /^@(AGENTS|FACTS)\.md$/mu);
     assert.ok(existsSync(join(root, "FACTS.md")));
-    assert.doesNotMatch(readFileSync(join(root, ".claude", "settings.json"), "utf8"), /bd prime/u);
+    // Beads' settings file for Claude Code held nothing but its hook: it is
+    // gone, not left empty (bead-bb-cnv).
+    assert.equal(existsSync(join(root, ".claude", "settings.json")), false);
     // What was kept about the folder was dropped: the answer follows at once.
     status = await setup.setupStatus(here);
     assert.equal(status.rulesPresent, true);
