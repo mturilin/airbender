@@ -552,6 +552,28 @@ One conversation works on at most one issue at a time: its current issue.
   panel, by the agent, or from a terminal. The panel must show this on its
   own, without the owner pressing refresh. `[p49]` `[m4b]`
 
+## Conversation titles
+
+The owner sees at a glance which issue each conversation is working on.
+`[du7]`
+
+- **A conversation with a current issue is named after it, in very short
+  words**: a few words summing the issue up, without the issue's id, e.g.
+  "Mac accessibility permission". This holds however the issue became
+  current: by the agent, from the panel, or by starting work. `[du7]`
+- **The name follows the issue**: when the issue's title is edited, the
+  conversation's name changes with it. `[du7]`
+- **When the current issue is cleared, the conversation gets back the name
+  it had before.** `[du7]`
+- **A name the owner gives a conversation wins** until its current issue
+  changes. `[du7]`
+- **A conversation with no current issue gets an AI-written name** after
+  its turns, saying what it is about now, once the owner has chosen a
+  model for it in the settings: the Gemini API, an OpenAI-compatible API,
+  or a command on their computer. `[du7]`
+- Naming conversations after their issue can be turned off in the
+  settings. `[du7]`
+
 ## Choosing the workflow
 
 **The owner chooses how issues are worked: Standard or Simple.** `[8j6]`
@@ -1051,6 +1073,25 @@ panel. `[bwr]`
 Behaviour the owner did not ask for or decide. It is what the product does
 today, recorded so a rebuild matches. Any of it may be changed without
 breaking a requirement above.
+
+- Conversation titles: an issue's short name is 2 to 4 words, at most 32
+  characters, written by the model chosen for summary titles from the
+  issue's title and the start of its description. It is made once per
+  issue title and shared by every conversation on that issue. With no
+  model chosen, or when the model fails, the issue's title is used without
+  a leading "Area:" label, cut to the words that fit in 32 characters, with
+  "…". `[du7]`
+- Conversation titles: switching from one current issue to another keeps,
+  for clearing later, the name from before the first issue. Clearing the
+  issue of a conversation the owner renamed keeps the owner's name, and no
+  AI name is written over it until the conversation gets a current issue
+  again. `[du7]`
+- Conversation titles: the AI name is asked for after every turn and is at
+  most 60 characters; the model is told to keep the present name when it
+  still fits. A name BB gave by itself before Airbender wrote one is
+  replaced. Hidden and archived conversations are never renamed. Summary
+  names are off until a model is chosen; the default Gemini model is
+  gemini-3.5-flash-lite. `[du7]`
 
 - Times on an issue's card: small and muted. While the card is closed up
   it shows one short date, the day it was last changed (or created, when

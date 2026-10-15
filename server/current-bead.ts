@@ -10,6 +10,9 @@
 // - It is a note kept by BB on the thread (plugin metadata), not in beads:
 //   setting it does not change the issue.
 // - "None" is stored as an explicit null rather than by removing the key.
+// - Every change goes through `store`, which tells listeners after the
+//   write; the conversation's title follows it that way
+//   (server/thread-titles.ts, bead-bb-du7).
 //
 // Gotchas:
 // - The plugin used to have another id. A thread's choice from that time is
@@ -83,6 +86,32 @@ export function createCurrentBead(bb: BbPluginApi) {
       threadId,
       set: { [CURRENT_BEAD_KEY]: beadId },
     });
+    // Told after the write, and never awaited: a listener (the thread's
+    // title, bead-bb-du7) must not slow down or fail the change itself.
+    for (const listener of listeners) {
+      try {
+        listener(threadId, beadId);
+      } catch (cause) {
+        bb.log.warn(`a current-bead listener failed: ${cause instanceof Error ? cause.message : String(cause)}`);
+      }
+    }
+  }
+
+  /** Called after every stored change of a thread's current bead. */
+  type Listener = (threadId: string, beadId: string | null) => void;
+  const listeners = new Set<Listener>();
+
+  /**
+   * Hears every change of any thread's current bead, from the agent's tool,
+   * the tab or the workflow alike, since all of them go through `store`.
+   *
+   * @returns A function that stops listening.
+   */
+  function listen(listener: Listener): () => void {
+    listeners.add(listener);
+    return () => {
+      listeners.delete(listener);
+    };
   }
 
   /**
@@ -132,7 +161,7 @@ export function createCurrentBead(bb: BbPluginApi) {
     return [...held];
   }
 
-  return { read, store, write, heldAmong };
+  return { read, store, write, heldAmong, listen };
 }
 
 /** What createCurrentBead returns. */

@@ -9,7 +9,8 @@
 // work.ts (moving an issue through its workflow), issues.ts (turning the
 // tracker's issues into the tab's), bd.ts (running programs), watch.ts (noticing changes made
 // outside the plugin) and setup.ts (getting a folder ready, as buttons over
-// `bend setup`). The workflow itself, its steps and the
+// `bend setup`). thread-titles.ts names each conversation after its current
+// issue, or has summary-title.ts write one when it has none. The workflow itself, its steps and the
 // wording for each, is in shared/standard-workflow.ts. The notes below describe the backend as a whole.
 //
 // What: the data behind the Airbender tab. Lists the beads issues of the
@@ -111,6 +112,11 @@ import type { WorkEvents } from "./server/work.ts";
 import { createWorkTrees } from "./server/work-trees.ts";
 import { createWorkflowChoice, repositoryKey } from "./server/workflow-choice.ts";
 import {
+  SUMMARY_BACKENDS,
+  SUMMARY_OFF,
+  createThreadTitles,
+} from "./server/thread-titles.ts";
+import {
   BEAD_ID_PATTERN,
   QUICK_REPLIES,
 } from "./shared/constants.ts";
@@ -178,6 +184,59 @@ export default async function plugin(bb: BbPluginApi) {
       description:
         "The model for the background agent; it must belong to the provider above. Haiku is cheap and quick; claude-sonnet-5 judges code better. Empty uses the provider's default.",
       default: "claude-haiku-4-5-20251001",
+    },
+    // Conversation titles (bead-bb-du7). Read each time a title is about
+    // to be written, so a change here needs no reload.
+    issueTitles: {
+      type: "boolean",
+      label: "Name conversations after their issue",
+      description:
+        "A conversation with a current issue is titled with the issue's id and title, and gets its old title back when the issue is cleared. A conversation you rename yourself keeps your name until its issue changes.",
+      default: true,
+    },
+    summaryBackend: {
+      type: "select",
+      label: "Summary titles",
+      description:
+        "A conversation with no current issue gets a short AI-written title after each turn. gemini: the Gemini API. openai-compatible: any /chat/completions endpoint (OpenAI, OpenRouter, Ollama, LM Studio). command: a command on this computer that reads the prompt on stdin and prints the title.",
+      options: [...SUMMARY_BACKENDS],
+      default: SUMMARY_OFF,
+    },
+    summaryGeminiApiKey: {
+      type: "string",
+      secret: true,
+      label: "Summary titles: Gemini API key",
+      default: "",
+    },
+    summaryGeminiModel: {
+      type: "string",
+      label: "Summary titles: Gemini model",
+      default: "gemini-3.5-flash-lite",
+    },
+    summaryOpenaiBaseUrl: {
+      type: "string",
+      label: "Summary titles: OpenAI-compatible base URL",
+      description: "For example https://api.openai.com/v1 or http://localhost:11434/v1.",
+      default: "https://api.openai.com/v1",
+    },
+    summaryOpenaiApiKey: {
+      type: "string",
+      secret: true,
+      label: "Summary titles: OpenAI-compatible API key",
+      description: "Leave empty for a local server that needs none.",
+      default: "",
+    },
+    summaryOpenaiModel: {
+      type: "string",
+      label: "Summary titles: OpenAI-compatible model",
+      default: "",
+    },
+    summaryCommand: {
+      type: "string",
+      label: "Summary titles: command",
+      description:
+        "Run with /bin/sh on this computer, with the prompt on stdin. The BB server's PATH may be short: set it in front if needed, e.g. PATH=/opt/homebrew/bin:$PATH gemini -p \"\".",
+      default: "",
     },
   });
   const { bdCommand, bendCommand } = await settings.get();
@@ -284,6 +343,46 @@ export default async function plugin(bb: BbPluginApi) {
     readToken: async () => (await settings.get()).githubToken ?? "",
     readBeads: trackers.beadsIssues,
   });
+  // Each conversation named after its current issue, or summarised when it
+  // has none (bead-bb-du7). Every way of setting the current issue goes
+  // through currentBead.store, so listening there catches all of them; a
+  // finished turn is when an edited issue title or a summary is caught up.
+  const titles = createThreadTitles({
+    bb,
+    store,
+    currentBead,
+    beforeRename: async (threadId) => {
+      if (workTrees.isOurs(threadId)) await workTrees.branchOf(threadId);
+    },
+    readSettings: async () => {
+      const now = await settings.get();
+      return {
+        issueTitles: now.issueTitles,
+        summaryBackend: now.summaryBackend,
+        summary: {
+          geminiApiKey: now.summaryGeminiApiKey ?? "",
+          geminiModel: now.summaryGeminiModel,
+          openaiBaseUrl: now.summaryOpenaiBaseUrl,
+          openaiApiKey: now.summaryOpenaiApiKey ?? "",
+          openaiModel: now.summaryOpenaiModel,
+          command: now.summaryCommand,
+        },
+      };
+    },
+  });
+  bb.onDispose(currentBead.listen(titles.issueChanged));
+  bb.events.on("thread.idle", ({ thread, lastAssistantText }) => {
+    titles.turnEnded(thread.id, lastAssistantText);
+  });
+  // Conversations whose issue was set before this load are named too. A
+  // few seconds after loading, off the load path: BB's SDK is meant for
+  // after registration, and the tab's first lists come first.
+  const reconcileTimer = setTimeout(() => {
+    titles.reconcile().catch((cause) => {
+      bb.log.warn(`conversation titles were not caught up: ${cause instanceof Error ? cause.message : String(cause)}`);
+    });
+  }, 5_000);
+  bb.onDispose(() => clearTimeout(reconcileTimer));
 
   // Every handler is one call into a module: what each does, and how it
   // reports a problem, is documented where it is written. All of them
@@ -301,6 +400,10 @@ export default async function plugin(bb: BbPluginApi) {
       // the plugin's knowledge, not beads': added here, for the tab.
       // And the moment for autopilot to take up what a reload cut short.
       autopilot.consider(input.threadId);
+      // An issue title may have been edited: the conversation's follows.
+      if (listed.state === "ok" && input.threadId !== null) {
+        titles.check(input.threadId, listed.issues);
+      }
       return {
         ...listed,
         autopilot: autopilot.stateFor(input.threadId),
