@@ -23,7 +23,12 @@ import { CLOSED_STATUS, DEFERRED_STATUS } from "../shared/constants.ts";
 import { useActions } from "./actions.ts";
 import { LinkIcon, Tag } from "./bits.tsx";
 import { IssueFacts } from "./issue-facts.tsx";
-import { TWO_WAY_KINDS, isLongDescription, linkWords } from "./issue-model.ts";
+import {
+  TWO_WAY_KINDS,
+  isLongDescription,
+  issueTimes,
+  linkWords,
+} from "./issue-model.ts";
 import {
   Collapsible,
   CommentList,
@@ -180,6 +185,7 @@ export function IssueDetails({
   const focusOffer = actions.focusOffer(issue.id);
   const sizes = useWorkflow()?.sizes;
   const canResize = useCanResize(issue);
+  const times = issueTimes(issue);
   useEffect(() => {
     if (asked === null) return;
     if (!closed) {
@@ -441,6 +447,16 @@ export function IssueDetails({
             <Icon name="CircleX" className="size-4" />
             Close
           </Button>
+        )}
+        {/* When it was created and last changed (bead-bb-tj4), in the
+            bottom right corner, as the user asked: pushed to the end of
+            the button row; on a narrow row it wraps and stays right. Only
+            for a compact sub-issue: a full row has them in its card's
+            corner already (see IssueRow). */}
+        {!showFacts || times === null ? null : (
+          <span className="ml-auto self-center text-xs text-muted-foreground">
+            {times}
+          </span>
         )}
       </div>
       {noting === null ? null : (

@@ -19,9 +19,12 @@ import {
   finishedEpicSize,
   focusAfter,
   focusBlock,
+  formatWhen,
   fuzzyScore,
   isBlocked,
   isLongDescription,
+  issueTimes,
+  shortDate,
   linkWords,
   matchesFilters,
   NO_FILTERS,
@@ -363,4 +366,37 @@ test("a path inside the home folder is shown with a tilde", () => {
   assert.equal(shortPath("/home/melanie/x", "/home/me"), "/home/melanie/x");
   assert.equal(shortPath("/srv/x", "/home/me"), "/srv/x");
   assert.equal(shortPath("/srv/x", ""), "/srv/x");
+});
+
+test("an issue's times: created, then changed when it differs (bead-bb-tj4)", () => {
+  const created = "2026-10-03T20:31:00Z";
+  const changed = "2026-10-05T09:02:00Z";
+  assert.equal(
+    issueTimes({ createdAt: created, updatedAt: changed }),
+    `Created ${formatWhen(created)} · Changed ${formatWhen(changed)}`,
+  );
+  // Never changed since: "Changed" would only repeat "Created".
+  assert.equal(
+    issueTimes({ createdAt: created, updatedAt: created }),
+    `Created ${formatWhen(created)}`,
+  );
+  assert.equal(
+    issueTimes({ createdAt: null, updatedAt: changed }),
+    `Changed ${formatWhen(changed)}`,
+  );
+  assert.equal(issueTimes({ createdAt: null, updatedAt: null }), null);
+});
+
+test("a closed-up card's short date: last changed, else created (bead-bb-tj4)", () => {
+  const created = "2026-10-03T20:31:00Z";
+  const changed = "2026-10-05T09:02:00Z";
+  const day = (t: string) =>
+    new Date(t).toLocaleDateString(undefined, {
+      year: "2-digit",
+      month: "numeric",
+      day: "numeric",
+    });
+  assert.equal(shortDate({ createdAt: created, updatedAt: changed }), day(changed));
+  assert.equal(shortDate({ createdAt: created, updatedAt: null }), day(created));
+  assert.equal(shortDate({ createdAt: null, updatedAt: null }), null);
 });

@@ -27,6 +27,7 @@ import { StatusTag, Tag } from "./bits.tsx";
 import { getDragged, setDragged } from "./drag.ts";
 import { IssueDetails } from "./issue-details.tsx";
 import { IssueFacts } from "./issue-facts.tsx";
+import { issueTimes, shortDate } from "./issue-model.ts";
 import {
   EpicPlaceTag,
   StateTag,
@@ -105,6 +106,11 @@ export function IssueRow({
   const focusOffer = actions.focusOffer(issue.id);
   // The repository is on the simple workflow, which has no steps.
   const simple = useWorkflow() === null;
+  // When it was created and last changed, for the card's corner: in full
+  // while the card is open, as a short date while it is closed up (the
+  // user: "a short date like 10/15/26 on the collapsed card").
+  const times = issueTimes(issue);
+  const corner = open ? times : shortDate(issue);
   // An issue that gains its first sub-issue while on screen opens too;
   // otherwise the new sub-issue would be created out of sight.
   useEffect(() => {
@@ -157,6 +163,17 @@ export function IssueRow({
           dropTarget && "bg-state-active outline outline-1 outline-ring",
         )}
       >
+        {/* When the issue was created and last changed, in the card's
+            bottom right corner (bead-bb-tj4: "i don't see date on the
+            card"). Not on a compact sub-issue row, which is one line. */}
+        {compact || corner === null ? null : (
+          <span
+            title={open ? undefined : (times ?? undefined)}
+            className="absolute bottom-1.5 right-3 text-[11px] text-muted-foreground"
+          >
+            {corner}
+          </span>
+        )}
         {/* The drag anchor. Only this grip starts a drag, so that selecting
             the title's text, using the dropdowns and clicking buttons on the
             row never drags it by accident. The whole line is shown as the
@@ -235,7 +252,15 @@ export function IssueRow({
             )}
           </div>
         ) : (
-          <div className="min-w-0 flex-1 py-2 pr-1 text-sm">
+          <div
+            className={cn(
+              "min-w-0 flex-1 py-2 pr-1 text-sm",
+              // Room for the full dates in the open card's bottom right
+              // corner; the short date of a closed card fits beside the
+              // facts.
+              open && times !== null && "pb-5",
+            )}
+          >
             <button
               type="button"
               onClick={() => setOpen((current) => !current)}

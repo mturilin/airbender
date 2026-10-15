@@ -358,6 +358,9 @@ Opening a row shows:
 - **Acceptance criteria, design, notes, close reason and comments** — each
   under its own heading, **collapsed to start**, opened on its own chevron.
   Parts that are empty are not shown. `[un8]`
+- **When the issue was created and when it was last changed**, in the
+  bottom right corner of the issue's card in the list; a closed-up card
+  shows a short date, like 10/15/26. `[tj4]`
 - An **Edit** button, for open issues. It turns the title and the description
   into a form with Save and Cancel. Clicking a title does not edit it; it
   opens the issue. `[vve]`
@@ -1048,6 +1051,16 @@ panel. `[bwr]`
 Behaviour the owner did not ask for or decide. It is what the product does
 today, recorded so a rebuild matches. Any of it may be changed without
 breaking a requirement above.
+
+- Times on an issue's card: small and muted. While the card is closed up
+  it shows one short date, the day it was last changed (or created, when
+  it has no changed time), with both full times as its tooltip; open, it
+  shows "Created <date, time> ·
+  Changed <date, time>", in the reader's own date format. "Changed" is left
+  out when it reads the same as "Created", and either part is left out when
+  the tracker gave no time. A compact sub-issue row, which is one line, has
+  none; its opened issue shows them at the right end of its row of buttons
+  instead. `[tj4]`
 
 - Current: inside an opened issue the target button is one toggle, with the
   words "Make current" or "Release". Its icon is a target on an issue that

@@ -122,6 +122,53 @@ export function formatWhen(timestamp: string): string {
 }
 
 /**
+ * When an issue was created and last changed, as the opened issue shows it
+ * (bead-bb-tj4): "Created 3 Oct 2026, 20:31 · Changed 5 Oct 2026, 09:02".
+ *
+ * "Changed" is left out when it reads the same as "Created" (an issue never
+ * changed since), and each part is left out when the tracker gave no time.
+ *
+ * @returns The line, or null when there is neither time.
+ */
+export function issueTimes(issue: {
+  createdAt: string | null;
+  updatedAt: string | null;
+}): string | null {
+  const created =
+    issue.createdAt === null ? null : formatWhen(issue.createdAt);
+  const changed =
+    issue.updatedAt === null ? null : formatWhen(issue.updatedAt);
+  const parts: string[] = [];
+  if (created !== null) parts.push(`Created ${created}`);
+  if (changed !== null && changed !== created) parts.push(`Changed ${changed}`);
+  return parts.length === 0 ? null : parts.join(" · ");
+}
+
+/**
+ * A short date for a closed-up card (bead-bb-tj4, the user: "a short date
+ * like 10/15/26"): the day the issue was last changed, or created when it
+ * has no changed time, in the reader's own numeric format.
+ *
+ * @returns "10/15/26" in a US locale; null when there is neither time; the
+ *   raw text if it cannot be read as a date.
+ */
+export function shortDate(issue: {
+  createdAt: string | null;
+  updatedAt: string | null;
+}): string | null {
+  const timestamp = issue.updatedAt ?? issue.createdAt;
+  if (timestamp === null) return null;
+  const when = new Date(timestamp);
+  return Number.isNaN(when.getTime())
+    ? timestamp
+    : when.toLocaleDateString(undefined, {
+        year: "2-digit",
+        month: "numeric",
+        day: "numeric",
+      });
+}
+
+/**
  * How well `query` matches `text`, for the "Move to" search: higher is
  * better, 0 is no match. A run of the query's letters found together beats
  * the same letters found scattered, and a match at the start of a word beats
