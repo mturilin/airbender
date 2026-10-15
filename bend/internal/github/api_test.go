@@ -562,6 +562,22 @@ func TestWhoIsSignedInIsAskedOnceAndIssuesSwitchedOffIsRead(t *testing.T) {
 	}
 }
 
+func TestStandingReadsTheForkFlagAndThePushPermission(t *testing.T) {
+	stand, client := serve(t, answers(200, `{"fork": true, "permissions": {"push": false}}`))
+	standing, err := client.Standing()
+	must(t, err)
+	same(t, standing.Fork, true)
+	same(t, *standing.CanPush, false)
+	same(t, stand.requests()[0].Path, "/repos/someone/scratch")
+
+	// Without a login GitHub leaves out the permissions: not known.
+	_, client = serve(t, answers(200, `{"fork": false}`))
+	standing, err = client.Standing()
+	must(t, err)
+	same(t, standing.Fork, false)
+	same(t, standing.CanPush == nil, true)
+}
+
 func TestTheAdapterWorksOnTheRealClient(t *testing.T) {
 	// The adapter on the real client, not the stand-in: an id that names
 	// no issue is refused in the adapter's words, and what is known without

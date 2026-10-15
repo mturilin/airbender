@@ -174,6 +174,13 @@ type State struct {
 	// SavedFacts are the facts saved in beads that the facts file does not
 	// hold and the owner has not looked at yet.
 	SavedFacts []facts.Fact `json:"savedFacts"`
+	// Foreign says why the folder looks like someone else's project; nil
+	// when it does not, when that cannot be told, or once the tracker is
+	// chosen (it is asked only before).
+	Foreign *Foreign `json:"foreign"`
+	// Elsewhere says the owner keeps this clone's issues in a repository of
+	// their own, because it is someone else's project.
+	Elsewhere bool `json:"elsewhere"`
 
 	// What the steps need and a caller does not: the beads program found,
 	// the repository's main folder, and the agents with beads' hooks.
@@ -381,6 +388,10 @@ func Read(dir string, options Options) (*State, error) {
 		step.Why = "Nothing says yet where this repository's issues are kept: in beads, a database inside the repository, or in GitHub issues."
 		step.Command = "bend setup tracker"
 		step.Explain = []string{"Records the choice in `" + detect.SettingFile + "` at the repository's top folder, a small file to check in, so it is the same for everyone who clones it."}
+		if state.Foreign = foreignOf(root, options); state.Foreign != nil {
+			step.Why = state.Foreign.Words() + " " + Warning
+			step.Command = "bend setup tracker --use github --repository owner/name (or: --anyway)"
+		}
 	} else {
 		step.State = Done
 		step.Why = "This repository uses " + trackerWords(chosen) + "."
@@ -390,6 +401,7 @@ func Read(dir string, options Options) (*State, error) {
 		}
 	}
 	state.Steps = append(state.Steps, step)
+	state.Elsewhere = keptElsewhere(root)
 
 	state.Steps = append(state.Steps, state.programStep(chosen))
 	issues := state.issuesStep(chosen, repository, options)
@@ -505,14 +517,22 @@ func (state *State) issuesStep(chosen, repository string, options Options) Step 
 	}
 	state.IssuesHow = "init"
 	step.Why = "This folder has no issue database yet. Setting it up lets you track issues here."
-	step.Runs = state.bd + " init --skip-agents"
+	step.Runs = state.bd + " " + strings.Join(initArgs, " ")
 	step.Explain = []string{
 		"It adds a `.beads` folder with the issue database.",
 		"It starts a git repository if the folder is not one yet.",
 		"It writes no instructions for agents: those are a step of their own.",
+		"It asks no questions: you are set up as the repository's maintainer, with no export of the issues to a file.",
 	}
 	return step
 }
+
+// initArgs are what `bd init` is given. --non-interactive: beads asks
+// nothing in the terminal, whether or not anyone is at the keyboard (the
+// owner's rule, bead-bb-dof); as the maintainer, since Airbender is for
+// repositories of one's own. --skip-agents: Airbender writes the
+// instructions for agents itself.
+var initArgs = []string{"init", "--skip-agents", "--non-interactive", "--role", "maintainer"}
 
 // githubIssuesStep is the issues step for a repository on GitHub issues:
 // there is nothing to create, only a login and the repository to check.
@@ -553,6 +573,12 @@ func (state *State) githubIssuesStep(repository string, options Options) Step {
 // takes out what beads wrote.
 func (state *State) instructionsStep(chosen string, issuesReady bool) Step {
 	step := Step{Name: StepInstructions, Title: "Add Airbender's instructions for agents", Explain: []string{}}
+	if state.Elsewhere {
+		// Someone else's project: its files are not Airbender's to change
+		// (bead-bb-dof).
+		step.State, step.Why = NotNeeded, "This is someone else's project, so Airbender's instructions are not added to it."
+		return step
+	}
 	agentsText := textOf(filepath.Join(state.Root, instructions.AgentsFile))
 	state.hooks = beadsHooksIn(state.home)
 	found := &state.Instructions

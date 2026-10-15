@@ -67,6 +67,7 @@ type Fake struct {
 	sent       int
 	now        string
 	commentIDs int
+	standing   Standing
 }
 
 // FakeOptions say what the stand-in repository is; both may be left empty.
@@ -75,6 +76,9 @@ type FakeOptions struct {
 	Repository string
 	// Login is the account it is signed in as; "octo" when "".
 	Login string
+	// Standing is what Standing answers; when nil, not a fork and
+	// pushable.
+	Standing *Standing
 }
 
 // NewFake builds an empty stand-in repository.
@@ -89,6 +93,12 @@ func NewFake(options FakeOptions) *Fake {
 	}
 	if fake.login == "" {
 		fake.login = "octo"
+	}
+	if options.Standing != nil {
+		fake.standing = *options.Standing
+	} else {
+		push := true
+		fake.standing = Standing{CanPush: &push}
 	}
 	return fake
 }
@@ -220,6 +230,15 @@ func (fake *Fake) HasIssues() (bool, error) {
 	defer fake.lock.Unlock()
 	fake.sent++
 	return true, nil
+}
+
+// Standing is what FakeOptions.Standing says: by default not a fork, and
+// pushable.
+func (fake *Fake) Standing() (Standing, error) {
+	fake.lock.Lock()
+	defer fake.lock.Unlock()
+	fake.sent++
+	return fake.standing, nil
 }
 
 // Issue gives one issue; nil when there is none with that number.

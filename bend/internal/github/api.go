@@ -160,6 +160,9 @@ type Client interface {
 	Viewer() (string, error)
 	// HasIssues says whether the repository has issues switched on.
 	HasIssues() (bool, error)
+	// Standing says whether the repository is a fork and whether the
+	// signed-in account may push to it.
+	Standing() (Standing, error)
 	// Issue gives one issue; nil, with no error, when there is none with
 	// that number.
 	Issue(number int) (*Issue, error)
@@ -719,6 +722,36 @@ func (client *realClient) HasIssues() (bool, error) {
 		return false, err
 	}
 	return repo.HasIssues == nil || *repo.HasIssues, nil
+}
+
+// Standing is how a repository stands towards the signed-in account, for
+// telling someone else's project from one's own (bead-bb-dof).
+type Standing struct {
+	// Fork says the repository is a fork of another.
+	Fork bool `json:"fork"`
+	// CanPush says whether the account may push to it; nil when GitHub does
+	// not say (it says only to a signed-in account).
+	CanPush *bool `json:"canPush"`
+}
+
+// Standing asks GitHub for the repository's fork flag and the account's
+// push permission; the same request as HasIssues.
+func (client *realClient) Standing() (Standing, error) {
+	var repo struct {
+		Fork        bool `json:"fork"`
+		Permissions *struct {
+			Push bool `json:"push"`
+		} `json:"permissions"`
+	}
+	if err := client.request("GET", client.base, nil, &repo); err != nil {
+		return Standing{}, err
+	}
+	standing := Standing{Fork: repo.Fork}
+	if repo.Permissions != nil {
+		push := repo.Permissions.Push
+		standing.CanPush = &push
+	}
+	return standing, nil
 }
 
 // Issue gives one issue with its parents, sub-issues and blockers, in one

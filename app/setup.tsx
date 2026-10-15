@@ -186,7 +186,10 @@ function setupSteps(status: SetupStatus): SetupStep[] {
       action: "tracker",
       option: null,
       label: "Choose where the issues are kept",
-      why: "Nothing says yet where this repository's issues are kept: in beads, a database inside the repository, or in GitHub issues.",
+      why:
+        status.foreign !== null
+          ? `${foreignWords(status.foreign)} This looks like someone else's project: Airbender is for repositories of your own.`
+          : "Nothing says yet where this repository's issues are kept: in beads, a database inside the repository, or in GitHub issues.",
       needed: bendReady && !status.trackerChosen,
       blocked: status.trackerChosen
         ? (status.tracker ?? "chosen")
@@ -1124,7 +1127,9 @@ function InstructionsBody({
  *
  * @param step The step to confirm; null keeps the dialog closed.
  * @param onRun Called with the chosen option: the install method's id, the
- *   keys of the facts to carry over (a JSON list), or null.
+ *   keys of the facts to carry over (a JSON list), or null; and, for the
+ *   tracker in a folder that looks like someone else's project, `anyway`
+ *   true when the owner chose to set up there all the same (bead-bb-dof).
  */
 export function SetupDialog({
   step,
@@ -1134,9 +1139,24 @@ export function SetupDialog({
 }: {
   step: SetupStep | null;
   status: SetupStatus | null;
-  onRun: (step: SetupStep, option: string | null) => void;
+  onRun: (step: SetupStep, option: string | null, anyway?: boolean) => void;
   onClose: () => void;
 }) {
+  // In a folder that looks like someone else's project (bead-bb-dof): keep
+  // the issues in GitHub issues in a repository of the owner's (the safe
+  // way, so the one chosen to begin with), or set up here anyway.
+  const foreign = step?.action === "tracker" ? (status?.foreign ?? null) : null;
+  const [foreignWay, setForeignWay] = useState<"elsewhere" | "anyway">("elsewhere");
+  const [ownRepository, setOwnRepository] = useState("");
+  const ownTrimmed = ownRepository.trim();
+  const ownProblem =
+    foreign === null || foreignWay !== "elsewhere"
+      ? null
+      : !/^[\w.-]+\/[\w.-]+$/.test(ownTrimmed)
+        ? "Name a repository of yours as owner/name."
+        : ownTrimmed.toLowerCase() === foreign.repository.toLowerCase()
+          ? `That is ${foreign.repository} itself; name one of yours.`
+          : null;
   const methods = status?.installMethods ?? [];
   const [methodId, setMethodId] = useState<string | null>(null);
   // The tracker step: beads unless the other is picked.
@@ -1153,6 +1173,7 @@ export function SetupDialog({
   useEffect(() => {
     setRulesChoice(null);
     setClaudeChoice(null);
+    setForeignWay("elsewhere");
   }, [step]);
   // What the instructions step needs decided, and how much of it is not
   // answered yet.
@@ -1181,7 +1202,9 @@ export function SetupDialog({
           <DialogTitle>{step?.label}</DialogTitle>
           <DialogDescription>
             {step?.action === "tracker"
-              ? "Says which tracker this repository uses. It writes one small file; nothing is run in a terminal."
+              ? foreign !== null
+                ? "This looks like someone else's project."
+                : "Says which tracker this repository uses. It writes one small file; nothing is run in a terminal."
               : step?.action === "rules"
               ? decisions === 2
                 ? "Two things here need your decision."
@@ -1197,13 +1220,20 @@ export function SetupDialog({
                 : "Runs in a BB terminal, so you can watch it and answer anything it asks."}
           </DialogDescription>
         </DialogHeader>
-        {step?.action === "tracker" ? (
+        {foreign !== null ? (
           <div className="space-y-2 text-sm">
-            <p>Where are this repository's issues kept?</p>
+            <p>
+              {foreignWords(foreign)} Airbender adds its files to the
+              repository (<span className="font-mono">.beads</span>,{" "}
+              <span className="font-mono">AGENTS.md</span>,{" "}
+              <span className="font-mono">.bend.json</span>) and they get
+              committed, so in a contribution they would end up in your pull
+              requests. Airbender is for repositories of your own.
+            </p>
             {(
               [
-                ["beads", "beads", "A database inside the repository. This tab lists and changes the issues."],
-                ["github", "GitHub issues", "On the repository's page on github.com. This tab lists and changes them through a copy kept on this computer."],
+                ["elsewhere", "Keep the issues in a repository of yours", "GitHub issues, in a repository you name. Airbender's settings file stays out of git here, and no instructions for agents are added to this project."],
+                ["anyway", "Set up here anyway", "As in a repository of your own: choose the tracker, and Airbender's files are added here."],
               ] as const
             ).map(([id, label, note]) => (
               <label
@@ -1212,10 +1242,10 @@ export function SetupDialog({
               >
                 <input
                   type="radio"
-                  name="tracker"
+                  name="foreign-way"
                   className="mt-1"
-                  checked={trackerId === id}
-                  onChange={() => setTrackerId(id)}
+                  checked={foreignWay === id}
+                  onChange={() => setForeignWay(id)}
                 />
                 <span className="min-w-0">
                   {label}
@@ -1223,23 +1253,37 @@ export function SetupDialog({
                 </span>
               </label>
             ))}
-            {trackerId === "github" ? (
+            {foreignWay === "elsewhere" ? (
               <label className="block px-2 text-xs text-muted-foreground">
-                Repository, only if this folder's remote is not on github.com:
+                Your repository for the issues:
                 <input
                   type="text"
                   className="mt-1 block w-full rounded border border-border bg-transparent px-2 py-1 font-mono text-sm text-foreground"
                   placeholder="owner/name"
-                  value={repository}
-                  onChange={(event) => setRepository(event.target.value)}
+                  value={ownRepository}
+                  onChange={(event) => setOwnRepository(event.target.value)}
                 />
+                {ownProblem !== null && ownTrimmed !== "" ? (
+                  <span className="mt-1 block text-destructive">{ownProblem}</span>
+                ) : null}
               </label>
-            ) : null}
-            <p className="text-muted-foreground">
-              The choice is recorded in{" "}
-              <span className="font-mono">.bend.json</span> at the
-              repository's top folder, a small file to check in.
-            </p>
+            ) : (
+              <TrackerChoice
+                trackerId={trackerId}
+                onTrackerId={setTrackerId}
+                repository={repository}
+                onRepository={setRepository}
+              />
+            )}
+          </div>
+        ) : step?.action === "tracker" ? (
+          <div className="space-y-2 text-sm">
+            <TrackerChoice
+              trackerId={trackerId}
+              onTrackerId={setTrackerId}
+              repository={repository}
+              onRepository={setRepository}
+            />
           </div>
         ) : step?.action === "install" ? (
           <div className="space-y-2 text-sm">
@@ -1268,9 +1312,12 @@ export function SetupDialog({
         ) : step?.action === "init" && step.explain === undefined ? (
           <div className="space-y-2 text-sm">
             <p>
-              Runs <span className="font-mono">bd init --skip-agents</span> in{" "}
-              <span className="break-all font-mono">{status?.path}</span>. It
-              changes the repository:
+              Runs{" "}
+              <span className="font-mono">
+                {status?.initRuns ?? "bd init --skip-agents --non-interactive --role maintainer"}
+              </span>{" "}
+              in <span className="break-all font-mono">{status?.path}</span>.
+              It changes the repository:
             </p>
             <ul className="list-disc space-y-0.5 pl-5 text-muted-foreground">
               <li>
@@ -1283,7 +1330,10 @@ export function SetupDialog({
                 of their own.
               </li>
             </ul>
-            <p>It may ask a few questions in the terminal.</p>
+            <p>
+              It asks no questions: you are set up as the repository's
+              maintainer, with no export of the issues to a file.
+            </p>
           </div>
         ) : step?.explain !== undefined ? (
           // A step of the issue sync: said in the sync source's words.
@@ -1361,10 +1411,15 @@ export function SetupDialog({
           <Button
             disabled={
               (step?.action === "install" && method === undefined) ||
-              (step?.action === "rules" && unanswered > 0)
+              (step?.action === "rules" && unanswered > 0) ||
+              ownProblem !== null
             }
             onClick={() => {
               if (step === null) return;
+              if (foreign !== null && foreignWay === "elsewhere") {
+                onRun(step, `github:${ownTrimmed}`);
+                return;
+              }
               onRun(
                 step,
                 step.action === "install"
@@ -1389,6 +1444,7 @@ export function SetupDialog({
                           .filter((key) => !left.includes(key)),
                       )
                     : step.option,
+                foreign !== null,
               );
             }}
           >
@@ -1415,5 +1471,81 @@ export function SetupDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * Why a folder looks like someone else's project, in one sentence; the
+ * same words as bend's (bend/internal/setup/foreign.go). Pure.
+ */
+export function foreignWords(foreign: NonNullable<SetupStatus["foreign"]>): string {
+  return foreign.fork
+    ? `${foreign.repository} is a fork of another repository.`
+    : `Your GitHub account cannot push to ${foreign.repository}.`;
+}
+
+/**
+ * The choice of tracker in the setup window: beads or GitHub issues, and
+ * for GitHub issues the repository when the folder's remote does not say
+ * it. Shown alone, or under "Set up here anyway" in a folder that looks
+ * like someone else's project.
+ */
+function TrackerChoice({
+  trackerId,
+  onTrackerId,
+  repository,
+  onRepository,
+}: {
+  trackerId: "beads" | "github";
+  onTrackerId: (id: "beads" | "github") => void;
+  repository: string;
+  onRepository: (text: string) => void;
+}) {
+  const setTrackerId = onTrackerId;
+  const setRepository = onRepository;
+  return (
+    <>
+      <p>Where are this repository's issues kept?</p>
+      {(
+        [
+          ["beads", "beads", "A database inside the repository. This tab lists and changes the issues."],
+          ["github", "GitHub issues", "On the repository's page on github.com. This tab lists and changes them through a copy kept on this computer."],
+        ] as const
+      ).map(([id, label, note]) => (
+        <label
+          key={id}
+          className="flex cursor-pointer items-start gap-2 rounded px-2 py-1 hover:bg-state-hover"
+        >
+          <input
+            type="radio"
+            name="tracker"
+            className="mt-1"
+            checked={trackerId === id}
+            onChange={() => setTrackerId(id)}
+          />
+          <span className="min-w-0">
+            {label}
+            <span className="block text-xs text-muted-foreground">{note}</span>
+          </span>
+        </label>
+      ))}
+      {trackerId === "github" ? (
+        <label className="block px-2 text-xs text-muted-foreground">
+          Repository, only if this folder's remote is not on github.com:
+          <input
+            type="text"
+            className="mt-1 block w-full rounded border border-border bg-transparent px-2 py-1 font-mono text-sm text-foreground"
+            placeholder="owner/name"
+            value={repository}
+            onChange={(event) => setRepository(event.target.value)}
+          />
+        </label>
+      ) : null}
+      <p className="text-muted-foreground">
+        The choice is recorded in{" "}
+        <span className="font-mono">.bend.json</span> at the
+        repository's top folder, a small file to check in.
+      </p>
+    </>
   );
 }

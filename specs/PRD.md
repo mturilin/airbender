@@ -98,6 +98,19 @@ When something the panel needs is missing, the panel offers to set it up.
 - **The first step is choosing where the issues are kept**, beads or GitHub
   issues, where nothing says so yet. The choice is recorded in the
   repository. The panel offers it like any other step. `[c9l.9]`
+- **Airbender is for repositories of one's own.** Before anything is set
+  up, setup checks the folder's remote on GitHub. Where it is a fork, or a
+  repository the owner's GitHub account cannot push to, setup warns that
+  this looks like someone else's project: Airbender adds its files to the
+  repository and they get committed, so in a contribution they would end
+  up in the owner's pull requests. It offers two ways on: **keep the
+  issues in GitHub issues in a repository of the owner's**, named by the
+  owner, or **set up here anyway**. Where it cannot tell, it says nothing.
+  No question is asked in a repository of one's own. `[dof]`
+- **Issues kept in a repository of the owner's, for someone else's
+  project:** the setting file is kept out of git in that copy of the
+  repository only, and no instructions for agents are added to the
+  project. `[dof]`
 - **Three things can be set up**, in this order:
   1. **Install beads**, when the tracker's program is not on the computer.
      The owner **chooses the way of installing each time**, from the ways
@@ -111,7 +124,9 @@ When something the panel needs is missing, the panel offers to set it up.
      the owner can watch, when the owner presses it. `[c9l.4]` `[bk2]`
   2. **Set up beads in this folder**, when the folder has no issue database.
      This is the most important one. **It sets up the issues only, and none
-     of the tracker's own instructions for agents.** `[c9l.8]`
+     of the tracker's own instructions for agents.** `[c9l.8]` **Beads asks
+     no questions in the terminal**: the owner is set up as the
+     repository's maintainer. `[dof]`
   3. **Add Airbender's instructions to the agents' instructions file**, as a
      separate command: the working rules the panel's buttons rely on. The
      owner either enables it or skips it. Where the folder has a
@@ -152,7 +167,7 @@ When something the panel needs is missing, the panel offers to set it up.
   started by hand. **A step that is already done, or is not possible yet, is
   greyed out.**
 - **Installing and setting up the folder run in a visible terminal**, so
-  the owner can watch and answer what it asks.
+  the owner can watch, and answer what an installer asks.
 - **What is still missing is re-checked on every refresh. What was found in
   place is not checked again**: the panel does not try to notice that
   something was removed afterwards.
@@ -1598,6 +1613,19 @@ breaking a requirement above.
   answer. The panel keeps its own confirmation windows and hands bend the
   answers; it keeps bend's answer about a folder for a short while, and
   "everything is in place" until something is run. `[c9l.9]`
+- Someone else's project: the check asks GitHub once per reading of the
+  setup state, only while no tracker is chosen, and gives up silently after
+  five seconds; no GitHub login counts as "cannot tell". `bend setup
+  tracker` then needs a yes at a keyboard, or `--anyway`, unless the issues
+  go to GitHub issues in a repository other than the remote's. Keeping them
+  there is recorded in the copy's own git settings (`bend.foreign`), and
+  `.bend.json` is listed in `.git/info/exclude`. The panel's window starts
+  with "Keep the issues in a repository of yours" chosen, and refuses a
+  name that is not owner/name or is the remote's own repository. Setting up
+  anyway later in such a copy makes it count as the owner's own again;
+  `.bend.json` stays excluded. Beads is set up with
+  `bd init --skip-agents --non-interactive --role maintainer`, which also
+  leaves its export of issues to a file off. `[dof]`
 - bend has one copy for every tracker; a tracker reached over the network
   has its changes queued on it. There, what depends on other issues (links
   seen from the other end, sub-issues, what blocks what) is put together

@@ -333,12 +333,13 @@ var Commands = []Command{
 		Name:    "setup",
 		Usage:   "[step | all] [options]",
 		Summary: "See what a repository needs to be ready, and set it up step by step",
-		Details: "Alone, it only reads: every step, whether it is done, and the command for\neach one that is missing. With a step's name it does that step; `all` does\nevery missing one in order.\n\nSteps: tracker | program | issues | instructions | facts | publish.\n  tracker       choose beads or GitHub issues, recorded in .bend.json\n  program       install the tracker's own program (beads)\n  issues        beads: get the repository's issues, or start a database;\n                GitHub: sign in\n  instructions  write the rules for agents into AGENTS.md, and take out\n                what beads wrote\n  facts         carry facts saved in beads over to FACTS.md\n  publish       publish the issue database to the repository's remote\n\nA step asks what it needs to know, and shows what it will do before it\ndoes it. Give the answers as options to run it without questions. Where\nnobody is at the keyboard a step never waits: it changes nothing and says\nwhich option was missing. A step that is already done changes nothing.",
+		Details: "Alone, it only reads: every step, whether it is done, and the command for\neach one that is missing. With a step's name it does that step; `all` does\nevery missing one in order.\n\nSteps: tracker | program | issues | instructions | facts | publish.\n  tracker       choose beads or GitHub issues, recorded in .bend.json\n  program       install the tracker's own program (beads)\n  issues        beads: get the repository's issues, or start a database;\n                GitHub: sign in\n  instructions  write the rules for agents into AGENTS.md, and take out\n                what beads wrote\n  facts         carry facts saved in beads over to FACTS.md\n  publish       publish the issue database to the repository's remote\n\nA step asks what it needs to know, and shows what it will do before it\ndoes it. Give the answers as options to run it without questions. Where\nnobody is at the keyboard a step never waits: it changes nothing and says\nwhich option was missing. A step that is already done changes nothing.\n\nAirbender is for repositories of your own. Where origin is a fork, or a\nGitHub repository you cannot push to, choosing the tracker warns: its files\nwould end up in your pull requests. Keep the issues in GitHub issues in a\nrepository of yours (--use github --repository owner/name), or set up\nanyway (--anyway).",
 		Options: [][2]string{
 			{"-y, --yes", "Go ahead without asking for a yes"},
 			{"    --no-input", "Never ask, also at a terminal"},
 			{"    --use <tracker>", "tracker: beads | github"},
 			{"    --repository <owner/name>", "tracker: the GitHub repository, when the remote does not say"},
+			{"    --anyway", "tracker: set up a repository that looks like someone else's as your own"},
 			{"    --method <id>", "program: the way to install, as `bend setup` lists them"},
 			{"    --keep <key>", "facts: a saved fact to carry over (repeatable)"},
 			{"    --keep-all", "facts: carry all of them over"},
@@ -349,7 +350,7 @@ var Commands = []Command{
 		Spec: OptionSpec{
 			Values: []string{"use", "repository", "method", "rules", "claude"},
 			Lists:  []string{"keep"},
-			Flags:  []string{"yes", "no-input", "keep-all", "keep-none"},
+			Flags:  []string{"yes", "no-input", "keep-all", "keep-none", "anyway"},
 			Short:  map[string]string{"y": "yes"},
 		},
 		Group: groupAbout,

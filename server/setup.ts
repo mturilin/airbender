@@ -78,6 +78,8 @@ export interface BendSetup {
   issuesHow: string;
   instructions: SetupStatus["instructions"];
   savedFacts: { key: string; text: string }[];
+  foreign: SetupStatus["foreign"];
+  elsewhere: boolean;
 }
 
 /** The reason in something thrown, without the word "Error:". */
@@ -128,6 +130,11 @@ export function fromBend(state: BendSetup) {
     rulesPresent: inPlace("instructions"),
     instructions: state.instructions,
     savedFacts: step("facts")?.state === "missing" ? state.savedFacts : [],
+    foreign: state.foreign ?? null,
+    elsewhere: state.elsewhere ?? false,
+    // What setting up beads runs, for the tab to show before it does.
+    initRuns:
+      state.issuesHow === "init" && issues?.state === "missing" ? issues.runs : null,
     syncSteps: {
       on: offered("publish"),
       fetch: state.issuesHow === "fetch" ? offered("issues") : null,
@@ -281,6 +288,9 @@ export function createSetup({
         leftovers: [],
       },
       savedFacts: [],
+      foreign: null,
+      elsewhere: false,
+      initRuns: null,
       running: null,
       lastRun: null,
       syncSteps: { on: null, fetch: null },
@@ -435,6 +445,8 @@ export function createSetup({
    *   joined by a comma: "rules:replace" or "rules:keep" for rules that
    *   were changed by hand and fell behind, "claude:link" or
    *   "claude:rules" for a CLAUDE.md of its own; null otherwise.
+   * @param anyway For "tracker": set up a folder that looks like someone
+   *   else's project as the owner's own (bead-bb-dof).
    * @returns `{ message: null }` once the step is done or its terminal is
    *   started; otherwise the reason in plain words.
    * Side effects: whatever the step does (see bend/internal/setup); for a
@@ -445,11 +457,13 @@ export function createSetup({
     projectId,
     action,
     option,
+    anyway,
   }: {
     threadId: string | null;
     projectId: string | null;
     action: SetupAction;
     option: string | null;
+    anyway?: boolean;
   }): Promise<{ message: string | null }> {
     const status = await setupStatus({ threadId, projectId });
     if (status.path === null || (status.unavailable !== null && status.bend !== "ready")) {
@@ -495,6 +509,7 @@ export function createSetup({
         "tracker",
         `--use=${use}`,
         ...(use === "github" && repository ? [`--repository=${repository}`] : []),
+        ...(anyway === true ? ["--anyway"] : []),
       ]);
     }
     if (action === "rules") {

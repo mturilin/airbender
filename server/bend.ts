@@ -49,7 +49,7 @@ import { join } from "node:path";
 import type { SyncEntry, SyncState } from "../sync/types.ts";
 
 /** The bend this plugin needs at least; see `Version` in bend's cli. */
-export const NEEDED_VERSION = 8;
+export const NEEDED_VERSION = 9;
 
 /** How long one run of bend may take. */
 const BEND_TIMEOUT_MS = 60_000;

@@ -141,7 +141,12 @@ func TestSetupOfANewRepository(t *testing.T) {
 	same(t, repo.file(".bend.json"), "{\"tracker\": \"beads\"}\n", "the setting")
 	// all stops at the first step that lacks its yes, having changed nothing.
 	same(t, repo.fails("setup", "all").Kind, "usage", "all without a yes")
-	same(t, repo.setup().states(), "tracker=done program=done issues=missing instructions=blocked facts=not-needed publish=blocked", "after choosing beads")
+	chosen := repo.setup()
+	same(t, chosen.states(), "tracker=done program=done issues=missing instructions=blocked facts=not-needed publish=blocked", "after choosing beads")
+	// Beads is set up without questions, as the maintainer (bead-bb-dof).
+	if !strings.HasSuffix(chosen.Steps[2].Runs, " init --skip-agents --non-interactive --role maintainer") {
+		t.Fatalf("the issues step runs %q", chosen.Steps[2].Runs)
+	}
 
 	repo.ok("setup", "all", "-y")
 	done := repo.setup()

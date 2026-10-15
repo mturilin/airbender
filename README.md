@@ -82,6 +82,11 @@ and the rules for your agent.
    a terminal you can watch and each with a Skip. The same steps run from a
    terminal with `bend setup`.
 
+Airbender is for repositories of your own: it adds its files to the
+repository, and they get committed. In a clone of a fork, or of a repository
+you cannot push to, setup warns and offers to keep the issues in GitHub
+issues in a repository of yours instead.
+
 To build it yourself instead:
 
 ```sh

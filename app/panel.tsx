@@ -724,7 +724,7 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
           step={confirmingStep}
           status={setup.status}
           onClose={() => setConfirmingStep(null)}
-          onRun={(step, option) => {
+          onRun={(step, option, anyway) => {
             setConfirmingStep(null);
             setApplyingStep(step.key);
             rpc
@@ -733,6 +733,7 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
                 projectId,
                 action: step.action,
                 option,
+                ...(anyway === true ? { anyway } : {}),
               })
               .then((outcome) => {
                 setActionProblem(outcome.message);

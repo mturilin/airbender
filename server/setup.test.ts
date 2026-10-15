@@ -33,6 +33,8 @@ const bendState = (steps: BendSetup["steps"], over: Partial<BendSetup> = {}): Be
   steps,
   installMethods: [],
   issuesHow: "",
+  foreign: null,
+  elsewhere: false,
   instructions: {
     rules: "none",
     rulesVersion: 0,
@@ -117,6 +119,22 @@ test("the steps whose words are bend's come through with what they run", () => {
   // Facts are offered only while their step is missing.
   const looked = steps.map((one) => (one.name === "facts" ? step("facts", "done") : one));
   assert.deepEqual(fromBend(bendState(looked, { savedFacts: saved })).savedFacts, []);
+});
+
+test("someone else's project and the command that sets up beads reach the tab (bead-bb-dof)", () => {
+  const steps = [
+    step("tracker", "missing"),
+    step("program", "done"),
+    step("issues", "missing", { runs: "bd init --skip-agents --non-interactive --role maintainer" }),
+  ];
+  const foreign = { repository: "them/project", fork: true, canPush: null };
+  const fresh = fromBend(bendState(steps, { issuesHow: "init", foreign }));
+  assert.deepEqual(fresh.foreign, foreign);
+  assert.equal(fresh.elsewhere, false);
+  assert.equal(fresh.initRuns, "bd init --skip-agents --non-interactive --role maintainer");
+  // Getting the issues of a fresh clone is not setting up beads.
+  assert.equal(fromBend(bendState(steps, { issuesHow: "fetch" })).initRuns, null);
+  assert.equal(fromBend(bendState(steps, { elsewhere: true })).elsewhere, true);
 });
 
 // --- The switch-over, in a real repository (bead-bb-c9l.8, now through

@@ -79,6 +79,9 @@ type Answers struct {
 	// "link", a link to AGENTS.md, or "rules", a file holding the same
 	// rules (--claude).
 	Claude string
+	// Anyway sets up a folder that looks like someone else's project as if
+	// it were the owner's own (--anyway).
+	Anyway bool
 }
 
 // Outcome is what a step did.
@@ -155,7 +158,14 @@ func ran(status int, what string) error {
 
 // Tracker records which tracker the repository uses.
 //
-// Side effects: writes .bend.json at the repository's top folder.
+// In a folder that looks like someone else's project (State.Foreign), or
+// whose issues the owner already keeps elsewhere, only GitHub issues in
+// another repository go ahead as they are; anything else needs a yes, or
+// --anyway (bead-bb-dof).
+//
+// Side effects: writes .bend.json at the repository's top folder; for
+// issues kept elsewhere, also sets bend.foreign in the clone's git config
+// and adds .bend.json to .git/info/exclude.
 func Tracker(dir string, terminal Terminal, answers Answers, options Options) (*Outcome, error) {
 	state, err := Read(dir, options)
 	if err != nil {
@@ -166,12 +176,16 @@ func Tracker(dir string, terminal Terminal, answers Answers, options Options) (*
 	if state.Tracker != nil {
 		current = *state.Tracker
 	}
+	foreignHere := state.Foreign != nil || state.Elsewhere
 	if use == "" {
 		if current != "" {
 			return &Outcome{Step: StepTracker, Message: "Already done: this repository uses " + trackerWords(current) + "."}, nil
 		}
 		if !terminal.Interactive {
 			return nil, missingAnswer("Which tracker?", "--use beads or --use github")
+		}
+		if state.Foreign != nil {
+			terminal.Say(state.Foreign.Words() + " " + Warning)
 		}
 		terminal.Say("Where are this repository's issues kept?")
 		terminal.Say("  1. beads: a database inside the repository, worked with the bd program")
@@ -205,7 +219,11 @@ func Tracker(dir string, terminal Terminal, answers Answers, options Options) (*
 	if repository == "" {
 		repository = setting.Repository
 	}
-	if use == "github" && repository == "" && detect.GithubRepositoryOf(state.Root) == "" {
+	origin := detect.GithubRepositoryOf(state.Root)
+	if foreignHere && use == "github" && repository == "" && terminal.Interactive {
+		repository = strings.TrimSpace(terminal.Ask("Which repository of yours keeps the issues (owner/name)? Leave it empty for " + origin + ": "))
+	}
+	if use == "github" && repository == "" && origin == "" {
 		if !terminal.Interactive {
 			return nil, missingAnswer("Which GitHub repository? The remote called origin is not on github.com.", "--repository owner/name")
 		}
@@ -216,14 +234,48 @@ func Tracker(dir string, terminal Terminal, answers Answers, options Options) (*
 	if repository != "" && !detect.ValidRepository(repository) {
 		return nil, tracker.Usage("\"%s\" is not a repository. Write it as owner/name.", repository)
 	}
-	if use == "github" && repository == "" && detect.GithubRepositoryOf(state.Root) == "" {
+	if use == "github" && repository == "" && origin == "" {
 		return nil, tracker.Refused("Not done: no repository was named.")
+	}
+	// GitHub issues in a repository other than origin's keep nothing of
+	// Airbender's in someone else's project but the setting file, which is
+	// kept out of git; everything else would put files in their history.
+	elsewhere := foreignHere && use == "github" && repository != "" && !strings.EqualFold(repository, origin)
+	if foreignHere && !elsewhere && !answers.Anyway {
+		words := Warning
+		if state.Foreign != nil {
+			words = state.Foreign.Words() + " " + Warning
+		}
+		if !terminal.Interactive {
+			return nil, missingAnswer(words+" Set up here anyway?", "--anyway, or --use github --repository owner/name for a repository of yours")
+		}
+		if state.Foreign == nil || strings.TrimSpace(answers.Use) != "" {
+			// Said already where the tracker was asked for above.
+			terminal.Say(words)
+		}
+		answer := strings.ToLower(strings.TrimSpace(terminal.Ask("Set up here anyway? [y/N] ")))
+		if answer != "y" && answer != "yes" {
+			return nil, tracker.Refused("Not done: nothing was set up.")
+		}
+	}
+	if elsewhere {
+		if err := keepElsewhere(state.Root); err != nil {
+			return nil, err
+		}
+	} else if state.Elsewhere {
+		// Set up here after all: the clone is treated as the owner's own
+		// from now on. .bend.json stays in .git/info/exclude.
+		quiet(state.Root, 10*time.Second, "git", "config", "--local", "--unset", foreignKey)
 	}
 	if setting.Tracker == use && setting.Repository == repository {
 		return &Outcome{Step: StepTracker, Message: "Already done: this repository uses " + trackerWords(use) + "."}, nil
 	}
 	if err := detect.WriteSetting(state.Root, detect.Setting{Tracker: use, Repository: repository}); err != nil {
 		return nil, err
+	}
+	if elsewhere {
+		return &Outcome{Step: StepTracker, Changed: true,
+			Message: "This clone keeps its issues in GitHub issues in " + repository + " (recorded in " + path + ", which is kept out of git here)."}, nil
 	}
 	return &Outcome{Step: StepTracker, Changed: true,
 		Message: "This repository now uses " + trackerWords(use) + " (recorded in " + path + "; check that file in)."}, nil
@@ -316,12 +368,7 @@ func Issues(dir string, terminal Terminal, answers Answers, options Options) (*O
 		}
 		return &Outcome{Step: StepIssues, Changed: true, Message: "The repository's issues are in this folder now."}, nil
 	}
-	args := []string{"init", "--skip-agents"}
-	if !terminal.Interactive {
-		// bd init asks questions of its own; without a keyboard it must not.
-		args = append(args, "--non-interactive")
-	}
-	if err := ran(terminal.Run(state.Root, state.bd, args...), "Setting up beads"); err != nil {
+	if err := ran(terminal.Run(state.Root, state.bd, initArgs...), "Setting up beads"); err != nil {
 		return nil, err
 	}
 	return &Outcome{Step: StepIssues, Changed: true, Message: "This folder has an issue database now."}, nil

@@ -52,6 +52,16 @@ ends at once, naming the option that was missing. A step that is already
 done changes nothing. `bend setup --json` gives the state to a program; the
 tab draws its setup card from it.
 
+Setting up beads asks nothing in the terminal: `bd init` runs with
+`--non-interactive --role maintainer`.
+
+Airbender is for repositories of your own. Where origin is a fork, or a
+GitHub repository your account cannot push to, `bend setup tracker` warns:
+Airbender's files would end up in your pull requests. Keep the issues in
+GitHub issues in a repository of yours (`--use github --repository
+owner/name`: `.bend.json` is then kept out of git in that clone, and no
+instructions for agents are added), or set up anyway (`--anyway`).
+
 Which tracker: a `.bend.json` file at the repository's root decides
 (`{"tracker": "github"}` or `{"tracker": "beads"}`, optionally
 `"repository": "owner/name"`); without it a `.beads` folder means beads,

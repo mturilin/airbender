@@ -333,6 +333,26 @@ const setupStatusSchema = z.object({
    * step (with GitHub issues: the repository cannot be told); else null.
    */
   issuesBlocked: z.string().nullable(),
+  /**
+   * Why the folder looks like someone else's project (origin is a fork, or
+   * the GitHub account cannot push to it), asked of GitHub only while no
+   * tracker is chosen; null when it does not, or when that cannot be told
+   * (bead-bb-dof).
+   */
+  foreign: z
+    .object({
+      repository: z.string(),
+      fork: z.boolean(),
+      canPush: z.boolean().nullable(),
+    })
+    .nullable(),
+  /**
+   * The owner keeps this clone's issues in a repository of their own,
+   * because it is someone else's project.
+   */
+  elsewhere: z.boolean(),
+  /** What setting up beads runs, while that step is to do; else null. */
+  initRuns: z.string().nullable(),
   /** Whether the tracker's program is there, or none is needed. */
   bdInstalled: z.boolean(),
   /**
@@ -803,15 +823,17 @@ export const rpcContract = defineRpcContract({
     output: setupStatusSchema,
   },
   setup_run: {
-    // Starts one setup action. `option` picks the install method (for
-    // "install") or the agent (for "agent"); null otherwise. Install, folder
-    // setup and agent setup run in a visible BB terminal; the rules are
-    // written straight into AGENTS.md.
+    // Starts one setup action. `option` is the step's answer (see runSetup
+    // in server/setup.ts); null where there is none. `anyway` sets up, as
+    // the owner's own, a folder that looks like someone else's project
+    // (for "tracker"). Installing, preparing the issues and publishing run
+    // in a visible BB terminal; the other steps write files directly.
     input: z.object({
       threadId: z.string().nullable(),
       projectId: z.string().nullable(),
       action: z.enum(SETUP_ACTIONS),
       option: z.string().nullable(),
+      anyway: z.boolean().optional(),
     }),
     // `message` is null when the action was started (or, for the rules,
     // done), else the reason in plain words.
