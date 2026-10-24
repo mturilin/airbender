@@ -135,6 +135,8 @@ func TestOneWordingNamesOnlyBendAndReplacesBothEarlierOnes(t *testing.T) {
 		"`bend comment <id>", "`bend decide <id>", "`bend create", "bend link <id> <other-id> --kind blocked-by",
 		"`airbender_set_current`", "`airbender_workflow_move`",
 		"not by closing words in a commit or a pull request",
+		// Where to get bend, for an agent that has no Airbender (bead-bb-d1z).
+		"curl -fsSL https://raw.githubusercontent.com/mturilin/airbender/main/install-bend.sh | sh",
 	} {
 		if !strings.Contains(Rules, wanted) {
 			t.Fatalf("the rules lack %s", wanted)
@@ -142,7 +144,7 @@ func TestOneWordingNamesOnlyBendAndReplacesBothEarlierOnes(t *testing.T) {
 	}
 	// Both wordings of version 2 are ours, unchanged, and are replaced
 	// where they stand; so is version 1.
-	for _, name := range []string{"rules-v3.md", "rules-v2-beads.md", "rules-v2-bend.md", "rules-v1.md"} {
+	for _, name := range []string{"rules-v4.md", "rules-v3.md", "rules-v2-beads.md", "rules-v2-bend.md", "rules-v1.md"} {
 		earlier, err := os.ReadFile("testdata/" + name)
 		if err != nil {
 			t.Fatal(err)
@@ -177,7 +179,7 @@ func TestOneWordingNamesOnlyBendAndReplacesBothEarlierOnes(t *testing.T) {
 func TestRulesOfANewerVersionAndKeepingTouchOnlyWhatTheyMust(t *testing.T) {
 	// Written by a newer bend than this one: not this bend's to call
 	// behind, whether its owner changed it or not.
-	newer := strings.Replace(Rules, "rules:version 4 -->", "rules:version 5 -->", 1)
+	newer := strings.Replace(Rules, "rules:version 5 -->", "rules:version 6 -->", 1)
 	if got := RulesIn(newer); got != "edited" {
 		t.Fatalf("rules of a newer version are taken as %q", got)
 	}
@@ -187,7 +189,7 @@ func TestRulesOfANewerVersionAndKeepingTouchOnlyWhatTheyMust(t *testing.T) {
 	// Keeping changes the block's own version line and no other: one the
 	// owner quotes further down stays as written.
 	mine := "<!-- airbender:rules:start -->\n<!-- airbender:rules:version 1 -->\n## Mine\n\nThe line reads `<!-- airbender:rules:version 1 -->`.\n<!-- airbender:rules:end -->\n\n# After\n"
-	want := "<!-- airbender:rules:start -->\n<!-- airbender:rules:version 4 -->\n## Mine\n\nThe line reads `<!-- airbender:rules:version 1 -->`.\n<!-- airbender:rules:end -->\n\n# After\n"
+	want := "<!-- airbender:rules:start -->\n<!-- airbender:rules:version 5 -->\n## Mine\n\nThe line reads `<!-- airbender:rules:version 1 -->`.\n<!-- airbender:rules:end -->\n\n# After\n"
 	if got := KeepRules(mine); got != want {
 		t.Fatalf("keeping gave:\n%s", got)
 	}

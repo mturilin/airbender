@@ -207,7 +207,18 @@ bend defer app-1x2                # set it aside in Someday; bend undefer brings
 bend setup                        # what this repository still needs
 ```
 
-Build it with `cd bend && go build -o ~/.local/bin/bend ./cmd/bend`, or let
+Without Airbender, for example for a headless agent working in a repository
+set up with it, install `bend` alone with one line (Linux and macOS, Intel/AMD
+or ARM64; on Windows, under WSL):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/mturilin/airbender/main/install-bend.sh | sh
+```
+
+[install-bend.sh](install-bend.sh) downloads the latest release, checks its
+SHA-256 and puts it in `~/.local/bin`; read it first if you like. The rules
+Airbender writes into a repository's `AGENTS.md` give agents this same line.
+Or build it with `cd bend && go build -o ~/.local/bin/bend ./cmd/bend`, or let
 the tab's setup do it. [bend/README.md](bend/README.md) has the whole
 story: setting a repository up from a terminal, the local copy, syncing,
 the JSON output for programs, and the tests.

@@ -347,13 +347,13 @@ func TestSetupNoticesRulesChangedByHandThatFellBehind(t *testing.T) {
 
 	// The same, from an earlier version: behind. The step is offered and
 	// asks; with nobody to ask it names the option and changes nothing.
-	behind := "# Mine\n\n" + strings.Replace(own, "rules:version 4 -->", "rules:version 2 -->", 1) + "\n## After\n"
+	behind := "# Mine\n\n" + strings.Replace(own, "rules:version 5 -->", "rules:version 2 -->", 1) + "\n## After\n"
 	os.WriteFile(filepath.Join(repo.root, "AGENTS.md"), []byte(behind), 0o644)
 	found := repo.setup()
 	same(t, found.Instructions.Rules, "behind", "an edited block of an earlier version")
 	same(t, found.Steps[3].State, "missing", "the step, with rules that fell behind")
 	same(t, found.Steps[3].Title, "Update Airbender's instructions for agents", "the step's name")
-	if !strings.Contains(found.Steps[3].Why, "yours are from version 2, the current ones are version 4") {
+	if !strings.Contains(found.Steps[3].Why, "yours are from version 2, the current ones are version 5") {
 		t.Fatalf("the step says: %s", found.Steps[3].Why)
 	}
 	asked := repo.fails("setup", "instructions", "-y")
@@ -401,7 +401,7 @@ func TestSetupNoticesRulesChangedByHandThatFellBehind(t *testing.T) {
 	update := repo.setup()
 	same(t, update.Instructions.Rules, "old", "an unchanged earlier version")
 	same(t, update.Steps[3].Title, "Update Airbender's instructions for agents", "the step's name for an update")
-	if why := update.Steps[3].Why; !strings.Contains(why, "it has version 2, the current ones are version 4") || !strings.Contains(why, "Nothing is wrong here") {
+	if why := update.Steps[3].Why; !strings.Contains(why, "it has version 2, the current ones are version 5") || !strings.Contains(why, "Nothing is wrong here") {
 		t.Fatalf("the step says: %s", why)
 	}
 	repo.ok("setup", "instructions", "-y")
@@ -429,7 +429,7 @@ func TestSetupNoticesRulesChangedByHandThatFellBehind(t *testing.T) {
 	os.WriteFile(filepath.Join(repo.root, "AGENTS.md"), []byte(bare), 0o644)
 	same(t, repo.setup().Instructions.Rules, "behind", "a block that names no version")
 	repo.ok("setup", "instructions", "-y", "--rules", "keep")
-	same(t, repo.file("AGENTS.md"), "<!-- airbender:rules:start -->\n<!-- airbender:rules:version 4 -->\n## My own rules\n\nDo as I say.\n<!-- airbender:rules:end -->\n", "a kept block that named no version")
+	same(t, repo.file("AGENTS.md"), "<!-- airbender:rules:start -->\n<!-- airbender:rules:version 5 -->\n## My own rules\n\nDo as I say.\n<!-- airbender:rules:end -->\n", "a kept block that named no version")
 	same(t, repo.setup().Steps[3].State, "done", "the step after keeping a block of the owner's own")
 }
 

@@ -955,6 +955,8 @@ panel. `[bwr]`
     `bend` only, and says "issue", not "beads issue".
   - **Issues only through `bend`**: the rules rule out the tracker's own
     program (`bd`, `gh`) and its website for issues.
+  - **They say how to install `bend` where it is missing**: the one line
+    under "It can be installed alone", below, with a link to the script. `[d1z]`
   - **An issue is never closed by any means** unless the owner says so:
     not with `bend`, not with the tracker's own program, and not by
     closing words in a commit or a pull request. `[c9l.19]`
@@ -1009,6 +1011,14 @@ panel. `[bwr]`
 - **It is one self-contained program**, built from source in this
   repository, that runs from any folder and needs nothing else installed
   beside it but the tracker's own program. `[c9l.4]`
+- **It can be installed alone, with one line**, by an agent or a person
+  that has no Airbender, for example a headless agent working in a
+  repository set up with it: `curl -fsSL
+  https://raw.githubusercontent.com/mturilin/airbender/main/install-bend.sh
+  | sh`. The script, `install-bend.sh`, is kept in this repository, can be
+  read before it is run, and installs only `bend`: not the plugin, not the
+  tracker's program. It checks the download's SHA-256 before installing
+  it, and on any failure installs nothing. `[d1z]`
 - **The panel reads and changes issues through it**, by running it, as
   agents do, so there is one implementation. Whatever the panel does with
   an issue can be asked of `bend` in a form a program can read: labels,
@@ -1073,6 +1083,15 @@ panel. `[bwr]`
 Behaviour the owner did not ask for or decide. It is what the product does
 today, recorded so a rebuild matches. Any of it may be changed without
 breaking a requirement above.
+
+- Installing `bend` alone: `install-bend.sh` takes the latest release, so
+  the line in the rules never changes; `BEND_VERSION=vX.Y.Z` picks one
+  release. It installs into `~/.local/bin`, or `BEND_INSTALL_DIR`, and says
+  when that folder is not on the PATH. It needs `curl` and `sha256sum` or
+  `shasum`, checks that the downloaded program runs before putting it in
+  place, and refuses Windows, pointing to WSL, and CPUs other than amd64
+  and arm64. The panel's own "Install bend" keeps installing the release
+  of its own version. `[d1z]`
 
 - Conversation titles: an issue's short name is 2 to 4 words, at most 32
   characters, written by the model chosen for summary titles from the
@@ -1800,9 +1819,10 @@ breaking a requirement above.
   as no data. `[c9l.6]`
 - What agents are told: the step messages name `bend show`, `bend
   comments`, `bend write <id> description|done|plan` and `bend start`. The
-  rules in the instruction file are version 3; setup takes version 1 and
-  both wordings of version 2 (the one that named `bd` and the one that
-  named `bend`) as earlier versions of its own and replaces them in place,
+  rules in the instruction file are version 5 `[d1z]`; setup takes
+  version 1, both wordings of version 2 (the one that named `bd` and the
+  one that named `bend`), version 3 and version 4 as earlier versions of
+  its own and replaces them in place,
   and leaves a block the owner edited alone. The background sizing's own
   tool is `airbender_report_sizes`. `[c9l.10]` The two tools are offered
   under their own names only; the names they had before
@@ -1924,7 +1944,7 @@ breaking a requirement above.
   CLAUDE.md that is a file. A line that only looks like one, in an example
   the owner wrote, is left. Where that is all there is to do, the
   step is called "Update Airbender's instructions for agents". The rules
-  are version 4. `[c9l.12]`
+  are version 5. `[c9l.12]` `[d1z]`
 - Setup: Airbender's rules name the few tracker commands an agent needs,
   say where standing facts are kept, and carry a version. A block of an
   earlier version, unchanged, is replaced where it stands; a block the

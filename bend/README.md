@@ -16,6 +16,20 @@ there and `bend undefer <id>` brings it back. It is beads' own `deferred`
 status, and on GitHub issues the label `someday`. `bend ready` and the
 default `bend list` leave it out; `bend list --status deferred` shows it.
 
+Without Airbender (a headless agent, say), one line installs `bend` alone, on
+Linux and macOS, amd64 or arm64:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/mturilin/airbender/main/install-bend.sh | sh
+```
+
+[`install-bend.sh`](../install-bend.sh) downloads the latest release's
+binary and its `.sha256`, checks the checksum, checks that the binary runs,
+and only then puts it in `~/.local/bin`; on any failure an existing `bend`
+is left as it was. `BEND_VERSION=v0.2.0` picks one release,
+`BEND_INSTALL_DIR` another folder. Windows is refused; under WSL it is
+Linux. The rules `bend setup instructions` writes give agents this line.
+
 On Linux and macOS, on amd64 or arm64, the tab's "Install bend" step downloads
 the binary from the GitHub release matching the plugin version, verifies its
 SHA-256 checksum, and installs it into `~/.local/bin`. It needs `curl` and
@@ -27,8 +41,8 @@ also be run manually on supported platforms.
 Release tags `vX.Y.Z` must match the plugin's `package.json` version. The
 release workflow tests bend and builds four CGO-free binaries:
 `bend-linux-amd64`, `bend-linux-arm64`, `bend-darwin-amd64` and
-`bend-darwin-arm64`, each with a `.sha256` file. The installer never selects
-"latest" and never replaces a binary before its checksum is verified.
+`bend-darwin-arm64`, each with a `.sha256` file. The tab's installer never
+selects "latest" and never replaces a binary before its checksum is verified.
 
 This file is the long form; the repository's [README](../README.md) has the
 short one.
