@@ -114,6 +114,9 @@ When something the panel needs is missing, the panel offers to set it up.
     and the lines beads adds to `.gitignore`.
   - **Ignored**, this computer's only: the issue database, locks, sync
     state, bend's copy inside `.git`, `.claude/settings.local.json`.
+    Setup keeps the root `.beads.gate.lock` out of git with a local ignore
+    rule, and offers to add it even when its shared files are already
+    committed. `[ozo]`
   - **Removed**: beads' own setup for the coding agents (its hooks for
     Claude Code and Codex, the files they leave empty, its Codex skill)
     and its blocks in the instructions files.
@@ -1755,6 +1758,11 @@ breaking a requirement above.
   anything else of the owner's is kept. Setup's commit takes
   `.beads/config.yaml` when it differs from the last commit, and the
   deletion of any of those files that had been committed. `[cnv]`
+- Setup's commit also takes new or changed `.beads/.gitignore`,
+  `.beads/README.md`, `.beads/metadata.json` and the individual files under
+  `.beads/hooks/`. The root lock's rule is added to Git's local
+  `info/exclude` after confirmation; if only that rule is missing, setup
+  makes no commit and leaves staged changes as they are. `[ozo]`
 - Someone else's project: the check asks GitHub once per reading of the
   setup state, only while no tracker is chosen, and gives up silently after
   five seconds; no GitHub login counts as "cannot tell". `bend setup
