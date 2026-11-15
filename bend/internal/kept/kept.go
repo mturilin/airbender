@@ -124,6 +124,8 @@ type Tracker struct {
 	// actor is who is acting, kept with a change that waits so that it is
 	// sent as theirs.
 	actor string
+	// noSend keeps observation-triggered rereads from delivering queued writes.
+	noSend bool
 
 	loaded bool
 	// issues are the issues as they are to be read. For a queued tracker,
@@ -148,6 +150,9 @@ type Options struct {
 	Warn func(text string)
 	// Actor is who is acting, "" for nobody named.
 	Actor string
+	// NoSend pulls remote changes without sending pending local mutations.
+	// The pending changes remain visible in the local view.
+	NoSend bool
 }
 
 // Open gives the tracker that answers for inner from the copy in dir.
@@ -156,7 +161,7 @@ type Options struct {
 // copy, and rereads it through inner where there is none, where inner's
 // sign says it is behind, or where it is more than a day old.
 func Open(inner tracker.Tracker, dir string, options Options) *Tracker {
-	made := &Tracker{inner: inner, store: localcopy.Store{Dir: dir}, now: options.Now, warn: options.Warn, actor: options.Actor}
+	made := &Tracker{inner: inner, store: localcopy.Store{Dir: dir}, now: options.Now, warn: options.Warn, actor: options.Actor, noSend: options.NoSend}
 	if made.now == nil {
 		made.now = time.Now
 	}
@@ -315,9 +320,9 @@ func (kept *Tracker) loadQueued() error {
 			return err
 		}
 		held, issues, waiting, _ = read()
-	case age > trustedFor:
+	case age > trustedFor || (kept.noSend && (age > freshFor || age < 0)):
 		if _, err := kept.WaitAndSync(false); err != nil {
-			kept.warn("The local copy of the issues is more than a day old and could not be refreshed: " + err.Error())
+			kept.warn("The local copy of the issues could not be refreshed: " + err.Error())
 		}
 		held, issues, waiting, _ = read()
 	case age > freshFor || age < 0:

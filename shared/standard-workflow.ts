@@ -35,11 +35,11 @@
 //   to report but not forced to, and an issue must not get stuck behind a
 //   report that never came.
 // - Accepting at "Human review" does not close the issue: it moves it to
-//   Apply, where the user chooses how the work goes into git: Commit, or
-//   Commit & merge. The agent then does that, and the issue closes only when
-//   it is reported done. Before, the issue was closed first and the commit
-//   asked for afterwards, so a commit or merge that failed left a closed
-//   issue whose work was not in git, with nothing showing it.
+//   Apply, where the user chooses Commit or Commit & merge. The latter
+//   pushes only the work branch and delivers through the repository's PR
+//   process, including required checks, review and merge queue. Opening a
+//   PR is pending delivery, not completion; only a verified merged PR for
+//   the current branch and commit permits that step to close the issue.
 // - Issues differ in size, and the workflow is only as long as an issue
 //   needs (bead-bb-4mb). The user found the full sequence "very clunky" for
 //   a question with two clarifications: "like a 15 button presses for three
@@ -60,23 +60,20 @@
 // - An issue can be started in a branch of its own (bead-bb-jqn.1): a
 //   second move out of Not started. It is not a step: the agent makes the
 //   branch as the first thing it does, then sizes and works as usual, and
-//   "Commit & merge" ends the branch. The user's decisions: the branch is
-//   in the folder the conversation is in (work trees are another issue);
-//   it is named from the issue's id and title; it cannot be started over
-//   uncommitted changes; on the row it is offered only on the main branch,
-//   in the menu always; after the merge the main branch is pushed and the
-//   branch deleted, locally and on the remote. Rejected: the plugin making
-//   the branch (it never changes git), and a step of its own for it.
+//   "Commit & merge" delivers the branch through a protected PR. The branch
+//   is in the conversation's folder, named from the issue's id and title;
+//   it cannot be started over uncommitted changes. On the row it is offered
+//   only on the main branch, in the menu always. Delivery never mutates the
+//   local main branch or pushes it directly. Branch cleanup is the user's
+//   separate decision, not a side effect of reporting completion.
 // - An issue can be started in a work tree of its own (bead-bb-ak0), so
 //   that several are worked at once: a third move out of Not started. It
 //   opens a new top-level conversation in a work tree that BB makes, and
-//   the agent works there. The user's decisions: one conversation per
-//   issue, visible; BB places the tree; it is started from the issue's
-//   menu, never the row; and when it has landed, everything is closed
-//   (their option A of three): the conversation is archived, the tree
-//   removed, the branch deleted. Landing itself is the agent's: it brings
-//   the main branch into its own first, so a conflict is settled in its
-//   work tree and never on the main branch.
+//   the agent works there. There is one visible conversation per issue;
+//   BB places the tree, started from the issue's menu, never the row.
+//   Conversations, work trees and branches remain available during and
+//   after PR delivery. Archiving or removing them is explicitly controlled
+//   by the user, never triggered by opening a PR or closing the issue.
 // - An epic can be given a branch, or a work tree, for all of its issues
 //   together (bead-bb-ty5.2). The user: "I want to be able to start epic in
 //   a branch or worktree / then the epic mode is activated and the
@@ -201,8 +198,8 @@ const states: WorkflowState[] = [
     label: "Commit & merge",
     actor: "agent",
     runLabel: "Commit & merge",
-    hint: "The agent commits the accepted work and merges its branch into the main one.",
-    ask: "The agent is committing and merging the work.",
+    hint: "The agent commits and pushes the work branch, then follows the repository's protected PR process until its merge is verified.",
+    ask: "The agent is delivering the work through a PR; checks, review or merge queue may still be pending.",
   },
   {
     // Last, and apart from the order above: see the design notes.
@@ -210,8 +207,8 @@ const states: WorkflowState[] = [
     label: "On its branch",
     actor: "user",
     holdsBranch: true,
-    hint: "Its issues are worked one at a time on a branch of its own; it is closed and merged when they are all closed.",
-    ask: "Its issues are worked on its branch. Close & merge when they are all closed.",
+    hint: "Its issues are worked one at a time on its branch; once closed, the epic can be delivered through the repository's protected PR process.",
+    ask: "Its issues are worked on its branch. Close & merge starts PR delivery when they are all closed.",
   },
 ];
 
@@ -303,7 +300,7 @@ const moves: WorkflowMove[] = [
     by: ["user", "agent"],
     // Short, as the user worded it for the buttons (bead-bb-o3d).
     label: "Start in branch",
-    hint: "Start on this issue in a branch of its own: the agent creates the branch, then sizes the issue and begins. Commit & merge at the end brings it back.",
+    hint: "Start on this issue in its own branch: the agent creates it, sizes the issue and begins. Commit & merge delivers it through the repository's protected PR process.",
     icon: "play-branch",
     // From another branch the new one would be cut from that branch and
     // merge back into it, rarely what is wanted: so not on the row there,
@@ -322,13 +319,13 @@ const moves: WorkflowMove[] = [
     epic: {
       to: "on-branch",
       label: "Start epic in branch",
-      hint: "Give this epic a branch of its own: the agent creates it and starts nothing. Its issues are then started one by one and committed there, and Close & merge at the end brings the branch back.",
+      hint: "Give this epic its own branch and start nothing. Its issues are committed there one by one; Close & merge starts protected PR delivery.",
       icon: "epic-branch",
       branch: (issue) => branchName(issue),
       opening: (issue) => [
         `The user started the epic ${issue.id} (${JSON.stringify(issue.title)}) in a branch of its own. Do one thing only: create and switch to a new branch named \`${branchName(issue)}\` from where the folder is now (\`git switch -c ${branchName(issue)}\`), and tell the user in one line that the epic's work is on that branch.`,
         `If a branch of that name already exists, or the branch cannot be created, do not reuse or overwrite a branch: tell the user why, and ${report(issue.id, "to:not-started")} saying so, which takes the epic back to where it was.`,
-        "Do not start work on the epic or on any of its issues. The user starts them one at a time from the Airbender tab; each is committed on this branch when it is accepted, and the branch is merged once, when the user closes the epic.",
+        "Do not start work on the epic or on any of its issues. The user starts them one at a time from the Airbender tab; each is committed on this branch when accepted. When the user chooses Close & merge, deliver the epic's branch through the repository's protected PR process.",
       ],
     },
   },
@@ -340,7 +337,7 @@ const moves: WorkflowMove[] = [
     // issues by its own judgment.
     by: ["user"],
     label: "Start in worktree",
-    hint: "Start on this issue in a conversation and a work tree of its own, so it can be worked alongside others. Commit & merge at the end brings it to the main branch and closes that conversation.",
+    hint: "Start this issue in its own conversation and work tree. Commit & merge delivers the branch through a protected PR; cleanup remains your separate choice.",
     icon: "play-tree",
     alsoInMenu: true,
     menuOnly: true,
@@ -354,12 +351,12 @@ const moves: WorkflowMove[] = [
     epic: {
       to: "on-branch",
       label: "Start epic in worktree",
-      hint: "Give this epic a conversation and a work tree of its own. Its issues are then started one by one there and committed on its branch, and Close & merge at the end brings it to the main branch and closes that conversation.",
+      hint: "Give this epic its own conversation and work tree. Its issues are committed on its branch one by one; Close & merge starts protected PR delivery without removing the conversation or work tree.",
       icon: "epic-tree",
       opening: (issue) => [
         `This conversation was opened for the epic ${issue.id} (${JSON.stringify(issue.title)}), in a git work tree of its own, on a branch of its own. Tell the user in one line which branch this is (\`git branch --show-current\`); do not rename it.`,
-        "Do nothing else now: do not start work on the epic or on any of its issues. The user starts them one at a time from the Airbender tab of this conversation; each is committed on this branch when it is accepted, and the branch is merged once, when the user closes the epic.",
-        "Do not switch branches, and do not touch the repository's main folder until the epic is to be landed.",
+        "Do nothing else now: do not start work on the epic or on any of its issues. The user starts them one at a time from the Airbender tab; each is committed on this branch when accepted. Close & merge later delivers the epic's branch through the repository's protected PR process.",
+        "Stay on this branch and do not mutate the repository's main folder, including during PR delivery.",
       ],
     },
   },
@@ -484,11 +481,10 @@ const moves: WorkflowMove[] = [
     hint: "The user has accepted the work in the conversation; quote what they said.",
     needsNote: true,
   },
-  // Apply is the user's choice between the two ways the work can go into
-  // git (their request: "one option is commit and second, commit and merge,
-  // and both of them close the issue"). Before, Apply was the agent's step
-  // and it had to ask in the conversation whether it may merge; pressing
-  // "Commit & merge" is now that permission.
+  // Acceptance permits committing and branch delivery, not bypassing the
+  // repository's required CI, reviews, protected branches or merge queue.
+  // Commit-only closes after committing; PR delivery closes only after a
+  // matching merged PR has been independently verified by the server.
   {
     id: "commit",
     from: "apply",
@@ -504,7 +500,7 @@ const moves: WorkflowMove[] = [
     to: "commit-merge",
     by: ["user"],
     label: "Commit & merge",
-    hint: "Commit the work and merge its branch into the main one. The issue closes when that is done.",
+    hint: "Commit and push the work branch, then follow the repository's protected PR process. The issue closes only after the merged PR is verified.",
     ownBranchOnly: true,
     merges: true,
   },
@@ -534,7 +530,7 @@ const moves: WorkflowMove[] = [
     to: "commit-merge",
     by: ["agent"],
     label: "Commit & merge, as the user said",
-    hint: "The user has said to commit and merge; quote what they said.",
+    hint: "The user has requested protected PR delivery; quote what they said. This does not waive repository checks or review.",
     needsNote: true,
     merges: true,
   },
@@ -560,8 +556,9 @@ const moves: WorkflowMove[] = [
     from: "commit-merge",
     to: CLOSED,
     by: ["agent", "user"],
-    label: "Mark as done",
-    hint: "The work is in git: committed, and its branch merged into the main one. Closes the issue.",
+    label: "Verify merged PR",
+    hint: "Close only after verifying this branch and commit were merged by the repository's PR process; an open or queued PR stays pending.",
+    needsMergedPullRequest: true,
   },
   {
     // An epic whose issues were worked on its branch, all closed now: the
@@ -572,7 +569,7 @@ const moves: WorkflowMove[] = [
     to: "commit-merge",
     by: ["user"],
     label: "Close & merge",
-    hint: "Every issue of this epic is closed: the agent merges the epic's branch into the main one, and the epic closes.",
+    hint: "Every issue of this epic is closed: deliver its branch through the repository's protected PR process, closing the epic only after the merge is verified.",
     primary: true,
     menuOnly: true,
     needsSubIssuesClosed: true,
@@ -799,34 +796,20 @@ function stepText(
         `If it cannot be done as it is, ${report(id, "send-back")} saying why.`,
       ];
     case "commit-merge":
-      if (workTree) {
-        return [
-          "The user has accepted this work and chosen to commit it and merge it. This conversation works in a work tree of its own, so landing it takes a few steps, in this order.",
-          "",
-          "- Commit the changes that belong to this issue, following the commit rules in AGENTS.md if it has any: only this issue's files, with the issue's id and title in the subject line.",
-          "- Bring the main branch into your branch, here in the work tree: `git merge main`. Other issues may have landed since you started. If there are conflicts and they are straightforward, settle them, make sure the work still does what the issue asks (run what can be run), and commit the merge.",
-          `- If you cannot settle the conflicts cleanly, abort the merge (\`git merge --abort\`) and ${report(id, "send-back")} saying which files conflict and why: the issue goes back to the work step.`,
-          "- Then move the main branch forward to your branch. The main branch is normally checked out in the repository's main folder (`git worktree list` shows where): run `git -C <that folder> merge --ff-only <your branch>`. If the main branch is checked out nowhere, `git fetch . <your branch>:main` does it. Never force either: if git refuses, for example because that folder has uncommitted changes in the same files, stop and tell the user what is in the way.",
-          "- Push the main branch to its remote, if it has one (`git push origin main`): the user's choice of Commit & merge is their approval of that push. Then delete your branch on the remote if it is there (`git push origin --delete <your branch>`).",
-          "- Do not remove this work tree or delete the local branch yourself. When you report this step done, Airbender archives this conversation, and removes the work tree and the branch. Tell the user that in one line first: this conversation moves to the archive, where it can still be read.",
-          "- Tell the user plainly if any step fails; what has been committed is safe in this work tree.",
-          "",
-          `When the work is on the main branch and pushed, ${report(id, "done")} naming the commit. That closes the issue and this conversation.`,
-          `If it cannot be done as it is, ${report(id, "send-back")} saying why.`,
-        ];
-      }
       return [
-        "The user has accepted this work and chosen to commit it and merge it. Your job now is to get it into git and onto the main branch.",
+        "The user has accepted this work and chosen Commit & merge. Deliver it through the repository's normal protected pull-request process, not a local merge or a direct push to its main branch.",
         "",
-        "- Commit the changes that belong to this issue, following the commit rules in AGENTS.md if it has any: only this issue's files, with the issue's id and title in the subject line. With sub-issues: one commit per issue where its changes can be told apart, otherwise one commit whose body lists each issue as id and title.",
-        "- Then merge the branch the work is on into the repository's main branch, leaving the folder on the main branch. The user chose this in the Airbender tab: that is their approval of this merge, so do not ask again.",
-        "- Then push the main branch to its remote, if it has one: the user's choice of Commit & merge is their approval of that push too. A merge that makes no commit of its own does not set off a hook that pushes on commit, so do not rely on one.",
-        "- Only when the main branch is on the remote, delete the branch the work was on: locally (`git branch -d`), and on the remote if it is there (`git push origin --delete <branch>`). Never delete the main branch, and never force a deletion: if git refuses, leave the branch and say why.",
-        "- Tell the user plainly if any push or deletion fails; the commit and the merge are safe locally.",
-        "- If everything was already committed, say so and merge. If the work is already on the main branch, say so: there is nothing to merge.",
+        "- Read and follow the repository's contribution, delivery and CI instructions. Preserve all required checks, reviews, approvals and merge-queue requirements. Acceptance here is not repository review approval and authorizes no bypass, admin merge or force push.",
+        "- Commit only this issue's accepted changes on its work branch, following the repository's commit rules. If already committed, keep the existing commits. If currently on the repository's main branch, stop and explain that delivery needs a work branch; do not commit there or switch or mutate the main checkout as part of delivery.",
+        "- Push only the work branch to its configured remote, normally with `git push -u origin HEAD`. Use the repository's established helper or hosting tool to open or reuse a normal, non-draft PR against its required target branch. Do not invent approvals, activate CI providers or change repository protections.",
+        "- Follow the repository's normal review, CI and merge-queue path. Merge only as that process permits. If permission, authentication, checks, review or queue progress is missing, tell the user what is pending and keep this issue in this step.",
+        "- An opened PR, passing checks, an approval, auto-merge enabled or entry into a merge queue is not a completed merge. Report the PR URL and actual state; verify the hosting service reports it merged and that its repository, source branch, head commit and target match this delivery before reporting done.",
+        workTree
+          ? "- Keep this conversation, work tree and its local and remote branches intact. Airbender does not archive or remove them on completion; cleanup is a separate, explicit user decision."
+          : "- Keep the work branch and checkout intact, including after merge. Branch deletion and other cleanup are a separate, explicit user decision.",
         "",
-        `When the work is committed and merged, ${report(id, "done")} naming the commit. That closes the issue.`,
-        `If it cannot be done as it is, for example a merge conflict that needs the work redone, ${report(id, "send-back")} saying why.`,
+        `Only after the matching PR is verified merged, ${report(id, "done")} naming its URL and merged commit. Opening a PR does not close the issue.`,
+        `If the accepted work needs changes, ${report(id, "send-back")} explaining why. If delivery is merely pending or cannot be verified, leave it in this step and report the blocker.`,
       ];
     default:
       return [];
@@ -854,7 +837,7 @@ function instruction(
       ? []
       : [
           "",
-          "This issue is an epic whose issues were worked one at a time on its branch, and every one of them is closed and committed there. There is normally nothing left to commit: what remains is the merge of that branch.",
+          "This issue is an epic whose issues were worked one at a time on its branch, and every one of them is closed and committed there. There is normally nothing left to commit: deliver that branch through the repository's protected PR process.",
         ];
   // An issue with sub-issues is worked as a whole: the user asked that play
   // on an epic means "this issue and all its sub-issues" (bead-bb-5qt).

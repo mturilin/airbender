@@ -147,17 +147,7 @@ export default async function plugin(bb: BbPluginApi) {
         "Name or full path of bend, the program Airbender reads and changes issues with. Leave as bend unless BB cannot find it.",
       default: "bend",
     },
-    // Background sizing (bead-bb-zkc). On BB's own page because a tab
-    // cannot open a settings screen of the plugin's; the tab's menu says
-    // where these are. Read each time a worker is about to start, so a
-    // change here needs no reload.
-    backgroundSizing: {
-      type: "boolean",
-      label: "Size issues in the background",
-      description:
-        "A background agent gives new and changed issues a size (S, M or L) before they are started. Sizes you set yourself are never changed. Standard workflow only.",
-      default: true,
-    },
+    // Sizing runs only when explicitly requested from an issue's menu.
     sizingProvider: {
       type: "string",
       label: "Sizing provider",
@@ -287,7 +277,6 @@ export default async function plugin(bb: BbPluginApi) {
     readSettings: async () => {
       const now = await settings.get();
       return {
-        enabled: now.backgroundSizing,
         providerId: now.sizingProvider,
         model: now.sizingModel,
       };
@@ -301,7 +290,6 @@ export default async function plugin(bb: BbPluginApi) {
     bb,
     mainBranch: folders.mainBranch,
     mainFolder: folders.mainFolder,
-    deleteMergedBranch: folders.deleteMergedBranch,
   });
   const workEvents: WorkEvents = {};
   const work = createWork({
@@ -391,19 +379,8 @@ export default async function plugin(bb: BbPluginApi) {
   bb.rpc.register(rpcContract, {
     issues_list: async (input) => {
       const listed = await store.listIssues(input);
-      // Every list a tab asks for is also the moment to see whether an
-      // issue is new or has changed and wants a size (server/sizing.ts).
-      if (listed.state === "ok" && listed.path !== null) {
-        sizing.consider(listed.path, listed.issues, input);
-      }
-      // Which issues have a conversation of their own in a work tree is
-      // the plugin's knowledge, not beads': added here, for the tab.
-      // And the moment for autopilot to take up what a reload cut short.
-      autopilot.consider(input.threadId);
-      // An issue title may have been edited: the conversation's follows.
-      if (listed.state === "ok" && input.threadId !== null) {
-        titles.check(input.threadId, listed.issues);
-      }
+      // Observing issues must not start agents, resume autopilot, or rename
+      // conversations. Those operations have explicit action/event paths.
       return {
         ...listed,
         autopilot: autopilot.stateFor(input.threadId),
