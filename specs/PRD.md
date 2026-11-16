@@ -1087,6 +1087,13 @@ Behaviour the owner did not ask for or decide. It is what the product does
 today, recorded so a rebuild matches. Any of it may be changed without
 breaking a requirement above.
 
+- A row's buttons move to a line of their own, under its title and facts
+  and lined up with the title, when the row is narrow, so that the title
+  keeps the row's width: below 42rem for the thread's current issue, whose
+  step button is full size, and below 28rem for every other row. The width
+  is the row's, not the window's. An issue's id wraps left-aligned, and
+  breaks inside only when it does not fit on a line of its own. `[fez]`
+
 - Installing `bend` alone: `install-bend.sh` takes the latest release, so
   the line in the rules never changes; `BEND_VERSION=vX.Y.Z` picks one
   release. It installs into `~/.local/bin`, or `BEND_INSTALL_DIR`, and says
