@@ -367,17 +367,29 @@ func Issues(dir string, terminal Terminal, answers Answers, options Options) (*O
 	if err := confirm(terminal, answers, step); err != nil {
 		return nil, err
 	}
+	if state.IssuesHow == "statuses" {
+		if err := configureEndings(state, terminal); err != nil {
+			return nil, err
+		}
+		return &Outcome{Step: StepIssues, Changed: true, Message: "Configured the issue endings."}, nil
+	}
 	if state.IssuesHow == "fetch" {
 		if err := ran(terminal.Run(state.Root, state.bd, "bootstrap", "--yes"), "Getting the issues"); err != nil {
 			return nil, err
 		}
 		switchJournalOn(state)
+		if err := configureEndings(state, terminal); err != nil {
+			return nil, err
+		}
 		return &Outcome{Step: StepIssues, Changed: true, Message: "The repository's issues are in this folder now."}, nil
 	}
 	if err := ran(terminal.Run(state.Root, state.bd, initArgs...), "Setting up beads"); err != nil {
 		return nil, err
 	}
 	switchJournalOn(state)
+	if err := configureEndings(state, terminal); err != nil {
+		return nil, err
+	}
 	return &Outcome{Step: StepIssues, Changed: true, Message: "This folder has an issue database now."}, nil
 }
 

@@ -243,7 +243,7 @@ func labelValue(labels []string, prefix string) string {
 // holdsField says whether a label holds one of the fields above, so is not
 // a plain label.
 func holdsField(label string) bool {
-	return label == inProgress || label == someday ||
+	return label == inProgress || label == someday || label == verifiedLabel || label == duplicateLabel ||
 		strings.HasPrefix(label, typePrefix) ||
 		strings.HasPrefix(label, priorityPrefix) ||
 		strings.HasPrefix(label, categoryPrefix)
@@ -290,7 +290,19 @@ func priorityOf(labels []string) *int {
 
 // toIssueRef turns GitHub's pointer to an issue into the common one.
 func toIssueRef(ref Ref) tracker.IssueRef {
-	return tracker.IssueRef{ID: strconv.Itoa(ref.Number), Title: ref.Title, Status: ref.State}
+	ending := ""
+	if ref.State == "closed" {
+		ending = "done"
+		if ref.StateReason != nil {
+			switch strings.ToLower(strings.ReplaceAll(*ref.StateReason, "_", " ")) {
+			case "not planned":
+				ending = "cancelled"
+			case "duplicate":
+				ending = "duplicate"
+			}
+		}
+	}
+	return tracker.IssueRef{ID: strconv.Itoa(ref.Number), Title: ref.Title, Status: ref.State, Ending: ending}
 }
 
 // orNil gives a pointer to a text, or nil for "".
@@ -315,7 +327,7 @@ func toIssue(issue Issue, known map[int]Ref) tracker.Issue {
 	link := func(ref Ref, kind, direction string) tracker.Link {
 		pointer := toIssueRef(ref)
 		return tracker.Link{
-			ID: pointer.ID, Title: pointer.Title, Status: pointer.Status,
+			ID: pointer.ID, Title: pointer.Title, Status: pointer.Status, Ending: pointer.Ending,
 			Kind: kind, Direction: direction,
 		}
 	}
@@ -345,7 +357,7 @@ func toIssue(issue Issue, known map[int]Ref) tracker.Issue {
 				for _, already := range blockedBy {
 					had = had || already.ID == pointer.ID
 				}
-				if ref.State == "open" && !had {
+				if tracker.Blocks(pointer.Status, pointer.Ending) && !had {
 					blockedBy = append(blockedBy, pointer)
 				}
 			}
@@ -405,6 +417,8 @@ func toIssue(issue Issue, known map[int]Ref) tracker.Issue {
 		Plan:         parts.Plan,
 		Notes:        parts.Notes,
 		CloseReason:  closeReason,
+		Ending:       githubEnding(issue),
+		ClosedAt:     issue.ClosedAt,
 		Labels:       labels,
 		Links:        links,
 		SubIssues:    subIssues,
@@ -750,8 +764,11 @@ func (github *adapter) List(filter tracker.ListFilter) ([]tracker.Issue, error) 
 	// GitHub knows open and closed; "in progress" is an open issue with a
 	// label, so it is fetched as open and narrowed below.
 	state := "open"
-	if filter.Status != nil && (*filter.Status == "all" || *filter.Status == "closed") {
-		state = *filter.Status
+	if filter.Status != nil && (*filter.Status == "all" || tracker.IsClosed(*filter.Status) || *filter.Status == "done") {
+		state = "closed"
+		if *filter.Status == "all" {
+			state = "all"
+		}
 	}
 	fetched, err := github.client.Issues(ListOptions{State: state, Since: filter.ChangedSince})
 	if err != nil {
@@ -765,7 +782,7 @@ func (github *adapter) List(filter tracker.ListFilter) ([]tracker.Issue, error) 
 	same := func(field *string, wanted string) bool { return field != nil && *field == wanted }
 	picked := []tracker.Issue{}
 	for _, issue := range found {
-		if filter.Status != nil && *filter.Status != "all" && issue.Status != *filter.Status {
+		if filter.Status != nil && *filter.Status != "all" && issue.Status != *filter.Status && issue.Ending != *filter.Status {
 			continue
 		}
 		// The default list leaves Someday out, as tracker.Narrow does
@@ -1155,37 +1172,7 @@ func (github *adapter) Stop(id string) error {
 // the comment is added once: the other order added the comment anew at
 // every attempt until the closing went through (bead-bb-c9l.15).
 func (github *adapter) Close(id, reason string) error {
-	issue, err := github.need(id)
-	if err != nil {
-		return err
-	}
-	reason = strings.TrimSpace(reason)
-	body := ""
-	if reason != "" {
-		if body, err = github.signed("Closed: " + reason); err != nil {
-			return err
-		}
-	}
-	if issue.State == "closed" && !has(issue.Labels, inProgress) && !has(issue.Labels, someday) {
-		if body == "" {
-			return nil
-		}
-		return github.client.AddComment(issue.Number, body)
-	}
-	update := Changes{State: "closed", StateReason: "completed"}
-	// A closed issue is neither worked on nor set aside; without this it
-	// would come back "in progress" or in Someday when reopened.
-	if has(issue.Labels, inProgress) || has(issue.Labels, someday) {
-		labels := without(issue.Labels, inProgress, someday)
-		update.Labels = &labels
-	}
-	if err := github.client.Update(issue.Number, update); err != nil {
-		return err
-	}
-	if body == "" {
-		return nil
-	}
-	return github.client.AddComment(issue.Number, body)
+	return github.CloseWith(id, tracker.CloseOptions{Reason: reason})
 }
 
 // Reopen opens a closed issue again; one already open is left alone.
@@ -1197,7 +1184,11 @@ func (github *adapter) Reopen(id string) error {
 	if issue.State == "open" {
 		return nil
 	}
-	return github.client.Update(issue.Number, Changes{State: "open", StateReason: "reopened"})
+	parts := splitBody(issue.Body)
+	delete(parts.Data, tracker.ClosingKey)
+	body := joinBody(parts)
+	labels := without(issue.Labels, verifiedLabel, duplicateLabel)
+	return github.client.Update(issue.Number, Changes{State: "open", StateReason: "reopened", Body: &body, Labels: &labels})
 }
 
 // Defer puts an open issue in Someday: the label someday, and in-progress

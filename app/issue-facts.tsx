@@ -186,6 +186,7 @@ export function IssueFacts({
         </button>
       </Tip>
       {showStatus ? <StatusTag issue={issue} /> : null}
+      {!showStatus && issue.status === "closed" ? <StatusTag issue={issue} /> : null}
       {onEdit === undefined ? (
         <>
           {issue.priority === null ? null : (

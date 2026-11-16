@@ -38,7 +38,7 @@ const git = (...args: string[]) =>
     },
   });
 
-const { hasUncommittedChanges, mainBranch, mainFolder, deleteMergedBranch } =
+const { hasUncommittedChanges, hasCloseChanges, mainBranch, mainFolder, deleteMergedBranch } =
   createFolders({
   bb: {} as BbPluginApi,
   bdCandidates: [],
@@ -51,9 +51,11 @@ test("a folder is clean until a tracked file changes; untracked files do not cou
   git("add", "tracked.txt");
   git("commit", "-q", "-m", "first");
   assert.equal(await hasUncommittedChanges(root), false);
+  assert.equal(await hasCloseChanges(root), false);
   // A file git has never been told about is not a change to any branch.
   writeFileSync(join(root, "local-settings.json"), "{}\n");
   assert.equal(await hasUncommittedChanges(root), false);
+  assert.equal(await hasCloseChanges(root), true);
   // An edit to a tracked file is, staged or not.
   writeFileSync(join(root, "tracked.txt"), "two\n");
   assert.equal(await hasUncommittedChanges(root), true);

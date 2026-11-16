@@ -110,8 +110,8 @@ export interface IssueLookups {
 export interface IssueCommands {
   /**
    * Changes which bead this thread works on, straight away; null releases
-   * it. No workflow step is moved; the backend tells the agent with a short
-   * note. Null when there is no thread.
+   * it. On Simple, a non-null choice starts work; on Standard it only tells
+   * the agent what is current. No step is moved. Null without a thread.
    */
   setCurrent: ((beadId: string | null) => void) | null;
   /**
@@ -643,7 +643,7 @@ export function useIssueActions({
         ? null
         : (beadId) => {
             rpc
-              .call("current_set", { threadId, beadId })
+              .call(workflow === null && beadId !== null ? "issue_start" : "current_set", { threadId, beadId: beadId! })
               .then(settle, reportProblem);
           },
     makeCurrent:
@@ -659,7 +659,7 @@ export function useIssueActions({
               return;
             }
             rpc
-              .call("current_set", { threadId, beadId })
+              .call(workflow === null ? "issue_start" : "current_set", { threadId, beadId })
               .then(settle, reportProblem);
           },
   };

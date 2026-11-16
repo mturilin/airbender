@@ -201,7 +201,13 @@ func TestSetupSwitchesARepositorySetUpTheOldWay(t *testing.T) {
 	os.WriteFile(filepath.Join(repo.root, "AGENTS.md"), []byte(repo.file("AGENTS.md")+"\n## Mine\n\nMy own rules.\n"), 0o644)
 
 	found := repo.setup()
-	same(t, found.states(), "tracker=done program=done issues=done instructions=missing facts=missing commit=done publish=not-needed", "set up the old way")
+	same(t, found.states(), "tracker=done program=done issues=missing instructions=blocked facts=not-needed commit=done publish=blocked", "set up the old way")
+	// An existing database also needs the terminal outcomes. Maintenance is
+	// a separate confirmed step, preserving its existing custom statuses.
+	repo.run("bd", "config", "set", "status.custom", "review:active")
+	repo.ok("setup", "issues", "-y")
+	same(t, strings.TrimSpace(repo.run("bd", "config", "get", "status.custom")), "review:active,cancelled:done,duplicate:done,verified:done", "merged ending statuses")
+	found = repo.setup()
 	same(t, found.Steps[3].Title, "Replace beads' instructions with Airbender's", "the step's name")
 	same(t, strings.Join(found.Instructions.BeadsBlocks, " "), "AGENTS.md CLAUDE.md", "beads' blocks")
 	same(t, strings.Join(found.Instructions.BeadsHooks, ", "), "Claude Code, Codex", "beads' hooks")

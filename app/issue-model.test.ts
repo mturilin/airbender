@@ -12,6 +12,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Issue } from "../server/contract.ts";
+import { ENDINGS } from "../shared/closing.ts";
 import {
   buildTree,
   byUrgency,
@@ -89,6 +90,16 @@ test("each issue lands in the group for what can be done about it", () => {
     ]),
     "in_progress:doing ready:ready blocked:stuck someday:later other:custom closed:done",
   );
+});
+
+test("all endings stay under Closed while a cancelled dependency keeps its waiter Blocked", () => {
+  const rows = ENDINGS.map((ending) => issue(ending, { status: "closed", ending }));
+  rows.push(issue("waiter", { blockedBy: [{ id: "cancelled", title: "cancelled" }] }));
+  const groups = toSections(rows);
+  assert.deepEqual(groups.find((section) => section.id === "closed")!.issues.map((issue) => issue.ending), ENDINGS);
+  assert.deepEqual(groups.find((section) => section.id === "blocked")!.issues.map((issue) => issue.id), ["waiter"]);
+  const family = [issue("epic"), ...rows.map((issue) => ({ ...issue, parentId: "epic" }))];
+  assert.equal(finishedEpicSize(new Map(family.map((issue) => [issue.id, issue])), "epic"), 0);
 });
 
 test("an issue in Someday stays there even when it waits on something (bead-bb-26g)", () => {

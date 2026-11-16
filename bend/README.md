@@ -16,6 +16,28 @@ there and `bend undefer <id>` brings it back. It is beads' own `deferred`
 status, and on GitHub issues the label `someday`. `bend ready` and the
 default `bend list` leave it out; `bend list --status deferred` shows it.
 
+`bend close <id>` records Done. Use `--ending verified`, `--ending cancelled`
+or `--ending duplicate` for the other outcomes, optionally `--reason <text>`,
+`--commit <sha>` and (for Duplicate) `--duplicate-of <id>`. The selected
+ending, reason, closing time and commit are retained with the issue; every
+close adds a note with its ending and commit, or “not committed”. The commit
+option records an existing commit; bend never stages, commits or pushes.
+`--request <id>` makes an agent's closing operation retryable, and
+`--push-result <text>` records its push outcome.
+
+All endings read as `status: closed` with separate `ending` and `closedAt`
+fields in JSON. `bend list --status closed` includes them all; filtering by
+an ending selects that ending. Cancelled issues continue to block dependents
+and exclude them from `bend ready`. `bend reopen <id>` clears active closing
+details. Every close refuses while any descendant is still open.
+
+Beads keeps real custom statuses `cancelled:done`, `duplicate:done` and
+`verified:done`; `bend setup issues -y` adds missing definitions to an
+existing database without replacing other entries, and reports conflicts.
+GitHub uses completed/not planned/native duplicate, with internal labels for
+Verified and for Duplicate when its native reason is unsupported. Retrying
+a partially completed close finishes its note/link without duplicating them.
+
 Without Airbender (a headless agent, say), one line installs `bend` alone, on
 Linux and macOS, amd64 or arm64:
 

@@ -133,7 +133,7 @@ func (fake *Fake) byID(id int64) (*stored, error) {
 
 // ref gives the pointer to a stored issue.
 func ref(issue *stored) Ref {
-	return Ref{Number: issue.number, Title: issue.title, State: issue.state}
+	return Ref{Number: issue.number, Title: issue.title, State: issue.state, StateReason: issue.stateReason}
 }
 
 // refs gives pointers to the issues with these numbers; one that does not

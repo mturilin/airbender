@@ -451,11 +451,9 @@ export function IssueRow({
             decision, for now): there everything is inside the opened
             sub-issue. Edit, Move to and Link open the row and are shown
             there. */}
-        {/* On the simple workflow there is no step button, and making an
-            issue current, releasing it and closing it are all there is to
-            do with one: they are buttons on the row, not menu entries (the
-            user: "select and release and close should be prominent, not on
-            menu"). Close is an icon so the title keeps its room. */}
+        {/* Simple offers Start on other issues and a prominent Finish on
+            the current one. Unselect belongs in its menu. The separate
+            Close icon is only needed where Finish is not already shown. */}
         {compact || !simple ? null : (
           <CurrentToggle
             issue={issue}
@@ -463,7 +461,7 @@ export function IssueRow({
             className="m-1 h-7 shrink-0 px-2"
           />
         )}
-        {compact || !simple || closed ? null : (
+        {compact || !simple || closed || actions.currentBeadId === issue.id ? null : (
           <Button
             variant="ghost"
             size="icon"

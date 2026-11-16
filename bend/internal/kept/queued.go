@@ -128,7 +128,8 @@ type change struct {
 	Part string `json:",omitempty"`
 	Text string `json:",omitempty"`
 	// For closing: why.
-	Reason string `json:",omitempty"`
+	Reason  string                `json:",omitempty"`
+	Closing *tracker.CloseOptions `json:",omitempty"`
 	// For a move: the new parent; nil for the top level.
 	Parent *string `json:",omitempty"`
 	// For a link and an unlink: the other issue, the kind, and for an
@@ -338,11 +339,40 @@ func lay(issues []tracker.Issue, one change, touch bool) {
 		}
 	case opClose:
 		issue.Status, issue.CloseReason = closedStatus, strings.TrimSpace(one.Reason)
+		issue.Ending = "done"
+		if one.Closing != nil {
+			issue.CommentCount++
+			issue.Ending, issue.CloseReason, issue.ClosedAt = one.Closing.Ending, one.Closing.Reason, tracker.Ptr(one.Closing.At)
+			// Closing data is also used by the adapters when refreshing/retrying.
+			var data map[string]any
+			_ = json.Unmarshal(issue.Metadata, &data)
+			if data == nil {
+				data = map[string]any{}
+			}
+			data[tracker.ClosingKey] = one.Closing
+			issue.Metadata, _ = json.Marshal(data)
+			if other := find(one.Closing.DuplicateOf); other != nil {
+				// Duplicate closes expose both related links while still queued,
+				// without duplicating a relation already in the local copy.
+				for _, side := range [][2]*tracker.Issue{{issue, other}, {other, issue}} {
+					from, to := side[0], side[1]
+					if !slices.ContainsFunc(from.Links, func(link tracker.Link) bool { return link.ID == to.ID && link.Kind == "related" }) {
+						from.Links = append(from.Links, tracker.Link{ID: to.ID, Title: to.Title, Status: to.Status, Ending: to.Ending, Kind: "related", Direction: "out"})
+					}
+				}
+			}
+		}
 	case opReopen:
 		// One that is not closed is left alone, as the adapters leave it:
 		// an issue in progress stays in progress.
 		if issue.Status == closedStatus {
 			issue.Status, issue.CloseReason = "open", ""
+			issue.Ending, issue.ClosedAt = "", nil
+			var data map[string]any
+			if json.Unmarshal(issue.Metadata, &data) == nil {
+				delete(data, tracker.ClosingKey)
+				issue.Metadata, _ = json.Marshal(data)
+			}
 		}
 	case opDefer:
 		// As the adapters do: a closed issue stays closed.
@@ -837,6 +867,9 @@ func (kept *Tracker) send(one change) error {
 	case opStop:
 		return inner.Stop(one.ID)
 	case opClose:
+		if one.Closing != nil {
+			return tracker.CloseWith(inner, one.ID, *one.Closing)
+		}
 		return inner.Close(one.ID, one.Reason)
 	case opReopen:
 		return inner.Reopen(one.ID)
@@ -987,7 +1020,7 @@ func (kept *Tracker) syncOnce(full bool) (SyncResult, error) {
 				// which the change shows in neither. The issue's "last
 				// changed" is left as the tracker gave it, so that what the
 				// tracker gives next replaces this.
-				if one.Kind == opComment {
+				if one.Kind == opComment || one.Kind == opClose {
 					// The comments kept for the issue lack the new one.
 					kept.store.Remove(commentsName(one.ID))
 				}

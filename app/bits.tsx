@@ -75,6 +75,7 @@ export function Tag({
  * before, and rows that had no status tag still have none.
  */
 export function StatusTag({ issue }: { issue: Issue }) {
+  if (issue.status === "closed") return <Tag>{issue.ending ? issue.ending.charAt(0).toUpperCase() + issue.ending.slice(1) : "Done"}</Tag>;
   // Someday reads as such, blocked or not: the owner set it aside
   // (bead-bb-26g).
   if (issue.status === DEFERRED_STATUS) return <Tag>someday</Tag>;

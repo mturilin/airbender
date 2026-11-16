@@ -199,6 +199,8 @@ func TestTheRequestCarriesTheLoginAndAsksTheRightPlace(t *testing.T) {
 	must(t, client.Update(9, Changes{Title: tracker.Ptr("New"), Labels: &[]string{}}))
 	var nothing []string
 	must(t, client.Update(9, Changes{Assignees: &nothing, State: "closed", StateReason: "completed"}))
+	duplicateID := int64(4000000001)
+	must(t, client.Update(9, Changes{State: "closed", StateReason: "duplicate", DuplicateIssueID: &duplicateID}))
 	asked = stand.requests()[1:]
 	same(t,
 		[]string{asked[0].Method, asked[0].Path, asked[0].Body, asked[0].Header.Get("Content-Type")},
@@ -215,6 +217,7 @@ func TestTheRequestCarriesTheLoginAndAsksTheRightPlace(t *testing.T) {
 	same(t, []string{asked[4].Method, asked[4].Path}, []string{"PATCH", "/repos/someone/scratch/issues/9"})
 	same(t, asked[4].Body, `{"title":"New","labels":[]}`)
 	same(t, asked[5].Body, `{"assignees":[],"state":"closed","state_reason":"completed"}`)
+	same(t, asked[6].Body, `{"state":"closed","state_reason":"duplicate","duplicate_issue_id":4000000001}`)
 }
 
 func TestCreatingAnIssueSendsTheDraftAndReadsItsNumberAndID(t *testing.T) {
@@ -322,7 +325,7 @@ func TestAnIssueIsReadFromGraphQL(t *testing.T) {
 	issue, err := client.Issue(7)
 	must(t, err)
 	same(t, *issue, Issue{
-		Ref:          Ref{Number: 7, Title: "Seven", State: "closed"},
+		Ref:          Ref{Number: 7, Title: "Seven", State: "closed", StateReason: tracker.Ptr("NOT_PLANNED")},
 		ID:           4000000007,
 		Body:         "The body",
 		StateReason:  tracker.Ptr("not planned"),

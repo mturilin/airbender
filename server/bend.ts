@@ -47,9 +47,10 @@ import { execFile } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { SyncEntry, SyncState } from "../sync/types.ts";
+import type { ClosingOptions } from "../shared/closing.ts";
 
 /** The bend this plugin needs at least; see `Version` in bend's cli. */
-export const NEEDED_VERSION = 12;
+export const NEEDED_VERSION = 13;
 
 /** How long one run of bend may take. */
 const BEND_TIMEOUT_MS = 60_000;
@@ -100,6 +101,8 @@ export interface TrackerIssue {
   plan: string;
   notes: string;
   closeReason: string;
+  ending?: string;
+  closedAt?: string | null;
   labels: string[];
   links: Link[];
   subIssues: IssueRef[];
@@ -329,7 +332,7 @@ export interface Tracker {
   writeBody(id: string, body: string): Promise<void>;
   /** @param author Who the comment is by; the tracker's default when left out. */
   comment(id: string, text: string, author?: string): Promise<void>;
-  close(id: string): Promise<void>;
+  close(id: string, options?: ClosingOptions): Promise<void>;
   reopen(id: string): Promise<void>;
   /** Puts an issue in Someday (bead-bb-26g). */
   defer(id: string): Promise<void>;
@@ -436,8 +439,13 @@ export function trackerOver(run: Run): Tracker {
     async comment(id, text, author) {
       await run(["comment", ...option("as", author), "--text-file", "-", "--", id], text);
     },
-    async close(id) {
-      await run(["close", "--", id]);
+    async close(id, options) {
+      const args = options === undefined ? [] : Object.entries({
+        ending: options.ending, reason: options.reason, commit: options.commit,
+        "duplicate-of": options.duplicateOf, request: options.requestId,
+        "push-result": options.pushResult,
+      }).flatMap(([key, value]) => value === undefined ? [] : [`--${key}`, value]);
+      await run(["close", ...args, "--", id]);
     },
     async reopen(id) {
       await run(["reopen", "--", id]);

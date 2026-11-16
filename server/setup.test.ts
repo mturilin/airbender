@@ -176,6 +176,9 @@ test("a repository set up the old way is switched over by the tab's actions", as
     try {
       run("git", "init", "-q");
       run("bd", "init", "--prefix", "t", "--non-interactive");
+      // Existing repositories receive the new ending-status maintenance
+      // before this test exercises agent-instruction migration.
+      run(bend, "setup", "issues", "-y");
       run("bd", "setup", "claude");
       run("bd", "setup", "codex");
       run("bd", "remember", "Run npm test before handing over", "--key", "build");

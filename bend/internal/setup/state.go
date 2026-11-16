@@ -528,6 +528,20 @@ func (state *State) issuesStep(chosen, repository string, options Options) Step 
 	// "Set up" means what listing issues means by it: bd finds a database
 	// from this folder upward.
 	if _, ok := quiet(state.Root, 30*time.Second, state.bd, "--readonly", "list", "--json", "--limit", "1"); ok {
+		merged, needed, err := endingStatuses(state)
+		if err != nil {
+			step.State, step.Why = Blocked, err.Error()
+			return step
+		}
+		if needed {
+			state.IssuesHow = "statuses"
+			step.State, step.Title = Missing, "Configure issue endings"
+			step.Why = "The issue database exists, but its terminal statuses are not configured yet."
+			step.Command = "bend setup issues"
+			step.Runs = state.bd + " config set status.custom " + merged
+			step.Explain = []string{"Adds Cancelled, Duplicate and Verified as terminal statuses, preserving your other custom statuses. No database is initialized."}
+			return step
+		}
 		step.State, step.Why = Done, "This folder has an issue database."
 		return step
 	}

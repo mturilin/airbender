@@ -161,7 +161,40 @@ export function createCurrentBead(bb: BbPluginApi) {
     return [...held];
   }
 
-  return { read, store, write, heldAmong, listen };
+  /** Finds the working conversation without crossing repository boundaries.
+   * The invoking match wins; otherwise ambiguity is reported, not guessed.
+   * Eligible paths are resolved by the existing folder abstraction. */
+  async function workingFor(projectId: string, beadId: string, preferred: string | null,
+    eligible: (threadId: string) => Promise<string | null>,
+  ): Promise<{ threadId: string; path: string } | { reason: string }> {
+    const matches: { threadId: string; path: string }[] = [];
+    // Check the invoking conversation directly: a large project may put it
+    // beyond the bounded list, but opening its tab must resolve ambiguity.
+    if (preferred !== null) {
+      const thread = await bb.sdk.threads.get({ threadId: preferred });
+      if (thread.projectId === projectId && thread.archivedAt == null && await read(preferred) === beadId) {
+        const path = await eligible(preferred);
+        if (path !== null) return { threadId: preferred, path };
+      }
+    }
+    for (let offset = 0; offset < 2000; offset += 100) {
+      const threads = await bb.sdk.threads.list({ projectId, archived: false, limit: 100, offset });
+      for (const thread of threads) {
+        if (await read(thread.id).catch(() => null) !== beadId) continue;
+        const path = await eligible(thread.id); if (path === null) continue;
+        const candidate = { threadId: thread.id, path };
+        if (thread.id === preferred) return candidate;
+        matches.push(candidate);
+      }
+      if (threads.length < 100) {
+        if (matches.length === 1) return matches[0]!;
+        return { reason: matches.length === 0 ? "No conversation is working on this issue in this repository. Only closing without a commit is available." : "Several conversations are on this issue. Open the working conversation's tab to request its commit." };
+      }
+    }
+    return { reason: "There are too many conversations to identify the working one safely. Open its tab to request the commit." };
+  }
+
+  return { read, store, write, heldAmong, listen, workingFor };
 }
 
 /** What createCurrentBead returns. */

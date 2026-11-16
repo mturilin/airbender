@@ -65,7 +65,7 @@ func Narrow(issues []Issue, filter ListFilter) ([]Issue, error) {
 			if issue.Status == "closed" || issue.Status == DeferredStatus {
 				continue
 			}
-		case *filter.Status != "all" && issue.Status != *filter.Status:
+		case *filter.Status != "all" && issue.Status != *filter.Status && issue.Ending != *filter.Status:
 			continue
 		}
 		if !same(issue.Type, filter.Type) || !same(issue.Category, category) ||

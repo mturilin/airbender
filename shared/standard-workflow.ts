@@ -91,7 +91,7 @@
 //   last in the list because it is not one issues pass through in order.
 //   Rejected: handling such epics in the tab and the server, outside the
 //   workflow (the app must not know one workflow from another).
-// - Dropping an issue (Cancel) is not a move here. It is always possible and
+// - Dropping an issue (Cancel) is not a move here. With no open descendants it is possible and
 //   is the tab's own action, outside the workflow.
 //
 // Gotchas:
@@ -790,6 +790,7 @@ function stepText(
       return [
         "The user has accepted this work and chosen to commit it. Your job now is to get it into git.",
         "",
+        "- A parent cannot close while any descendant is open. Finish its sub-issues separately first; closing never closes them automatically.",
         "- Commit the changes that belong to this issue, following the commit rules in AGENTS.md if it has any: only this issue's files, with the issue's id and title in the subject line. With sub-issues: one commit per issue where its changes can be told apart, otherwise one commit whose body lists each issue as id and title.",
         "- Commit only. Do not merge: the user chose to leave the work on the branch it is on.",
         "- If this repository pushes commits by itself, tell the user if that push fails. Do not push by hand unless the repository's rules say to.",

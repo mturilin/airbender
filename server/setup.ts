@@ -138,6 +138,7 @@ export function fromBend(state: BendSetup) {
     notHere: state.notHere === undefined || state.notHere === "" ? null : state.notHere,
     // Committing the files setup wrote, while that is to do.
     commitStep: offered("commit"),
+    issuesStep: state.issuesHow === "statuses" ? offered("issues") : null,
     // What setting up beads runs, for the tab to show before it does.
     initRuns:
       state.issuesHow === "init" && issues?.state === "missing" ? issues.runs : null,
@@ -299,6 +300,7 @@ export function createSetup({
       elsewhere: false,
       notHere: null,
       commitStep: null,
+      issuesStep: null,
       initRuns: null,
       running: null,
       lastRun: null,
@@ -593,9 +595,9 @@ export function createSetup({
         action,
         fetching
           ? status.syncSteps.fetch!.label
-          : status.tracker === "github"
+          : status.issuesStep?.label ?? (status.tracker === "github"
             ? "Sign in to GitHub"
-            : "Set up beads in this folder",
+            : "Set up beads in this folder"),
         `${bendCommand} issues --yes`,
       );
     }

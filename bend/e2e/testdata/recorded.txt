@@ -403,7 +403,12 @@ Usage:
   bend close <id> [options]
 
 Options:
-  --reason <text>  Why it is closed
+  --reason <text>       Why it is closed
+  --ending <ending>     done | verified | cancelled | duplicate (default: done)
+  --commit <sha>        The commit recorded with this close
+  --duplicate-of <id>   Optional related duplicate target
+  --request <id>        A stable identifier for retrying a close
+  --push-result <text>  The agent's reported push outcome
 
 Options for every command:
   -C, --dir <path>     Run as if started in <path>
@@ -755,12 +760,12 @@ Options for every command:
 
 $ bend version
 [exit 0]
-bend 12
+bend 13
 
 $ bend version --json
 [exit 0]
 {
-  "version": 12
+  "version": 13
 }
 
 $ bend status
@@ -1698,7 +1703,7 @@ Reopened <other>.
 $ bend close <epic>
 [exit 1]
 [standard error]
-bend: cannot close <epic>: 1 open child issue(s); close them first
+bend: <epic> has open sub-issue <child>. Close its sub-issues first.
 
 $ bend move <child> --top
 [exit 0]

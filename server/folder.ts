@@ -317,6 +317,7 @@ export function createFolders({
     mainFolder,
     deleteMergedBranch,
     hasUncommittedChanges,
+    hasCloseChanges,
     BD_NOT_FOUND_MESSAGE,
     BEND_MESSAGES,
     findBend,
@@ -324,6 +325,14 @@ export function createFolders({
     folderFor,
     findBd,
   };
+}
+
+/** Includes untracked, non-ignored files for Simple close choices. A read
+ * failure is an error, not permission to silently close without a commit. */
+export async function hasCloseChanges(path: string): Promise<boolean> {
+  const status = await readGit(path, ["status", "--porcelain", "--untracked-files=all"]);
+  if (status === null) throw new Error("Git changes could not be read.");
+  return status !== "";
 }
 
 /** What createFolders returns. */

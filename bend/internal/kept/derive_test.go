@@ -82,9 +82,14 @@ func TestTheCopyPutsTogetherWhatTheAdapterAnswers(t *testing.T) {
 	must(t, adapter.Close(other, "done"))
 	must(t, adapter.Start(blocker))
 	sameAnswer(t, adapter, "with a closed blocker and one in progress")
+	if adapter.Close(child, "") == nil {
+		t.Fatal("closed a parent with an open grandchild")
+	}
+	must(t, adapter.Close(grandchild, ""))
 	must(t, adapter.Close(child, ""))
 	sameAnswer(t, adapter, "with a closed issue between an epic and its grandchild")
 	must(t, adapter.Reopen(child))
+	must(t, adapter.Reopen(grandchild))
 	must(t, adapter.Edit(blocker, tracker.Changes{Title: tracker.Ptr("Blocker, renamed")}))
 	must(t, adapter.Unlink(lone, blocker, tracker.UnlinkOptions{}))
 	must(t, adapter.Move(grandchild, nil))

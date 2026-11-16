@@ -475,6 +475,9 @@ func (kept *Tracker) Comments(id string) ([]tracker.Comment, error) {
 			if one.Kind == opComment && one.ID == id {
 				pending = append(pending, tracker.Comment{ID: "waiting-" + strconv.Itoa(one.Seq), Author: one.Actor, CreatedAt: one.At, Text: one.Text})
 			}
+			if one.Kind == opClose && one.ID == id && one.Closing != nil {
+				pending = append(pending, tracker.Comment{ID: "waiting-" + strconv.Itoa(one.Seq), Author: one.Actor, CreatedAt: one.Closing.At, Text: tracker.ClosingNote(*one.Closing)})
+			}
 		}
 		// The issue as the tracker gave it, without what waits: that is
 		// what the kept comments belong to.
@@ -607,14 +610,46 @@ func (kept *Tracker) Stop(id string) error {
 
 // Close closes an issue; reason may be "".
 func (kept *Tracker) Close(id, reason string) error {
-	if !kept.isQueued() {
-		return kept.changed(kept.inner.Close(id, reason))
-	}
-	id = kept.canon(id)
-	if _, err := kept.known(id); err != nil {
+	return kept.CloseWith(id, tracker.CloseOptions{Reason: reason})
+}
+
+// CloseWith keeps all closing details in a single queued operation. The
+// local parent guard is repeated by the live adapter when the queue is sent.
+func (kept *Tracker) CloseWith(id string, options tracker.CloseOptions) error {
+	options, err := options.Prepared()
+	if err != nil {
 		return err
 	}
-	return kept.record(change{Kind: opClose, ID: id, Reason: reason})
+	if !kept.isQueued() {
+		return kept.changed(tracker.CloseWith(kept.inner, id, options))
+	}
+	id = kept.canon(id)
+	options.DuplicateOf = kept.canon(options.DuplicateOf)
+	issue, err := kept.known(id)
+	if err != nil {
+		return err
+	}
+	if err := tracker.ValidateClose(kept.issues, id, options); err != nil {
+		return err
+	}
+	if tracker.IsClosed(issue.Status) {
+		previous := tracker.ClosingFrom(issue.Metadata)
+		if previous.Ending != "" && options.Ending == previous.Ending && options.Reason == "" && options.Commit == "" && options.RequestID == "" && options.DuplicateOf == "" && options.PushResult == "" {
+			options = previous
+		}
+		if tracker.EndingOf(issue.Status, issue.Ending) != options.Ending || (previous.Ending != "" && !tracker.SameClose(previous, options)) {
+			return tracker.Refused("%s is already closed with different closing details. Reopen it first.", id)
+		}
+		if previous.At != "" {
+			options.At = previous.At
+		}
+		for _, pending := range kept.waiting {
+			if pending.Kind == opClose && pending.ID == id && pending.Closing != nil && tracker.SameClose(*pending.Closing, options) {
+				return nil
+			}
+		}
+	}
+	return kept.record(change{Kind: opClose, ID: id, Reason: options.Reason, Closing: &options})
 }
 
 // Reopen reopens a closed issue.

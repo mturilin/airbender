@@ -782,15 +782,25 @@ export function BeadsPanel({ scope }: { scope: Scope }) {
           to={switching}
           onConfirm={(to) => actions.setCurrent?.(to.id)}
           onCancel={() => setSwitching(null)}
+          simple={workflow === null}
         />
         <CloseDialog
           closing={closing}
-          // Finishing an issue with sub-issues closes the open ones too; the
-          // dialog says how many. Cancelling leaves them alone, except on
-          // the simple workflow, where a close is the only close there is.
+          // Every close checks open descendants. Simple adds ending and Git
+          // choices; Standard keeps its workflow confirmation.
           plain={workflow === null}
+          simple={{
+            targets: result?.issues ?? [],
+            preview: (beadId) => rpc.call("issue_close_preview", { ...scope, beadId }),
+            request: async (beadId, ending, git, duplicateOf) => {
+              const outcome = await rpc.call("issue_close_request", { ...scope, beadId, ending, git, duplicateOf });
+              refresh();
+              if (outcome.message === null && outcome.openThreadId !== undefined) actions.goToThread(outcome.openThreadId);
+              return outcome.message;
+            },
+          }}
           openSubIssues={
-            closing === null || (closing.moveId === null && workflow !== null)
+            closing === null
               ? 0
               : [...descendantIds(closing.issue.id)].filter(
                   (id) => tree.byId.get(id)?.status !== CLOSED_STATUS,
