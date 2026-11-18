@@ -76,6 +76,9 @@ func AfterCommand() {
 		return
 	}
 	for _, one := range opened {
+		if one.made.noSend {
+			continue
+		}
 		// The helper that syncs on a clock: started when it is not running,
 		// and told that bend was used (helper.AfterCommand says when not).
 		if !NoHelper && one.made.Syncs() {

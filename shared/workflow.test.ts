@@ -28,11 +28,17 @@ import {
   offeredMoves,
   stateOf,
 } from "./workflow.ts";
-import type { Actor } from "./workflow.ts";
+import type { Actor, WorkflowMoveContext } from "./workflow.ts";
 
 /** Where a move leads, or the refusal's message. */
-function go(step: string | null, moveId: string, by: Actor, note = "because"): string {
-  const move = checkMove(flow, step, moveId, by, note);
+function go(
+  step: string | null,
+  moveId: string,
+  by: Actor,
+  note = "because",
+  context?: WorkflowMoveContext,
+): string {
+  const move = checkMove(flow, step, moveId, by, note, context);
   return "message" in move ? `refused: ${move.message}` : move.to;
 }
 
@@ -122,19 +128,42 @@ test("an issue closes only once its work is in git, which needs the user's accep
   assert.match(go("user-review", "done", "agent"), /^refused/u);
 });
 
-test("at Apply the user chooses Commit or Commit & merge, and both close the issue", () => {
+test("at Apply the user chooses Commit or protected PR delivery", () => {
   const apply = stateOf(flow, "apply");
   assert.equal(apply.actor, "user");
   assert.equal(go("apply", "commit", "user"), "commit");
   assert.equal(go("apply", "commit-merge", "user"), "commit-merge");
   assert.equal(go("commit", "done", "agent"), CLOSED);
-  assert.equal(go("commit-merge", "done", "agent"), CLOSED);
+  assert.match(go("commit-merge", "done", "agent"), /^refused/u);
+  assert.equal(
+    go("commit-merge", "done", "agent", "verified merged PR", { mergedPullRequest: true }),
+    CLOSED,
+  );
   // The agent cannot choose for the user...
   assert.match(go("apply", "commit", "agent"), /^refused/u);
   assert.match(go("apply", "commit-merge", "agent"), /^refused/u);
   // ...but records a choice the user made in the conversation, quoting them.
   assert.equal(go("apply", "approved:commit-merge", "agent", "user: commit and merge"), "commit-merge");
   assert.match(go("apply", "approved:commit", "agent", ""), /^refused: .*needs a reason/u);
+});
+
+test("opening a PR or awaiting checks never completes protected delivery", () => {
+  for (const by of ["agent", "user"] as const) {
+    for (const note of ["PR opened", "checks passed", "approved", "queued", "unknown", "merged"]) {
+      assert.match(go("commit-merge", "done", by, note), /^refused/u);
+      assert.match(
+        go("commit-merge", "done", by, note, { mergedPullRequest: false }),
+        /^refused/u,
+      );
+    }
+    assert.equal(
+      go("commit-merge", "done", by, "verified", { mergedPullRequest: true }),
+      CLOSED,
+    );
+  }
+  // The delivery gate must not prevent rework, or change commit-only completion.
+  assert.equal(go("commit-merge", "send-back", "agent", "requested changes"), "implement");
+  assert.equal(go("commit", "done", "agent"), CLOSED);
 });
 
 test("Commit & merge is offered only when the work is on its own branch", () => {
@@ -496,24 +525,6 @@ test("the agent is told to make the branch first, and what to do when it cannot"
   assert.ok(!("message" in plain) && plain.opening === undefined);
 });
 
-test("Commit & merge pushes the main branch before it deletes the issue's branch", () => {
-  const text = flow.instruction(stateOf(flow, "commit-merge"), {
-    id: "x-1",
-    title: "T",
-    size: null,
-    openSubIssues: [],
-  });
-  const merge = text.indexOf("merge the branch the work is on");
-  const push = text.indexOf("push the main branch");
-  const remove = text.indexOf("delete the branch the work was on");
-  assert.ok(merge >= 0 && push > merge && remove > push);
-  assert.match(text, /Never delete the main branch, and never force a deletion/u);
-  // Committing alone leaves the branch.
-  assert.doesNotMatch(
-    flow.instruction(stateOf(flow, "commit"), { id: "x-1", title: "T", size: null, openSubIssues: [] }),
-    /delete the branch/u,
-  );
-});
 
 test("an issue can be started in a work tree: from the menu only, by the user only, in a conversation of its own", () => {
   const move = checkMove(flow, null, "start-worktree", "user", "");
@@ -543,30 +554,6 @@ test("an issue can be started in a work tree: from the menu only, by the user on
   assert.match(first, /do not rename it/u);
 });
 
-test("landing from a work tree: main comes into the branch first, conflicts go back to the work, and the agent leaves the closing up alone", () => {
-  const issue = { id: "x-1", title: "T", size: null, openSubIssues: [] };
-  const text = flow.instruction(stateOf(flow, "commit-merge"), { ...issue, workTree: true });
-  const order = [
-    "Commit the changes",
-    "Bring the main branch into your branch",
-    "move the main branch forward",
-    "Push the main branch",
-    "delete your branch on the remote",
-  ].map((part) => text.indexOf(part));
-  assert.ok(order.every((at) => at >= 0), JSON.stringify(order));
-  assert.deepEqual([...order].sort((left, right) => left - right), order);
-  assert.match(text, /git merge --abort.*move `send-back`/u);
-  assert.match(text, /merge --ff-only/u);
-  assert.match(text, /Never force either/u);
-  assert.match(text, /Do not remove this work tree or delete the local branch yourself/u);
-  assert.match(text, /moves to the archive/u);
-  // The ordinary landing, in a plain folder, is told the other way.
-  const plain = flow.instruction(stateOf(flow, "commit-merge"), issue);
-  assert.doesNotMatch(plain, /work tree of its own/u);
-  assert.match(plain, /delete the branch the work was on/u);
-  // A conflict can be sent back from that step.
-  assert.equal(go("commit-merge", "send-back", "agent", "conflict in a.ts"), "implement");
-});
 
 test("an epic can be given a branch or a work tree for all of its issues", () => {
   const epic = {

@@ -199,6 +199,18 @@ answer was lost. For a comment that means the comment appears twice.
 to; `BEND_NO_BACKGROUND=1` stops it starting a sync, or the helper, by
 itself.
 
+Airbender's read commands set `BEND_NO_SEND=1` and `BEND_NO_BACKGROUND=1`.
+`BEND_NO_SEND` lets a stale or explicitly refreshed copy pull remote data while
+preserving and displaying its pending local changes, without delivering them
+or starting a background helper. Explicit write commands are still writes;
+these variables are not an authorization sandbox. Use an explicit `bend sync`
+without these observation flags to send pending changes.
+
+Tracker discovery is bounded by the nearest Git repository. Linked worktrees
+use the validated canonical main checkout's Beads store rather than unrelated
+ancestor metadata. Explicit repository settings take precedence; invalid Git
+metadata or unresolvable canonical ownership is an error, not a fallback.
+
 ## Syncing
 
 bend keeps a repository's issues in step with their remote by itself, for

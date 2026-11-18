@@ -147,8 +147,7 @@ const BY_HAND = "Carry on by hand; turn autopilot on again to resume.";
  * @param begin Starts, or takes up again, an issue in a conversation, as
  *   the tab's buttons would (work.begin). Resolves to a message when it
  *   could not.
- * @returns `stateFor`, `set`, `advance`, `watch`, `stuck`, `ownerSteppedIn`
- *   and `consider`.
+ * @returns `stateFor`, `set`, `advance`, `watch`, `stuck`, `ownerSteppedIn`.
  * Side effects: one read of the plugin's storage now.
  */
 export async function createAutopilot({
@@ -177,8 +176,8 @@ export async function createAutopilot({
       if (typeof epicId === "string" && typeof on === "boolean") {
         states.set(threadId, {
           epicId,
-          on,
-          reason: typeof why === "string" ? why : null,
+          on: false,
+          reason: on ? "Paused after reload. Turn Autopilot on explicitly to resume." : (typeof why === "string" ? why : null),
         });
       }
     }
@@ -394,18 +393,6 @@ export async function createAutopilot({
     },
     /** The owner made another issue current, or released one, by hand. */
     ownerSteppedIn: (threadId: string) => stop(threadId, null),
-    /**
-     * The tab read the list: take up a look that a reload cut short, and
-     * notice an issue closed outside the plugin. Does nothing while a
-     * watch is running.
-     */
-    consider(threadId: string | null): void {
-      if (threadId === null || !isOn(threadId) || watches.has(threadId)) return;
-      void (async () => {
-        if (await agentBusy(threadId)) watch(threadId);
-        else await look(threadId, false);
-      })();
-    },
   };
 }
 
