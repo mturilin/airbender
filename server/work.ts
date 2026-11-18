@@ -20,9 +20,9 @@
 //   here ever interrupts work.
 // - Each move is recorded as a comment on the issue, with who made it and
 //   the note given: the issue's own history, shown in the tab.
-// - A move to "closed" is the only way the workflow ends. It closes the
-//   issue's open sub-issues first. Committing and PR delivery are done by the
-//   agent, following repository policy. Merged completion is independently
+// - A move to "closed" is the only way the workflow ends. Open descendants
+//   must be closed separately first. Committing and PR delivery are done by
+//   the agent, following repository policy. Merged completion is independently
 //   verified here; this plugin never mutates git or cleans up work trees.
 // - Which issue a thread is on is separate from the workflow: setCurrent
 //   moves no step. It still tells the agent, with a note that asks for
@@ -30,7 +30,7 @@
 // - Which workflow applies is asked per folder (server/workflow-choice.ts):
 //   a repository can be on the simple workflow, which has no steps. There
 //   play and every move are refused in plain words, and closing an issue is
-//   the plain close, done here so that it takes the open sub-issues along.
+//   handled by the separate Simple closing request service.
 // - Problems are returned as a message in plain words, like every other
 //   operation, so the tab (and the agent's tool) can show them.
 //
@@ -52,6 +52,7 @@ import {
 import type { Actor, Workflow, WorkflowState } from "../shared/workflow.ts";
 import { NO_STEPS_MESSAGE } from "../shared/workflows.ts";
 import { workflowLine } from "./agent-tools.ts";
+import { reportedCloseCommit } from "./close-git.ts";
 import type { WorkTrees } from "./work-trees.ts";
 import type { WorkflowChoice } from "./workflow-choice.ts";
 import type { Issue } from "./contract.ts";
@@ -111,7 +112,7 @@ export interface WorkEvents {
  *
  * @param workflowChoice Answers which workflow a folder's issues follow.
  * @param events Told what happens; see WorkEvents.
- * @returns `run`, `begin`, `move`, `resize`, `close` and `setCurrent`.
+ * @returns Workflow operations, passive `setCurrent` and explicit `startSimple`.
  * Side effects: none until one of them is called.
  */
 export function createWork({
@@ -404,6 +405,7 @@ export function createWork({
     const from = stateOf(workflow, issue.step);
     const candidate = movesFor(workflow, from.id, by).find((move) => move.id === input.moveId);
     let mergedPullRequest = false;
+    let deliveryCommit: string | undefined;
     let recheckDelivery: (() => Promise<string | null>) | undefined;
     if (candidate?.needsMergedPullRequest === true) {
       const evidence = await verifyMergedPullRequest(path);
@@ -432,6 +434,7 @@ export function createWork({
       ({ issue, issues } = current);
       recheckDelivery = evidence.recheck;
       mergedPullRequest = true;
+      deliveryCommit = evidence.commit;
     }
     const checked = checkMove(workflow, issue.step, input.moveId, by, input.note, {
       mergedPullRequest,
@@ -499,7 +502,7 @@ export function createWork({
               );
         if (held.length > 0) {
           return warn(
-            `${held.join(", ")} ${held.length === 1 ? "is" : "are"} being worked on: ${held.length === 1 ? "it is the current issue of a conversation" : "they are current issues of conversations"}. Finish or release ${held.length === 1 ? "it" : "them"} before giving the epic a branch or a work tree.`,
+            `${held.join(", ")} ${held.length === 1 ? "is" : "are"} being worked on: ${held.length === 1 ? "it is the current issue of a conversation" : "they are current issues of conversations"}. Finish or unselect ${held.length === 1 ? "it" : "them"} before giving the epic a branch or a work tree.`,
           );
         }
       } catch (cause) {
@@ -525,11 +528,16 @@ export function createWork({
       );
 
     if (checked.to === CLOSED) {
+      let commit = deliveryCommit;
+      if (!mergedPullRequest) {
+        try { commit = await reportedCloseCommit(path, note, issue.id, issue.title); }
+        catch (cause) { return fail(reason(cause)); }
+      }
       if (recheckDelivery !== undefined) {
         const message = await recheckDelivery();
         if (message !== null) return fail(message);
       }
-      const closed = await finish(input, issues);
+      const closed = await finish(input, issues, commit);
       // Recorded only when the issue really was closed.
       if (closed.message === null) {
         await record("closed");
@@ -704,44 +712,24 @@ export function createWork({
   }
 
   /**
-   * The closing move: closes the issue's open sub-issues, then the issue.
+   * The closing move: records Done for this issue after all descendants close.
    * Nothing else: getting the work into git is a step of the workflow that
    * comes before this, not a side effect of closing.
    *
-   * Sub-issues are closed deepest first, because beads refuses to close an
-   * issue that still has open sub-issues (the user's decision, bead-bb-5qt:
-   * finishing an epic finishes everything inside it).
-   *
-   * Side effects: one `bd close` per issue closed; one change published at
-   *   the end.
+   * Side effects: one close through bend, including its closing note, and
+   * one notification. No child issue or Git state is changed.
    */
   async function finish(
     input: FolderRef & { beadId: string },
     issues: Issue[],
+    commit?: string,
   ): Promise<Outcome> {
     const { beadId, threadId } = input;
-    const closedSubIssues: Issue[] = [];
     const open = descendantsOf(beadId, issues).filter(
       (candidate) => candidate.status !== CLOSED_STATUS,
     );
-    for (const subIssue of open.reverse()) {
-      // Not published one by one: every open tab would reload once per
-      // sub-issue. One change is published at the end instead.
-      const closedOne = await setIssueOpen(
-        "close",
-        { ...input, beadId: subIssue.id },
-        false,
-      );
-      if (closedOne.message !== null) {
-        // Some sub-issues may already be closed; the tabs must see that.
-        changed(threadId);
-        return {
-          message: `Could not close sub-issue ${subIssue.id}, so ${beadId} was left open: ${closedOne.message}`,
-        };
-      }
-      closedSubIssues.push(subIssue);
-    }
-    const outcome = await setIssueOpen("close", input, false);
+    if (open.length > 0) return { message: `${beadId} has open sub-issues. Close them first.` };
+    const outcome = await setIssueOpen("close", { ...input, closing: { ending: "done", commit } }, false);
     changed(threadId);
     return outcome;
   }
@@ -826,17 +814,15 @@ export function createWork({
    * The close button: closes an issue that is not being finished through a
    * workflow.
    *
-   * On the standard workflow this is cancelling, and it closes that one
-   * issue (beads refuses while it has open sub-issues, and says so). On the
-   * simple workflow it is the only way an issue is closed, so it closes the
-   * open sub-issues first, as finishing does on the standard one.
+   * Standard cancellation records Cancelled. Simple's richer dialog uses
+   * the separate closing service. Neither path cascades to descendants.
    */
   async function close(input: FolderRef & { beadId: string }): Promise<Outcome> {
     const found = await openIssue(input, input.beadId);
     if ("message" in found) return found;
-    const outcome = await (workflowChoice.workflowFor(found.path) === null
-      ? finish(input, found.issues)
-      : setIssueOpen("close", input));
+    const open = descendantsOf(input.beadId, found.issues).some((issue) => issue.status !== CLOSED_STATUS);
+    if (open) return { message: `${input.beadId} has open sub-issues. Close them first.` };
+    const outcome = await setIssueOpen("close", { ...input, closing: { ending: workflowChoice.workflowFor(found.path) === null ? "done" : "cancelled" } });
     if (outcome.message === null && input.threadId !== null) {
       events.closed?.(input.threadId);
     }
@@ -886,7 +872,7 @@ export function createWork({
     const was = previous === null ? "" : ` It was ${previous}.`;
     const note =
       beadId === null
-        ? `FYI: the user released this thread's current issue (${previous}). The thread is on no issue now. No action is needed.`
+        ? `FYI: the user unselected this thread's current issue (${previous}). The thread is on no issue now. No action is needed.`
         : `FYI: the user made ${beadId} (${JSON.stringify(title)}) this thread's current issue.${was}${applies} This only changes which issue the thread is on: do not start work on it until you are asked to. No action is needed.`;
     try {
       await deliver(threadId, note);
@@ -898,5 +884,18 @@ export function createWork({
     return { message: null };
   }
 
-  return { run, begin, move, resize, close, setCurrent };
+  /** Starts Simple work explicitly; passive current changes never call this. */
+  async function startSimple(input: { threadId: string; beadId: string }): Promise<Outcome> {
+    const found = await openIssue({ ...input, projectId: null }, input.beadId);
+    if ("message" in found) return found;
+    if (workflowChoice.workflowFor(found.path) !== null) return { message: "Use the issue's workflow button on Standard." };
+    events.ownerCurrent?.(input.threadId);
+    await currentBead.write(input.threadId, input.beadId);
+    try {
+      await deliver(input.threadId, `Work on issue ${found.issue.id}: ${JSON.stringify(found.issue.title)}. This repository uses the Simple workflow: work through the conversation in your own way, without workflow steps. Start with bend show ${found.issue.id} and bend comments ${found.issue.id}; mark it in progress with bend start. The user decides when and how it closes. Do not commit or close it unless the user requests that.`);
+      return { message: null };
+    } catch (cause) { return { message: `The issue is current, but the agent could not be started: ${reason(cause)}` }; }
+  }
+
+  return { run, begin, move, resize, close, setCurrent, startSimple };
 }

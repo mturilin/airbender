@@ -68,6 +68,8 @@ type Ref struct {
 	Title  string
 	// State is "open" or "closed".
 	State string
+	// StateReason on references preserves cancelled blockers in derived lists.
+	StateReason *string
 }
 
 // Parent is an issue an issue sits inside, with what that one waits for.
@@ -89,6 +91,7 @@ type Issue struct {
 	StateReason *string
 	CreatedAt   string
 	UpdatedAt   string
+	ClosedAt    *string
 	// Assignee is the first assignee's login; nil when there is none.
 	Assignee     *string
 	Labels       []string
@@ -120,8 +123,9 @@ type Changes struct {
 	Assignees *[]string
 	// State is "open" or "closed".
 	State string
-	// StateReason is "completed", "not_planned" or "reopened".
-	StateReason string
+	// StateReason is "completed", "not_planned", "duplicate" or "reopened".
+	StateReason      string
+	DuplicateIssueID *int64
 }
 
 // ListOptions narrow what Issues gives.
@@ -228,13 +232,13 @@ func findToken() (string, error) {
 }
 
 // refFields are the fields read for a pointer to an issue.
-const refFields = "number title state"
+const refFields = "number title state stateReason"
 
 // issueFields are the fields read for an issue. The numbers are upper bounds
 // on what is read with each issue, not on what GitHub allows; an issue with
 // more sub-issues or blockers than this shows the first of them.
 const issueFields = `
-  ` + refFields + ` databaseId body stateReason createdAt updatedAt
+  ` + refFields + ` databaseId body createdAt updatedAt closedAt
   assignees(first: 1) { nodes { login } }
   labels(first: 100) { nodes { name } }
   comments { totalCount }
@@ -250,9 +254,10 @@ const upFragment = `fragment Up on Issue { ` + refFields + ` blockedBy(first: 50
 
 // rawRef is a pointer as GraphQL gives it.
 type rawRef struct {
-	Number int    `json:"number"`
-	Title  string `json:"title"`
-	State  string `json:"state"`
+	Number      int     `json:"number"`
+	Title       string  `json:"title"`
+	State       string  `json:"state"`
+	StateReason *string `json:"stateReason"`
 }
 
 // rawRefs is a list of pointers as GraphQL wraps it.
@@ -270,12 +275,12 @@ type rawParent struct {
 // rawIssue is an issue as GraphQL gives it.
 type rawIssue struct {
 	rawRef
-	DatabaseID  int64   `json:"databaseId"`
-	Body        *string `json:"body"`
-	StateReason *string `json:"stateReason"`
-	CreatedAt   string  `json:"createdAt"`
-	UpdatedAt   string  `json:"updatedAt"`
-	Assignees   struct {
+	DatabaseID int64   `json:"databaseId"`
+	Body       *string `json:"body"`
+	CreatedAt  string  `json:"createdAt"`
+	UpdatedAt  string  `json:"updatedAt"`
+	ClosedAt   *string `json:"closedAt"`
+	Assignees  struct {
 		Nodes []struct {
 			Login string `json:"login"`
 		} `json:"nodes"`
@@ -300,7 +305,7 @@ func toRef(raw rawRef) Ref {
 	if raw.State == "CLOSED" {
 		state = "closed"
 	}
-	return Ref{Number: raw.Number, Title: raw.Title, State: state}
+	return Ref{Number: raw.Number, Title: raw.Title, State: state, StateReason: raw.StateReason}
 }
 
 // toRefs turns a list of pointers; the result is never nil.
@@ -332,6 +337,7 @@ func toGhIssue(raw rawIssue) Issue {
 		ID:           raw.DatabaseID,
 		CreatedAt:    raw.CreatedAt,
 		UpdatedAt:    raw.UpdatedAt,
+		ClosedAt:     raw.ClosedAt,
 		Labels:       make([]string, 0, len(raw.Labels.Nodes)),
 		CommentCount: raw.Comments.TotalCount,
 		Parent:       toParent(raw.Parent),
@@ -983,15 +989,16 @@ func sendable(set *[]string) *[]string {
 // Update changes an issue; what changes leaves out is left as it is.
 func (client *realClient) Update(number int, changes Changes) error {
 	body := struct {
-		Title       *string   `json:"title,omitempty"`
-		Body        *string   `json:"body,omitempty"`
-		Labels      *[]string `json:"labels,omitempty"`
-		Assignees   *[]string `json:"assignees,omitempty"`
-		State       string    `json:"state,omitempty"`
-		StateReason string    `json:"state_reason,omitempty"`
+		Title            *string   `json:"title,omitempty"`
+		Body             *string   `json:"body,omitempty"`
+		Labels           *[]string `json:"labels,omitempty"`
+		Assignees        *[]string `json:"assignees,omitempty"`
+		State            string    `json:"state,omitempty"`
+		StateReason      string    `json:"state_reason,omitempty"`
+		DuplicateIssueID *int64    `json:"duplicate_issue_id,omitempty"`
 	}{
 		changes.Title, changes.Body, sendable(changes.Labels), sendable(changes.Assignees),
-		changes.State, changes.StateReason,
+		changes.State, changes.StateReason, changes.DuplicateIssueID,
 	}
 	return client.request("PATCH", fmt.Sprintf("%s/issues/%d", client.base, number), body, nil)
 }

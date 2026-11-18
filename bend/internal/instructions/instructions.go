@@ -84,6 +84,9 @@ var shippedBefore = []string{
 	// FACTS.md at the start. Version 4 names it as a link, the place to
 	// store facts and memories, not loaded for the agent (bead-bb-c9l.12).
 	"412b7449d6f699b31fdb1a9ec348ac72f5f51cbf6393de21969ca2cf4999faee",
+	// Version 4: before the line saying how to install bend where it is
+	// missing, for an agent that has no Airbender (bead-bb-d1z).
+	"b38f90f170f3def052f62d6bbdcd76db985bf36c64091aa3059e6894b20dffe7",
 }
 
 // versionLine is the line of a rules block that says which version of the

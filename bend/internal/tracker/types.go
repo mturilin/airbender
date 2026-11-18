@@ -54,6 +54,7 @@ type IssueRef struct {
 	// Status is the other issue's status, as the tracker names it; "closed"
 	// when done.
 	Status string `json:"status"`
+	Ending string `json:"ending,omitempty"`
 }
 
 // Link is one link between an issue and another.
@@ -66,6 +67,7 @@ type Link struct {
 	ID     string `json:"id"`
 	Title  string `json:"title"`
 	Status string `json:"status"`
+	Ending string `json:"ending,omitempty"`
 	// Kind is one of LinkKinds, or a kind of the tracker's own, shown as it
 	// is.
 	Kind      string `json:"kind"`
@@ -103,6 +105,10 @@ type Issue struct {
 	// CloseReason is why it was closed; "" for an open issue or when no
 	// reason was given.
 	CloseReason string `json:"closeReason"`
+	// Ending distinguishes terminal outcomes while Status stays closed.
+	Ending string `json:"ending,omitempty"`
+	// ClosedAt is the closing moment, including for native custom statuses.
+	ClosedAt *string `json:"closedAt,omitempty"`
 	// Labels are the labels other than the ones the adapter uses to hold a
 	// field.
 	Labels []string `json:"labels"`
@@ -135,6 +141,7 @@ type Issue struct {
 // its metadata an object, so that it is printed as [] and {} and never as
 // null. Adapters call it on what they return.
 func (issue Issue) Tidy() Issue {
+	issue = NormalizeClosing(issue)
 	if issue.Labels == nil {
 		issue.Labels = []string{}
 	}

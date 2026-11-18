@@ -196,7 +196,7 @@ export function createStore({
     const found = await trackerFor(path);
     if ("state" in found) return found;
     try {
-      // Keep queued observations usable offline. Protocol 13 pulls stale
+      // Keep queued observations usable offline. Protocol 14 pulls stale
       // queued copies synchronously without sending writes; window focus
       // retains that freshness window rather than forcing a network request.
       const queued = trackers.aboutOf(path)?.queued === true;
@@ -461,7 +461,7 @@ export function createStore({
    */
   async function setIssueOpen(
     command: "close" | "reopen",
-    input: FolderRef & { beadId: string },
+    input: FolderRef & { beadId: string; closing?: import("../shared/closing.ts").ClosingOptions },
     publish = true,
   ): Promise<Outcome> {
     if (!BEAD_ID_PATTERN.test(input.beadId)) {
@@ -475,7 +475,7 @@ export function createStore({
       command,
       (tracker) =>
         command === "close"
-          ? tracker.close(input.beadId)
+          ? tracker.close(input.beadId, input.closing)
           : tracker.reopen(input.beadId),
       false,
     );

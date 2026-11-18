@@ -16,6 +16,42 @@ there and `bend undefer <id>` brings it back. It is beads' own `deferred`
 status, and on GitHub issues the label `someday`. `bend ready` and the
 default `bend list` leave it out; `bend list --status deferred` shows it.
 
+`bend close <id>` records Done. Use `--ending verified`, `--ending cancelled`
+or `--ending duplicate` for the other outcomes, optionally `--reason <text>`,
+`--commit <sha>` and (for Duplicate) `--duplicate-of <id>`. The selected
+ending, reason, closing time and commit are retained with the issue; every
+close adds a note with its ending and commit, or “not committed”. The commit
+option records an existing commit; bend never stages, commits or pushes.
+`--request <id>` makes an agent's closing operation retryable, and
+`--push-result <text>` records its push outcome.
+
+All endings read as `status: closed` with separate `ending` and `closedAt`
+fields in JSON. `bend list --status closed` includes them all; filtering by
+an ending selects that ending. Cancelled issues continue to block dependents
+and exclude them from `bend ready`. `bend reopen <id>` clears active closing
+details. Every close refuses while any descendant is still open.
+
+Beads keeps real custom statuses `cancelled:done`, `duplicate:done` and
+`verified:done`; `bend setup issues -y` adds missing definitions to an
+existing database without replacing other entries, and reports conflicts.
+GitHub uses completed/not planned/native duplicate, with internal labels for
+Verified and for Duplicate when its native reason is unsupported. Retrying
+a partially completed close finishes its note/link without duplicating them.
+
+Without Airbender (a headless agent, say), one line installs `bend` alone, on
+Linux and macOS, amd64 or arm64:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/mturilin/airbender/main/install-bend.sh | sh
+```
+
+[`install-bend.sh`](../install-bend.sh) downloads the latest release's
+binary and its `.sha256`, checks the checksum, checks that the binary runs,
+and only then puts it in `~/.local/bin`; on any failure an existing `bend`
+is left as it was. `BEND_VERSION=v0.2.0` picks one release,
+`BEND_INSTALL_DIR` another folder. Windows is refused; under WSL it is
+Linux. The rules `bend setup instructions` writes give agents this line.
+
 On Linux and macOS, on amd64 or arm64, the tab's "Install bend" step downloads
 the binary from the GitHub release matching the plugin version, verifies its
 SHA-256 checksum, and installs it into `~/.local/bin`. It needs `curl` and
@@ -27,8 +63,8 @@ also be run manually on supported platforms.
 Release tags `vX.Y.Z` must match the plugin's `package.json` version. The
 release workflow tests bend and builds four CGO-free binaries:
 `bend-linux-amd64`, `bend-linux-arm64`, `bend-darwin-amd64` and
-`bend-darwin-arm64`, each with a `.sha256` file. The installer never selects
-"latest" and never replaces a binary before its checksum is verified.
+`bend-darwin-arm64`, each with a `.sha256` file. The tab's installer never
+selects "latest" and never replaces a binary before its checksum is verified.
 
 This file is the long form; the repository's [README](../README.md) has the
 short one.

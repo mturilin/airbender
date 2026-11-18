@@ -183,7 +183,9 @@ export function IssueDetails({
   // none is. Its field shows under the buttons.
   const [noting, setNoting] = useState<WorkflowMove | null>(null);
   const focusOffer = actions.focusOffer(issue.id);
-  const sizes = useWorkflow()?.sizes;
+  const workflow = useWorkflow();
+  const sizes = workflow?.sizes;
+  const simpleCurrent = workflow === null && actions.currentBeadId === issue.id;
   const canResize = useCanResize(issue);
   const times = issueTimes(issue);
   useEffect(() => {
@@ -244,6 +246,7 @@ export function IssueDetails({
         <TextSection label="Design" text={issue.design} />
         <TextSection label="Notes" text={issue.notes} />
         <TextSection label="Close reason" text={issue.closeReason} />
+        {issue.status === "closed" && issue.closedAt ? <TextSection label="Closed at" text={new Date(issue.closedAt).toLocaleString()} /> : null}
         <LinksLine issue={issue} />
         {issue.labels.length === 0 ? null : (
           <div className="flex flex-wrap gap-1.5">
@@ -274,8 +277,8 @@ export function IssueDetails({
             the user's request: getting on with it is the main thing to do
             with an open sub-issue. */}
         {showFacts ? <WorkflowButton issue={issue} /> : null}
-        {/* The target, also in the row's "more" menu: make this the thread's
-            current issue, or release it. */}
+        {/* Simple offers Start/Finish here; its Unselect action is in the
+            row's menu. Standard keeps its Make current/Unselect control. */}
         <CurrentToggle issue={issue} withLabel />
         {/* The user's other moves at this step: send back, skip, mark as
             done. */}
@@ -436,7 +439,7 @@ export function IssueDetails({
             <Icon name="RotateCcw" className="size-4" />
             Reopen
           </Button>
-        ) : (
+        ) : simpleCurrent ? null : (
           <Button
             variant="ghost"
             size="sm"

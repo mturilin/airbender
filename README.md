@@ -138,10 +138,30 @@ reaches you once, at the end; **M** has one review at the front, of the
 definition and the plan together; **L** takes every step. You can set or
 change the size until the work reaches you.
 
-The **Simple** workflow has no steps at all: each issue has Make current,
-Release and Close, and you direct the agent yourself. The choice is per
-repository, from the tab's menu, and switching back puts every issue at the
-step where it was.
+The **Simple** workflow has no steps: **Start** asks the conversation's agent
+to work on the issue, and you direct it yourself. **Close** asks how it ended
+(Done, Verified, Cancelled or Duplicate) and, when the folder has changes,
+whether its working agent should commit and push, commit only, or leave Git
+alone. A commit request keeps the issue open until the commit is recorded.
+On the current issue, **Finish** opens that dialog and **Unselect**, in the
+menu, clears the selection. The choice is per repository, from the tab's menu;
+switching back puts every issue at the step where it was.
+
+Every close records its ending and commit (or “not committed”). Parents
+cannot close while any descendant is open. Cancelled work stays under
+Closed but keeps blocking its dependents. All endings can be reopened.
+
+For an agent completing a pending Simple close, the request supplies:
+
+```sh
+bb airbender finish-close --request <request-id> --commit <full-commit-sha>
+```
+
+Run it from the requested working conversation after committing only that
+issue's changes. For Commit & push, add `--push-result success` or
+`--push-result 'failed: <reason>'`. The command checks the request, repository,
+branch and commit, then records the close through bend; it never changes
+Git. Commit only makes no explicit push and does not disable repository hooks.
 
 ### Around the message box
 
@@ -221,14 +241,26 @@ bend defer app-1x2                # set it aside in Someday; bend undefer brings
 bend setup                        # what this repository still needs
 ```
 
-Build it with `cd bend && go build -o ~/.local/bin/bend ./cmd/bend`, or let
+Without Airbender, for example for a headless agent working in a repository
+set up with it, install `bend` alone with one line (Linux and macOS, Intel/AMD
+or ARM64; on Windows, under WSL):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/mturilin/airbender/main/install-bend.sh | sh
+```
+
+[install-bend.sh](install-bend.sh) downloads the latest release, checks its
+SHA-256 and puts it in `~/.local/bin`; read it first if you like. The rules
+Airbender writes into a repository's `AGENTS.md` give agents this same line.
+Or build it with `cd bend && go build -o ~/.local/bin/bend ./cmd/bend`, or let
 the tab's setup do it. [bend/README.md](bend/README.md) has the whole
 story: setting a repository up from a terminal, the local copy, syncing,
 the JSON output for programs, and the tests.
 
-This version requires bend protocol 13. Rebuild bend alongside the plugin;
-older helpers are rejected because they cannot enforce observation-only cache
-refreshes. Building source does not update an already installed plugin or helper.
+This version requires bend protocol 14 for the combined observation-only cache
+refresh and recorded close-ending contract. The two protocol-13 lineages each
+lack one capability and are rejected. Rebuild bend alongside the plugin;
+building source does not update an already installed plugin or helper.
 
 ## Settings
 

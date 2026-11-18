@@ -258,6 +258,14 @@ test("bend is found among the candidates; one that is not bend, or too old, is '
   assert.equal(await findBendAmong([old, bend!], base), bend);
 });
 
+test("protocol 13 helpers cannot satisfy the combined observation-only and closing contract", async () => {
+  const previous = join(base, "protocol-13-bend");
+  writeFileSync(previous, "#!/bin/sh\necho '{\"version\":13}'\n");
+  chmodSync(previous, 0o755);
+  assert.equal(await findBendAmong([previous], base), "old");
+  assert.equal(await findBendAmong([previous, bend!], base), bend);
+});
+
 test("every operation is one run, with free text where it cannot be read as an option", async () => {
   const runs: { args: string[]; input: string | undefined }[] = [];
   const tracker = trackerOver(async (args, input) => {

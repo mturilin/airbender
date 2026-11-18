@@ -231,7 +231,7 @@ func oneOf(typed string, allowed []string, what string) (string, error) {
 // first and says so plainly when the bend it found is older than it needs,
 // instead of failing on an option that bend does not know. Raise it with
 // every such change.
-const Version = 13
+const Version = 14
 
 // statusWithCopy is what `bend status --json` prints: what the tracker
 // supports, and how the copy on this machine stands; null where the tracker
@@ -790,7 +790,7 @@ func carryOut(command *Command, parsed *Parsed, surroundings Surroundings) (answ
 		if err != nil {
 			return answer{}, err
 		}
-		if err := issues.Close(id, orEmpty(value("reason"))); err != nil {
+		if err := tracker.CloseWith(issues, id, tracker.CloseOptions{Reason: orEmpty(value("reason")), Ending: orEmpty(value("ending")), Commit: orEmpty(value("commit")), DuplicateOf: orEmpty(value("duplicate-of")), RequestID: orEmpty(value("request")), PushResult: orEmpty(value("push-result"))}); err != nil {
 			return answer{}, err
 		}
 		return did("Closed "+id+".", field{"id", id}), nil

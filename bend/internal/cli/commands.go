@@ -194,8 +194,8 @@ var Commands = []Command{
 		Name:    "close",
 		Usage:   "<id> [options]",
 		Summary: "Close an issue",
-		Options: [][2]string{{"--reason <text>", "Why it is closed"}},
-		Spec:    OptionSpec{Values: []string{"reason"}},
+		Options: [][2]string{{"--reason <text>", "Why it is closed"}, {"--ending <ending>", "done | verified | cancelled | duplicate (default: done)"}, {"--commit <sha>", "The commit recorded with this close"}, {"--duplicate-of <id>", "Optional related duplicate target"}, {"--request <id>", "A stable identifier for retrying a close"}, {"--push-result <text>", "The agent's reported push outcome"}},
+		Spec:    OptionSpec{Values: []string{"reason", "ending", "commit", "duplicate-of", "request", "push-result"}},
 		Group:   groupChange,
 	},
 	{

@@ -15,6 +15,7 @@ import { defineRpcContract } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 import { ISSUE_TYPES, LINK_KINDS, SETUP_ACTIONS } from "../shared/constants.ts";
 import { WORKFLOW_IDS } from "../shared/workflows.ts";
+import { ENDINGS, GIT_CHOICES } from "../shared/closing.ts";
 
 const issueRefSchema = z.object({ id: z.string(), title: z.string() });
 
@@ -49,6 +50,8 @@ const issueSchema = z.object({
   notes: z.string(),
   /** Why the issue was closed; "" for open issues or when none was given. */
   closeReason: z.string(),
+  ending: z.enum(ENDINGS).nullable().optional(),
+  closedAt: z.string().nullable().optional(),
   /**
    * How many comments the issue has. The comments themselves are fetched
    * separately (issue_comments), because bd lists only their count.
@@ -360,6 +363,8 @@ const setupStatusSchema = z.object({
   notHere: z.string().nullable(),
   /** Committing the files setup wrote, while that is to do; else null. */
   commitStep: syncStepSchema.nullable(),
+  /** Maintenance offered for an existing database's missing ending statuses. */
+  issuesStep: syncStepSchema.nullable().optional(),
   /** Whether the tracker's program is there, or none is needed. */
   bdInstalled: z.boolean(),
   /**
@@ -550,10 +555,9 @@ export const rpcContract = defineRpcContract({
     }),
   },
   issue_close: {
-    // Cancel: closes the issue in beads without finishing it. Finishing goes
-    // through the workflow (workflow_move). On the simple workflow this is
-    // the one way to close, and it closes the open sub-issues too. If it was the thread's current
-    // bead, that choice is cleared too.
+    // Standard cancellation; the legacy Simple path records Done without a
+    // commit. The Simple dialog uses issue_close_request for its choices.
+    // All paths refuse open descendants and clear this issue if current.
     input: z.object({
       threadId: z.string().nullable(),
       projectId: z.string().nullable(),
@@ -561,6 +565,18 @@ export const rpcContract = defineRpcContract({
     }),
     // `message` is null on success, else the reason in plain words.
     output: z.object({ message: z.string().nullable() }),
+  },
+  issue_start: {
+    input: z.object({ threadId: z.string(), beadId: z.string() }),
+    output: z.object({ message: z.string().nullable() }),
+  },
+  issue_close_preview: {
+    input: z.object({ threadId: z.string().nullable(), projectId: z.string().nullable(), beadId: z.string() }),
+    output: z.object({ message: z.string().nullable(), changes: z.boolean(), conversationId: z.string().nullable(), unavailableReason: z.string().nullable(), blocked: z.string().nullable(), pending: z.boolean() }),
+  },
+  issue_close_request: {
+    input: z.object({ threadId: z.string().nullable(), projectId: z.string().nullable(), beadId: z.string(), ending: z.enum(ENDINGS), git: z.enum(GIT_CHOICES), duplicateOf: z.string().nullable() }),
+    output: z.object({ message: z.string().nullable(), openThreadId: z.string().optional() }),
   },
   issue_link: {
     // Adds a link of one of beads' kinds, stored on `fromId` and pointing at

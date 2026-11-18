@@ -130,6 +130,14 @@ test("a closed blocker does not block, and a closed issue is never blocked", () 
   );
 });
 
+test("a cancelled blocker is Closed in the panel but still blocks unfinished work", () => {
+  const issues = toIssues([row("X", null, "cancelled"), row("A", null, "open", ["X"])]);
+  const blocker = issues.find((issue) => issue.id === "X")!;
+  assert.equal(blocker.status, "closed");
+  assert.equal(blocker.ending, "cancelled");
+  assert.deepEqual(issues.find((issue) => issue.id === "A")!.blockedBy, [{ id: "X", title: "X" }]);
+});
+
 test("an issue whose open sub-issues are all blocked counts as blocked", () => {
   assert.equal(
     blocking([

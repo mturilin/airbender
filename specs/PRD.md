@@ -114,6 +114,9 @@ When something the panel needs is missing, the panel offers to set it up.
     and the lines beads adds to `.gitignore`.
   - **Ignored**, this computer's only: the issue database, locks, sync
     state, bend's copy inside `.git`, `.claude/settings.local.json`.
+    Setup keeps the root `.beads.gate.lock` out of git with a local ignore
+    rule, and offers to add it even when its shared files are already
+    committed. `[ozo]`
   - **Removed**: beads' own setup for the coding agents (its hooks for
     Claude Code and Codex, the files they leave empty, its Codex skill)
     and its blocks in the instructions files.
@@ -333,7 +336,7 @@ its category.
   so that it fits in the row and does not make it bigger. `[q9v]`
 - **Besides that button, a row has one "more" menu, three dots**, and
   nothing else, because closing is not the most frequent thing done to an
-  issue. The menu holds: make current (or release), edit, add sub-issue,
+  issue. The menu holds: make current (or Unselect), edit, add sub-issue,
   move to, link and close. `[l3m]` It also holds **"Move to Someday"**,
   or **"Back to Ready"** for an issue in Someday. `[26g]`
 - **The button that opens an issue with its sub-issues stays on the row**,
@@ -535,14 +538,20 @@ that epic's issues, and the current issue is picked from among them. `[ha9]`
 One conversation works on at most one issue at a time: its current issue.
 
 - The Current group is first, above everything else. `[pp7]`
-- **Every open issue can be made current**, from its row's menu and from a
+- **On Standard, every open issue can be made current**, from its row's menu and from a
   button inside the opened issue, marked with a target icon. That only
   makes the issue the conversation's current one. It is different from
   doing the issue's next step: it does not move the workflow and does not
   start the agent. `[l3m]`
-- **On the current issue the same control makes it non-current.** `[l3m]`
-- These two affect only which issue is current, never the workflow
-  directly. `[l3m]`
+- **On Simple, Start makes the issue current and asks its agent to work on
+  it**, in its own way, without steps. On the current issue, **Finish** is
+  the prominent action and opens the ending/Git dialog. **Unselect** is in
+  the menu and only clears the selection. `[o6j]`
+- **The action that clears selection is named Unselect**, with a crossed
+  target icon. On Standard it remains a toggle with Make current; on Simple
+  it is in the current issue's menu. It leaves the issue open. `[o6j]`
+- Selecting or unselecting never moves a workflow step. Simple Start also
+  asks the agent to work. `[o6j]`
 - **Making an issue current asks for confirmation only when another issue
   is current and would be replaced.** The confirmation speaks of the switch
   as something that will happen, not as something done. `[l3m]`
@@ -579,9 +588,8 @@ The owner sees at a glance which issue each conversation is working on.
 **The owner chooses how issues are worked: Standard or Simple.** `[8j6]`
 
 - **Standard**: every issue goes through the steps under "The workflow".
-- **Simple**: no workflow at all. There is no step, no apply, no "not
-  started" or "review plan"; nothing. An issue can be made current,
-  released and closed, and that is all: fully manual. `[8j6]`
+- **Simple**: no steps or Apply. Start asks the conversation's agent to work
+  on the issue; the owner directs the work and chooses how it closes. `[o6j]`
 - **The choice is made in the toolbar's "⋯" menu**, since it is not made
   often. It can be changed at any time. `[8j6]`
 - **The choice belongs to the repository.** Each repository remembers its
@@ -590,8 +598,9 @@ The owner sees at a glance which issue each conversation is working on.
 - **A repository that has never chosen is on Standard.** `[8j6]`
 - **Switching keeps each issue's step.** On Simple the step is not shown;
   back on Standard the issue is where it was. `[8j6]`
-- **On Simple, make current, release and close are prominent buttons on the
-  issue's row, not entries in its menu.** `[8j6]`
+- **On Simple, Start is prominent on other open issues, and Finish on the
+  current issue.** Unselect is in its menu. Finish opens the same ending/Git
+  dialog as Close. `[o6j]`
 - **On Simple the agent is not to move issues through steps**: what it is
   told about steps says they exist only on Standard, and a step it reports
   anyway is refused in plain words. `[8j6]` `[8fm]`
@@ -764,8 +773,8 @@ Rules:
   to Apply, or straight to the commit** where there is nothing to choose,
   and from there the agent commits the work as the owner chose.
   **The issue closes only once its work is in git.** `[0uh]` `[d37]`
-- **Closing an issue that has sub-issues closes all of them**: the issue
-  and every sub-issue still open inside it, at any depth. `[5qt]`
+- **An issue with any open descendant cannot close.** This applies on both
+  workflows, to every ending. Closing never closes its children. `[o6j]`
 - **While there is no current issue, every open issue offers its step's
   button.** A top-level issue has it on its row; a sub-issue has it inside
   the opened sub-issue. Starting an issue makes it current. `[pp7]` `[5qt]`
@@ -780,12 +789,47 @@ Rules:
 
 ## Closing
 
-- **Finishing an issue is the workflow's last step** (see "The workflow").
-- **Cancel** closes an issue that is not needed, without finishing it and
-  without a commit. It is always possible, at any step. `[e2b]` `[0rg]`
+- **On Standard, finishing is the workflow's last step and records Done.
+  Close records Cancelled without a commit.** Neither can close a parent
+  while any descendant remains open. `[o6j]`
+- **Every closed issue shows how it ended: Done, Verified, Cancelled or
+  Duplicate.** All four belong under Closed and can be reopened. Existing
+  plain closed issues read as Done, without migration. Reopening clears
+  the active ending, closing time and reason. `[o6j]`
+- **Cancelled work keeps blocking issues that depend on it**, even though
+  it appears under Closed. `[o6j]`
+- **On Simple, Close asks how it ended and what to do with its Git work:**
+  both groups use radio buttons, with Done selected initially and Commit &
+  push selected when available. The Git options are Commit & push, Commit
+  only or Don't commit. The Git choice appears only when the folder has
+  changes, including new, untracked files. Without a
+  conversation working on the issue, only Don't commit is available, with
+  an explanation. Cancel changes nothing. `[o6j]`
+- **The working agent makes the commit.** It reviews the conversation and
+  diff, selects only this issue's changes (including portions of shared
+  files when needed), and uses the issue's id and title. Uncertain ownership
+  or a failed commit leaves the issue open. It closes only after the commit
+  succeeds; Don't commit closes at once. `[o6j]`
+- **Commit only makes no explicit push; repository hooks may still push.**
+  Commit & push asks the agent to push. A failed push is reported alongside
+  the successful commit, without making another commit. Simple does not
+  discard changes, merge or create branches or work trees. `[o6j]`
+- **Every close leaves a note saying the ending and commit, or "not
+  committed".** The opened issue shows its closing time and reason. `[o6j]`
+- **Duplicate optionally selects another existing issue**, linking the two
+  as related. `[o6j]`
+- **Beads uses real terminal statuses** for Verified, Cancelled and
+  Duplicate. Setup adds them without replacing other custom statuses and
+  reports conflicting definitions. The closing time and reason stay with
+  the issue and are readable through bend, even though Beads cannot show
+  them for its custom statuses. `[o6j]`
+- **On GitHub, Done is completed, Verified completed with a label, and
+  Cancelled not planned.** Duplicate uses the native duplicate reason when
+  supported, otherwise not planned with a label. Other failures remain
+  visible. Unrelated labels are preserved. `[o6j]`
 - **Closing always asks for confirmation**, whether finishing or cancelling.
   `[pp7]`
-- Cancel is less prominent than the main button `[d37]`: it is in the
+- On Standard, Cancel is less prominent than the main button `[d37]`: it is in the
   row's menu and inside the opened issue, never a button of its own on the
   row. `[l3m]` A sub-issue is cancelled from inside the opened sub-issue.
   `[5qt]`
@@ -955,6 +999,8 @@ panel. `[bwr]`
     `bend` only, and says "issue", not "beads issue".
   - **Issues only through `bend`**: the rules rule out the tracker's own
     program (`bd`, `gh`) and its website for issues.
+  - **They say how to install `bend` where it is missing**: the one line
+    under "It can be installed alone", below, with a link to the script. `[d1z]`
   - **An issue is never closed by any means** unless the owner says so:
     not with `bend`, not with the tracker's own program, and not by
     closing words in a commit or a pull request. `[c9l.19]`
@@ -1009,6 +1055,14 @@ panel. `[bwr]`
 - **It is one self-contained program**, built from source in this
   repository, that runs from any folder and needs nothing else installed
   beside it but the tracker's own program. `[c9l.4]`
+- **It can be installed alone, with one line**, by an agent or a person
+  that has no Airbender, for example a headless agent working in a
+  repository set up with it: `curl -fsSL
+  https://raw.githubusercontent.com/mturilin/airbender/main/install-bend.sh
+  | sh`. The script, `install-bend.sh`, is kept in this repository, can be
+  read before it is run, and installs only `bend`: not the plugin, not the
+  tracker's program. It checks the download's SHA-256 before installing
+  it, and on any failure installs nothing. `[d1z]`
 - **The panel reads and changes issues through it**, by running it, as
   agents do, so there is one implementation. Whatever the panel does with
   an issue can be asked of `bend` in a form a program can read: labels,
@@ -1074,6 +1128,30 @@ Behaviour the owner did not ask for or decide. It is what the product does
 today, recorded so a rebuild matches. Any of it may be changed without
 breaking a requirement above.
 
+- A row's buttons move to a line of their own, under its title and facts
+  and lined up with the title, when the row is narrow, so that the title
+  keeps the row's width: below 42rem for the thread's current issue, whose
+  step button is full size, and below 28rem for every other row. The width
+  is the row's, not the window's. An issue's id wraps left-aligned, and
+  breaks inside only when it does not fit on a line of its own. `[fez]`
+
+- Simple Close prefers the invoking conversation when it works on this
+  issue, otherwise a unique
+  working conversation in the same project and repository; ambiguity is
+  explained instead of choosing one. Commit requests survive a reload and
+  repeat submissions do not send the same work twice. Completion verifies
+  the requested conversation, branch and issue commit, while allowing
+  unrelated changes to remain. `[o6j]`
+
+- Installing `bend` alone: `install-bend.sh` takes the latest release, so
+  the line in the rules never changes; `BEND_VERSION=vX.Y.Z` picks one
+  release. It installs into `~/.local/bin`, or `BEND_INSTALL_DIR`, and says
+  when that folder is not on the PATH. It needs `curl` and `sha256sum` or
+  `shasum`, checks that the downloaded program runs before putting it in
+  place, and refuses Windows, pointing to WSL, and CPUs other than amd64
+  and arm64. The panel's own "Install bend" keeps installing the release
+  of its own version. `[d1z]`
+
 - Conversation titles: an issue's short name is 2 to 4 words, at most 32
   characters, written by the model chosen for summary titles from the
   issue's title and the start of its description. It is made once per
@@ -1103,12 +1181,12 @@ breaking a requirement above.
   none; its opened issue shows them at the right end of its row of buttons
   instead. `[tj4]`
 
-- Current: inside an opened issue the target button is one toggle, with the
-  words "Make current" or "Release". Its icon is a target on an issue that
-  is not current and an exit door on the one that is, so the two cannot be
-  mistaken for each other. In the row's menu
-  the entry reads "Make current" or "Release from current". A closed issue
-  has neither, and there is none where there is no conversation.
+- Current: on Standard, inside an opened issue the selection control is one
+  toggle, with the words "Make current" or "Unselect". Its icon is a target
+  for selecting and a crossed target for unselecting. In the row's menu the
+  entry uses the same words and icons. On Simple, Start/Finish occupies the
+  main control and Unselect is in the current issue's menu. A closed issue
+  has no selection action, and there is none without a conversation. `[o6j]`
 - The row's menu: it opens under its button, or above it near the bottom of
   the window, and closes on a choice, on Escape and on a click elsewhere.
   Its entries, in order: the current entry, Edit, Add sub-issue, Move to…,
@@ -1518,16 +1596,18 @@ breaking a requirement above.
   takes effect at once, in every open tab and at the message box.
 - The choice is kept on this machine. A separate copy (clone) of a
   repository has its own choice.
-- On Simple: a row of an open issue shows "Make current" (or "Release" on
-  the current issue) as a button with words and Close as an icon with a
-  tooltip; the row's menu keeps Edit, Add sub-issue, Move to and Link. A
+- On Simple: a row of an open issue shows Start and a Close icon. On the
+  current issue, one prominent Finish button replaces both, opening the
+  ending/Git dialog. Its menu offers Unselect with a crossed-target icon,
+  alongside Edit, Add sub-issue, Move to and Link. A
   closed issue keeps Reopen in the menu. A sub-issue's row stays without
   buttons. Inside an opened issue the buttons are the same as on Standard,
-  without the step's.
-- On Simple: closing asks "Close this issue?" and also closes the issue's
-  open sub-issues, saying how many. The line above the message box shows
+  without the step's. `[o6j]`
+- On Simple: closing asks "Close this issue?", with ending and Git choices
+  as described under Closing. Open descendants prevent closing. The line
+  above the message box shows
   the current issue's id and title, and inside the box only "Agree &
-  continue" is offered.
+  continue" is offered. `[o6j]`
 - What agents are told about those two means begins with when they apply
   ("only if the folder tracks its work in beads", and for steps "and its
   repository is on the standard workflow"), since they are told it in every
@@ -1550,8 +1630,9 @@ breaking a requirement above.
   that no action is needed and no work should start. It arrives as a message
   in the conversation, so the agent takes one short turn to acknowledge it.
   Nothing is sent when nothing changed.
-- Current: the confirmation reads "Switch the current issue?" with "Switch"
-  and "Keep it".
+- Current: on Standard the confirmation reads "Switch the current issue?"
+  with "Switch" and "Keep it". On Simple it explains that Start will ask the
+  agent to work on the selected issue. `[o6j]`
 - Current: when the current issue is no longer in the list, the Current
   group says so and offers "Clear".
 - Workflow: the step is kept on the issue in the tracker as a label,
@@ -1658,9 +1739,9 @@ breaking a requirement above.
   Starting an issue assigns it to that account. A comment written as
   someone else opens with that name and is shown as written by them.
   `[c9l.1]`
-- bend on GitHub: closing with a reason adds the reason as a comment that
-  begins "Closed:"; the issue's close reason shows GitHub's own word
-  (completed, not planned). Closing takes "in progress" off. `[c9l.1]`
+- bend on GitHub: closing records the selected ending, reason and commit in
+  a closing note. A retried close finishes missing work without repeating
+  the note. Closing takes "in progress" off. `[o6j]`
 - bend on GitHub: "ready" means open, not in progress, and waiting for
   nothing. An issue waits for what the issues it sits inside wait for, up
   to four levels up. `[c9l.1]`
@@ -1736,6 +1817,11 @@ breaking a requirement above.
   anything else of the owner's is kept. Setup's commit takes
   `.beads/config.yaml` when it differs from the last commit, and the
   deletion of any of those files that had been committed. `[cnv]`
+- Setup's commit also takes new or changed `.beads/.gitignore`,
+  `.beads/README.md`, `.beads/metadata.json` and the individual files under
+  `.beads/hooks/`. The root lock's rule is added to Git's local
+  `info/exclude` after confirmation; if only that rule is missing, setup
+  makes no commit and leaves staged changes as they are. `[ozo]`
 - Someone else's project: the check asks GitHub once per reading of the
   setup state, only while no tracker is chosen, and gives up silently after
   five seconds; no GitHub login counts as "cannot tell". `bend setup
@@ -1800,9 +1886,10 @@ breaking a requirement above.
   as no data. `[c9l.6]`
 - What agents are told: the step messages name `bend show`, `bend
   comments`, `bend write <id> description|done|plan` and `bend start`. The
-  rules in the instruction file are version 3; setup takes version 1 and
-  both wordings of version 2 (the one that named `bd` and the one that
-  named `bend`) as earlier versions of its own and replaces them in place,
+  rules in the instruction file are version 5 `[d1z]`; setup takes
+  version 1, both wordings of version 2 (the one that named `bd` and the
+  one that named `bend`), version 3 and version 4 as earlier versions of
+  its own and replaces them in place,
   and leaves a block the owner edited alone. The background sizing's own
   tool is `airbender_report_sizes`. `[c9l.10]` The two tools are offered
   under their own names only; the names they had before
@@ -1924,7 +2011,7 @@ breaking a requirement above.
   CLAUDE.md that is a file. A line that only looks like one, in an example
   the owner wrote, is left. Where that is all there is to do, the
   step is called "Update Airbender's instructions for agents". The rules
-  are version 4. `[c9l.12]`
+  are version 5. `[c9l.12]` `[d1z]`
 - Setup: Airbender's rules name the few tracker commands an agent needs,
   say where standing facts are kept, and carry a version. A block of an
   earlier version, unchanged, is replaced where it stands; a block the
@@ -2149,8 +2236,5 @@ breaking a requirement above.
 - "View more" is offered on any issue with a long description, with or
   without sub-issues. In the details window the issue being shown starts
   opened.
-- Closing a parent without a commit does not close its sub-issues; while any
-  are open the tracker refuses, and the panel shows its message.
-- When an epic is closed with its sub-issues, the agent is asked for one
-  commit per issue where the changes can be told apart, otherwise one commit
-  that lists each issue.
+- Closing a parent never closes its sub-issues; while any descendant is
+  open, the tracker refuses and the panel shows its message. `[o6j]`

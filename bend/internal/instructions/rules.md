@@ -1,5 +1,5 @@
 <!-- airbender:rules:start -->
-<!-- airbender:rules:version 4 -->
+<!-- airbender:rules:version 5 -->
 ## Working with issues through Airbender
 
 This repository's issues are worked from the Airbender tab in BB, and read
@@ -11,6 +11,13 @@ on one.
 tracker's own program (`bd`, `gh`) or on its website, even where that
 would work: `bend` keeps things with an issue that those do not know of,
 and what is done around it shows in the Airbender tab late or wrongly.
+
+**If `bend` is not found**, install it, on Linux or macOS (on Windows,
+under WSL), with:
+`curl -fsSL https://raw.githubusercontent.com/mturilin/airbender/main/install-bend.sh | sh`.
+The script, [install-bend.sh](https://github.com/mturilin/airbender/blob/main/install-bend.sh),
+installs only `bend`, into `~/.local/bin`, after checking its checksum;
+read it first if you wish.
 
 The commands you need (`bend <command> --help` says more, and `bend status`
 says which tracker this repository uses):

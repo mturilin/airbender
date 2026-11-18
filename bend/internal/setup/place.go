@@ -3,7 +3,8 @@
 // What: works out whether a folder is the repository's main folder on its
 // main branch, the only place setup changes the repository; and the step
 // that commits the files setup writes (.bend.json, AGENTS.md, CLAUDE.md,
-// FACTS.md) right away.
+// FACTS.md and beads' support files) right away, and keeps beads' root
+// lock out of git in this clone.
 //
 // Why: setup wrote Airbender's rules into minisaba's main folder and nobody
 // committed them, so a worktree made from main lacked them and the tab
@@ -22,6 +23,11 @@
 //     computer, and signing in to GitHub are not.
 //   - The commit names its files (`git commit -- <paths>`), so whatever
 //     else is staged stays staged and out of it.
+//   - Beads' hooks are expanded to individual file names: a directory
+//     path must not accidentally stage ignored files within it.
+//   - The root lock lives beside .beads, outside its .gitignore's scope.
+//     Its ignore rule goes in the clone's info/exclude after confirmation,
+//     even when no files need committing (bead-bb-ozo).
 //
 // Gotchas:
 //   - The whole of each file is committed, a change the owner made to it by
@@ -43,13 +49,56 @@ import (
 // StepCommit is the step that commits the files setup writes.
 const StepCommit = "commit"
 
-// committedFiles are the files setup writes at the repository's top folder,
-// to be committed; beads' settings file among them, which setup changes when
-// it switches beads' journal on (bead-bb-cnv).
-var committedFiles = []string{detect.SettingFile, instructions.AgentsFile, instructions.ClaudeFile, instructions.FactsFile, beadsConfig}
+// committedFiles are setup's shared files, relative to the repository's
+// root. The hooks directory is expanded by uncommitted; the database and
+// runtime files are never candidates (bead-bb-cnv, bead-bb-ozo).
+var committedFiles = []string{
+	detect.SettingFile, instructions.AgentsFile, instructions.ClaudeFile, instructions.FactsFile,
+	beadsConfig, ".beads/.gitignore", ".beads/README.md", ".beads/metadata.json", ".beads/hooks",
+}
 
 // beadsConfig is beads' settings file, tracked in the repository.
 const beadsConfig = ".beads/config.yaml"
+
+// beadsLock is beads' clone-local workspace gate, beside its database folder.
+const beadsLock = ".beads.gate.lock"
+
+// beadsLockPending reports whether an existing beads folder lacks an
+// effective ignore rule for its root lock, whether or not the lock exists.
+// It only reads; existing global, shared or local ignore rules count.
+func beadsLockPending(root string) bool {
+	if !exists(filepath.Join(root, ".beads")) {
+		return false
+	}
+	_, ignored := quiet(root, 5*time.Second, "git", "check-ignore", "--quiet", "--", beadsLock)
+	return !ignored
+}
+
+// ignoreBeadsLock appends the missing rule to this clone's Git exclude
+// file, preserving its contents. Call only in git, after confirmation.
+// Returns a refusal on read/write failure; creates no commit or shared file.
+func ignoreBeadsLock(root string) error {
+	where, ok := quiet(root, 5*time.Second, "git", "rev-parse", "--git-path", "info/exclude")
+	if !ok {
+		return tracker.Refused("Git's local exclude file could not be found.")
+	}
+	if !filepath.IsAbs(where) {
+		where = filepath.Join(root, where)
+	}
+	content, err := os.ReadFile(where)
+	if err != nil && !os.IsNotExist(err) {
+		return tracker.Refused("%s could not be read: %s", where, err)
+	}
+	text := string(content)
+	if text != "" && !strings.HasSuffix(text, "\n") {
+		text += "\n"
+	}
+	text += "# Beads' local workspace lock (bend setup)\n/" + beadsLock + "\n"
+	if err := os.MkdirAll(filepath.Dir(where), 0o755); err != nil {
+		return tracker.Refused("%s could not be written: %s", where, err)
+	}
+	return writeFile(where, text)
+}
 
 // removedPlaces are where beads' agent setup leaves files that setup
 // deletes; a deletion of one that was committed is setup's to commit.
@@ -98,7 +147,7 @@ func mainBranchOf(dir string) string {
 
 // uncommitted gives which of these files, at the top folder root, are new
 // and not ignored, or differ from the last commit, staged or not; in the
-// order given.
+// order given, with directory contents sorted and expanded to file names.
 //
 // Three plain lists of names, not `git status --porcelain`: its status
 // columns begin with a space, which the trimming in quiet takes off the
@@ -119,38 +168,38 @@ func uncommitted(root string, files []string) []string {
 	}
 	ordered := []string{}
 	for _, name := range files {
-		if found[name] {
-			ordered = append(ordered, name)
+		matches := []string{}
+		for path := range found {
+			if path == name || strings.HasPrefix(path, name+"/") {
+				matches = append(matches, path)
+			}
 		}
+		slices.Sort(matches)
+		ordered = append(ordered, matches...)
 	}
 	return ordered
 }
 
 // setupPending gives which of setup's files hold setup's work that is not
 // committed: `.bend.json` changed in any way (only setup writes it);
+// beads' support files changed in any way;
 // `FACTS.md` only when new; `AGENTS.md` and `CLAUDE.md` when new, when the
 // link CLAUDE.md is changed, or when Airbender's rules block differs from
 // the last commit. An agent's own edits elsewhere in those files, made
 // while working an issue, do not count: those are that issue's to commit.
 func setupPending(root string) []string {
-	changed := map[string]bool{}
-	for _, name := range uncommitted(root, committedFiles) {
-		changed[name] = true
-	}
+	changed := uncommitted(root, committedFiles)
 	untracked := map[string]bool{}
 	listed, _ := quiet(root, 10*time.Second, "git", append([]string{"ls-files", "--others", "--exclude-standard", "--"}, committedFiles...)...)
 	for _, name := range strings.Split(listed, "\n") {
 		untracked[strings.TrimSpace(name)] = true
 	}
 	pending := []string{}
-	for _, name := range committedFiles {
-		if !changed[name] {
-			continue
-		}
-		switch name {
-		case detect.SettingFile, beadsConfig:
+	for _, name := range changed {
+		switch {
+		case name == detect.SettingFile || strings.HasPrefix(name, ".beads/"):
 			pending = append(pending, name)
-		case instructions.FactsFile:
+		case name == instructions.FactsFile:
 			if untracked[name] {
 				pending = append(pending, name)
 			}
@@ -228,7 +277,8 @@ func (state *State) commitStep() Step {
 		return step
 	}
 	pending := setupPending(state.Root)
-	if len(pending) == 0 {
+	ignoreLock := beadsLockPending(state.Root)
+	if len(pending) == 0 && !ignoreLock {
 		written := false
 		for _, name := range committedFiles {
 			if _, err := os.Lstat(filepath.Join(state.Root, name)); err == nil {
@@ -242,20 +292,28 @@ func (state *State) commitStep() Step {
 		step.State, step.Why = Done, "Airbender's files are committed."
 		return step
 	}
-	files := strings.Join(pending, ", ")
 	step.State = Missing
-	step.Why = "Setup wrote " + files + ", which are not committed yet. Committed now, every worktree and branch made from here has them."
 	step.Command = "bend setup commit"
+	if ignoreLock {
+		step.Explain = append(step.Explain, "Adds /"+beadsLock+" to Git's local info/exclude file so this computer's lock stays out of git.")
+	}
+	if len(pending) == 0 {
+		step.Why = "Airbender's files are committed, but beads' local workspace lock is not ignored."
+		step.Explain = append(step.Explain, "No commit is needed. Other changes, staged or not, stay as they are.")
+		return step
+	}
+	files := strings.Join(pending, ", ")
+	step.Why = "Setup wrote " + files + ", which are not committed yet. Committed now, every worktree and branch made from here has them."
 	step.Runs = "git add -- " + strings.Join(pending, " ") + " && git commit -m \"" + commitMessage(pending) + "\" -- " + strings.Join(pending, " ")
 	on := branchOf(state.Root)
 	if on == "" {
 		on = "the current commit"
 	}
-	step.Explain = []string{
-		"It commits " + files + " on " + on + ", and nothing else: other changes, staged or not, stay as they are.",
+	step.Explain = append(step.Explain,
+		"It commits "+files+" on "+on+", and nothing else: other changes, staged or not, stay as they are.",
 		"The whole of each file goes in, a change you made to it yourself included.",
 		"Nothing is pushed.",
-	}
+	)
 	return step
 }
 
@@ -266,8 +324,10 @@ func commitMessage(files []string) string {
 
 // Commit commits the files setup wrote, and only them.
 //
-// Side effects: runs `git add` and `git commit` for those files, attached
-// to the terminal, so the repository's hooks run and show.
+// Side effects after confirmation: ignores beads' root lock locally when
+// needed; runs `git add` and `git commit` only for pending shared files,
+// attached to the terminal so the repository's hooks run and show. With
+// only a missing ignore rule, it leaves HEAD and the index alone.
 func Commit(dir string, terminal Terminal, answers Answers, options Options) (*Outcome, error) {
 	state, step, done, err := begin(dir, StepCommit, options)
 	if done != nil || err != nil {
@@ -277,11 +337,19 @@ func Commit(dir string, terminal Terminal, answers Answers, options Options) (*O
 		return nil, err
 	}
 	pending := setupPending(state.Root)
-	if err := ran(terminal.Run(state.Root, "git", append([]string{"add", "--"}, pending...)...), "git add"); err != nil {
-		return nil, err
+	ignoredLock := beadsLockPending(state.Root)
+	if ignoredLock {
+		if err := ignoreBeadsLock(state.Root); err != nil {
+			return nil, err
+		}
 	}
-	if err := ran(terminal.Run(state.Root, "git", append([]string{"commit", "-m", commitMessage(pending), "--"}, pending...)...), "git commit"); err != nil {
-		return nil, err
+	if len(pending) != 0 {
+		if err := ran(terminal.Run(state.Root, "git", append([]string{"add", "--"}, pending...)...), "git add"); err != nil {
+			return nil, err
+		}
+		if err := ran(terminal.Run(state.Root, "git", append([]string{"commit", "-m", commitMessage(pending), "--"}, pending...)...), "git commit"); err != nil {
+			return nil, err
+		}
 	}
 	after, err := Read(dir, options)
 	if err != nil {
@@ -290,5 +358,12 @@ func Commit(dir string, terminal Terminal, answers Answers, options Options) (*O
 	if after.Step(StepCommit).State != Done {
 		return nil, tracker.Refused("The commit did not take all of Airbender's files: %s", after.Step(StepCommit).Why)
 	}
-	return &Outcome{Step: StepCommit, Changed: true, Message: "Committed " + strings.Join(pending, ", ") + "."}, nil
+	message := ""
+	if len(pending) != 0 {
+		message = "Committed " + strings.Join(pending, ", ") + "."
+	}
+	if ignoredLock {
+		message = strings.TrimSpace(message + " Ignored " + beadsLock + " locally.")
+	}
+	return &Outcome{Step: StepCommit, Changed: true, Message: message}, nil
 }

@@ -11,15 +11,14 @@
 //   its button carries that move's own label. Cancelling says the issue is closed without
 //   being finished; its buttons read "Close issue" and "Keep it", matching
 //   the "Close" entry and button that lead here.
-// - On the simple workflow there is nothing to finish or cancel: closing is
-//   just closing (`plain`), and the dialog says only that.
+// - Simple chooses an ending and optional agent commit. A read-only preview
+//   drives availability; confirmation is the first operation with side effects.
 // - A finished epic closed from the epic band has a wording of its own
 //   (bead-bb-ty5.1): it is not cancelled, and nothing is committed for it,
 //   since each of its sub-issues landed by itself. When epics can own a
 //   branch (the user's plan), this is where "Close & merge" will go: with a
 //   branch attached the button merges it, without one it only closes.
-// - Finishing an issue with sub-issues closes the open ones too; the dialog
-//   says how many, so it is never a surprise.
+// - Every close refuses while a descendant is open; nothing cascades.
 
 import { Button } from "@/components/ui/button";
 import {
@@ -31,6 +30,95 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import type { Issue } from "../server/contract.ts";
+import { useEffect, useId, useState } from "react";
+import { ENDINGS, ENDING_LABELS } from "../shared/closing.ts";
+import type { Ending, GitChoice } from "../shared/closing.ts";
+import type { ClosePreview } from "../server/simple-close.ts";
+import { closeChoiceProblem, defaultCloseGit } from "./close-model.ts";
+import { Input } from "@/components/ui/input";
+
+/** UI boundaries supplied by the panel; preview reads, request acts only
+ * after confirmation. Returning a problem leaves the dialog open. */
+export interface SimpleCloseActions {
+  targets: Issue[];
+  preview(beadId: string): Promise<ClosePreview>;
+  request(beadId: string, ending: Ending, git: GitChoice, duplicateOf: string | null): Promise<string | null>;
+}
+
+/** The Simple-only dialog. Its state is local until the user confirms;
+ * cancelling a preview never sends a work request or changes an issue. */
+function SimpleCloseDialog({ closing, actions, onCancel }: { closing: PendingClose; actions: SimpleCloseActions; onCancel(): void }) {
+  const [ending, setEnding] = useState<Ending>("done");
+  // A null selection follows the preview's default; an explicit choice
+  // survives subsequent renders, including changes to the ending or search.
+  const [gitChoice, setGit] = useState<GitChoice | null>(null);
+  const groupName = useId();
+  const [duplicateOf, setDuplicateOf] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [preview, setPreview] = useState<ClosePreview | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+  useEffect(() => {
+    let active = true;
+    actions.preview(closing.issue.id).then((value) => { if (active) setPreview(value); }, (cause) => { if (active) setError(String(cause)); });
+    return () => { active = false; };
+  }, [closing.issue.id]);
+  const git = gitChoice ?? defaultCloseGit(preview);
+  const problem = closeChoiceProblem(preview, git);
+  const targets = actions.targets.filter((issue) => issue.id !== closing.issue.id && `${issue.id} ${issue.title}`.toLowerCase().includes(query.toLowerCase()));
+  return <Dialog open onOpenChange={(open) => { if (!open && !sending) onCancel(); }}>
+    <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto">
+      <DialogHeader><DialogTitle>Close this issue?</DialogTitle><DialogDescription><span className="font-mono">{closing.issue.id}</span> {closing.issue.title}</DialogDescription></DialogHeader>
+      <fieldset className="space-y-2 text-sm" disabled={sending}>
+        <legend className="mb-2 font-medium">How it ended</legend>
+        {ENDINGS.map((value) => <label key={value} className="flex cursor-pointer items-center gap-2">
+          <input type="radio" name={`${groupName}-ending`} value={value} checked={ending === value} onChange={() => { setEnding(value); setDuplicateOf(null); }} />
+          {ENDING_LABELS[value]}
+        </label>)}
+      </fieldset>
+      {ending === "duplicate" ? <div className="grid gap-2 text-sm">
+        <label htmlFor="duplicate-search">Duplicate of (optional)</label>
+        <Input id="duplicate-search" placeholder="Search issues by id or title" value={query} disabled={sending} onChange={(event) => setQuery(event.target.value)} />
+        <select aria-label="Duplicate issue" className="rounded border bg-background p-2" disabled={sending} value={duplicateOf ?? ""} onChange={(event) => setDuplicateOf(event.target.value || null)}>
+          <option value="">No issue selected</option>
+          {duplicateOf !== null && !targets.some((issue) => issue.id === duplicateOf) ? <option value={duplicateOf}>{actions.targets.find((issue) => issue.id === duplicateOf)?.title ?? duplicateOf}</option> : null}
+          {targets.map((issue) => <option key={issue.id} value={issue.id}>{issue.id}: {issue.title}</option>)}
+        </select>
+      </div> : null}
+      {preview?.changes ? <fieldset className="space-y-2 text-sm" disabled={sending}>
+        <legend className="mb-2 font-medium">What to do with the work in Git</legend>
+        {preview.conversationId !== null && preview.unavailableReason === null ? <>
+          <label className="flex cursor-pointer items-center gap-2">
+            <input type="radio" name={`${groupName}-git`} value="push" checked={git === "push"} onChange={() => setGit("push")} />
+            Commit &amp; push
+          </label>
+          <label className="flex cursor-pointer items-center gap-2">
+            <input type="radio" name={`${groupName}-git`} value="commit" checked={git === "commit"} onChange={() => setGit("commit")} />
+            Commit only
+          </label>
+        </> : null}
+        <label className="flex cursor-pointer items-center gap-2">
+          <input type="radio" name={`${groupName}-git`} value="none" checked={git === "none"} onChange={() => setGit("none")} />
+          Don’t commit
+        </label>
+      </fieldset> : null}
+      {preview?.unavailableReason ? <p className="text-sm text-muted-foreground">{preview.unavailableReason}</p> : null}
+      {preview?.pending ? <p className="text-sm text-muted-foreground">A commit request is already pending in the working conversation.</p> : null}
+      <p className="text-sm text-muted-foreground">{git === "none" ? "Closes this issue without committing its changes." : "The working agent will review and commit only this issue’s changes. It stays open until that commit is recorded."}</p>
+      {git === "commit" ? <p className="text-sm text-muted-foreground">A repository’s own push hook may still push the commit.</p> : null}
+      {error ?? problem ? <p role="alert" className="text-sm text-destructive">{error ?? problem}</p> : null}
+      <DialogFooter>
+        <Button variant="outline" disabled={sending} onClick={onCancel}>Cancel</Button>
+        <Button disabled={sending || problem !== null} onClick={async () => {
+          setSending(true); setError(null);
+          try { const problem = await actions.request(closing.issue.id, ending, git, duplicateOf); if (problem === null) onCancel(); else setError(problem); }
+          catch (cause) { setError(String(cause)); }
+          finally { setSending(false); }
+        }}>{sending ? "Sending…" : git === "none" ? "Close issue" : "Ask agent to commit"}</Button>
+      </DialogFooter>
+    </DialogContent>
+  </Dialog>;
+}
 
 /** An issue waiting for the user's "yes, close it". */
 export interface PendingClose {
@@ -61,7 +149,7 @@ export interface PendingClose {
  * The close confirmation.
  *
  * @param closing The issue waiting to be closed; null keeps the dialog shut.
- * @param openSubIssues How many open sub-issues will be closed with it
+ * @param openSubIssues How many open descendants prevent this issue closing.
  *   (0 when cancelling on the standard workflow, which leaves them alone).
  * @param plain The repository is on the simple workflow: a close is neither
  *   finishing nor cancelling.
@@ -74,13 +162,16 @@ export function CloseDialog({
   plain = false,
   onConfirm,
   onCancel,
+  simple,
 }: {
   closing: PendingClose | null;
   openSubIssues: number;
   plain?: boolean;
   onConfirm: (closing: PendingClose) => void;
   onCancel: () => void;
+  simple?: SimpleCloseActions;
 }) {
+  if (plain && closing !== null && simple !== undefined) return <SimpleCloseDialog key={closing.issue.id} closing={closing} actions={simple} onCancel={onCancel} />;
   const finishing = closing !== null && closing.moveId !== null;
   const epicDone = closing?.epicDone ?? 0;
   const mergeBranch = closing?.mergeBranch ?? null;
@@ -141,13 +232,14 @@ export function CloseDialog({
           )}
           {openSubIssues === 0
             ? ""
-            : ` Its ${openSubIssues} open ${openSubIssues === 1 ? "sub-issue is" : "sub-issues are"} closed with it.`}
+            : ` It has ${openSubIssues} open ${openSubIssues === 1 ? "sub-issue" : "sub-issues"}. Close them first; this issue cannot close yet.`}
         </p>
         <DialogFooter>
           <Button variant="outline" onClick={() => onCancel()}>
             {finishing || epicDone > 0 ? "Not yet" : "Keep it"}
           </Button>
           <Button
+            disabled={openSubIssues > 0}
             onClick={() => {
               if (closing !== null) onConfirm(closing);
               onCancel();

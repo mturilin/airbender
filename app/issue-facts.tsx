@@ -169,7 +169,10 @@ export function IssueFacts({
       <Tip label="Copy the id">
         <button
           type="button"
-          className="cursor-copy font-mono text-xs text-muted-foreground hover:text-foreground"
+          // Left-aligned and broken only where it must (bead-bb-fez): an id
+          // is one long word, and on a narrow row it was cut anywhere and
+          // centred, as a button centres its text.
+          className="cursor-copy text-left font-mono text-xs text-muted-foreground [overflow-wrap:anywhere] hover:text-foreground"
           onClick={() => {
             // The clipboard can be refused (no permission, or the page is
             // not focused); say so instead of failing silently.
@@ -183,6 +186,7 @@ export function IssueFacts({
         </button>
       </Tip>
       {showStatus ? <StatusTag issue={issue} /> : null}
+      {!showStatus && issue.status === "closed" ? <StatusTag issue={issue} /> : null}
       {onEdit === undefined ? (
         <>
           {issue.priority === null ? null : (

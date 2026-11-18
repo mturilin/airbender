@@ -111,9 +111,8 @@ function SizeIcon({ className }: { className?: string }) {
  *
  * @param onAsk Called for Edit, Move to and Link: the row opens the issue
  *   and passes the request on to it.
- * @param lean Leave out "Make current" and "Close": on the simple
- *   workflow they are buttons on the row itself (the user's decision,
- *   bead-bb-8j6), and listing them twice side by side would be noise.
+ * @param lean Simple puts Start/Finish and Close on the row. Keep Unselect
+ *   in this menu for its current issue; omit the other duplicated actions.
  * @param className Extra classes, for the row's spacing.
  */
 export function RowMenu({
@@ -255,14 +254,14 @@ export function RowMenu({
                 </Entry>
               ) : (
                 <>
-                  {lean || setCurrent === null || makeCurrent === null ? null : (
+                  {(lean && !current) || setCurrent === null || makeCurrent === null ? null : (
                     <Entry
                       icon={<CurrentIcon on={current} />}
                       onPick={pick(() =>
                         current ? setCurrent(null) : makeCurrent(issue.id),
                       )}
                     >
-                      {current ? "Release from current" : "Make current"}
+                      {current ? "Unselect" : "Make current"}
                     </Entry>
                   )}
                   <Entry

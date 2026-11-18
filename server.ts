@@ -85,6 +85,7 @@
 // - Settings are read once per load: reload the plugin after changing one.
 
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
+import { cliCommand, defineCli } from "@get-bb/plugin-sdk";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
@@ -108,6 +109,8 @@ import { createAutopilot } from "./server/autopilot.ts";
 import { createGithub } from "./server/github.ts";
 import { createSync } from "./server/sync.ts";
 import { createWork } from "./server/work.ts";
+import { createSimpleClose } from "./server/simple-close.ts";
+import { closeGitState, verifyCloseCommit } from "./server/close-git.ts";
 import type { WorkEvents } from "./server/work.ts";
 import { createWorkTrees } from "./server/work-trees.ts";
 import { createWorkflowChoice, repositoryKey } from "./server/workflow-choice.ts";
@@ -303,6 +306,48 @@ export default async function plugin(bb: BbPluginApi) {
     workTrees,
     events: workEvents,
   });
+  const simpleClose = createSimpleClose({
+    load: async (scope) => {
+      const found = await store.issuesIn(scope, scope.beadId);
+      if ("message" in found) throw new Error(found.message);
+      const projectId = scope.threadId === null ? scope.projectId : (await bb.sdk.threads.get({ threadId: scope.threadId })).projectId;
+      if (projectId === null) throw new Error("Pick a project to close an issue.");
+      return { path: found.path, repository: repositoryKey(found.path), projectId,
+        issue: found.issues.find((issue) => issue.id === scope.beadId)!, issues: found.issues,
+        simple: workflowChoice.workflowFor(found.path) === null };
+    },
+    working: (context, scope) => currentBead.workingFor(context.projectId, scope.beadId, scope.threadId, async (threadId) => {
+      const found = await folders.folderFor({ threadId, projectId: context.projectId });
+      return "message" in found || repositoryKey(found.path) !== context.repository ? null : found.path;
+    }),
+    git: closeGitState,
+    verify: verifyCloseCommit,
+    send: async (threadId, text) => { await bb.sdk.threads.send({ threadId, mode: "auto", input: [{ type: "text", text, mentions: [] }] }); },
+    close: (scope, closing) => store.setIssueOpen("close", { ...scope, closing }),
+    get: (key) => bb.storage.kv.get(key),
+    set: (key, value) => bb.storage.kv.set(key, value),
+    released: async (threadId, beadId) => {
+      if (await currentBead.read(threadId) === beadId) await currentBead.write(threadId, null);
+      workEvents.closed?.(threadId);
+    },
+  });
+  bb.cli.register(defineCli({
+    name: "airbender", summary: "Complete a user-requested Simple issue close after committing its work",
+    commands: {
+      "finish-close": cliCommand({
+        summary: "Record the verified commit for a pending close; never stages, commits or pushes",
+        options: {
+          request: { type: "string", required: true, description: "Request id supplied in the user's close instruction" },
+          commit: { type: "string", required: true, description: "Full SHA of the issue's new commit" },
+          "push-result": { type: "string", description: "success or failed: <reason>; required for Commit & push" },
+        },
+        async run(input, context) {
+          const result = await simpleClose.complete(input.options.request, input.options.commit, context.threadId ?? null, input.options["push-result"]);
+          return result.message === null ? { exitCode: 0, stdout: "Recorded the commit and closed the issue." } : { exitCode: 1, stderr: result.message };
+        },
+      }),
+    },
+  }));
   // Autopilot starts issues through `work`, and `work` tells it what
   // happens: each is built first, then the two are joined.
   const autopilot = await createAutopilot({
@@ -395,6 +440,9 @@ export default async function plugin(bb: BbPluginApi) {
     // Cancel: closing without finishing. Finishing is a workflow move. On
     // the simple workflow it is the one way to close.
     issue_close: (input) => work.close(input),
+    issue_start: (input) => work.startSimple(input),
+    issue_close_preview: (input) => simpleClose.preview(input),
+    issue_close_request: (input) => simpleClose.request(input),
     issue_reopen: (input) => store.setIssueOpen("reopen", input),
     issue_defer: (input) => store.setIssueSomeday("defer", input),
     issue_undefer: (input) => store.setIssueSomeday("undefer", input),

@@ -1,8 +1,7 @@
 // app/current-toggle.tsx — making an issue the thread's current one, or not.
 //
-// What: the target button on an issue that makes it the thread's current
-// issue or releases it, and the confirmation shown when that would replace
-// another current issue.
+// What: the current-issue control and switch confirmation. Simple offers
+// Start or Finish; Standard offers Make current or Unselect.
 //
 // Why: which issue a thread is on, and doing the next step of an issue's
 // workflow, are two different things (bead-bb-l3m). Before this the only way
@@ -12,24 +11,17 @@
 // current."
 //
 // Design notes:
-// - One button, two states, and two clearly different icons that show what
-//   pressing will do, as the words beside them do: a target on an issue
-//   that is not current ("aim at this"), an exit door on the issue that is
-//   ("leave this"). Tried before and found "the same - too confusing" by
-//   the user: a target with its centre filled for the current issue; then a
-//   target struck through. The exit door was the user's idea.
-// - The door is the "door-exit" icon of Tabler Icons (the user asked for
-//   Tabler or Font Awesome instead of a home-made drawing), copied in as
-//   its four paths. Tabler Icons is MIT licensed (c) Pawel Kuna. Copied,
-//   not installed: one icon does not justify a package, and it is drawn
-//   with the same stroke as the target so the two match.
-// - It moves no workflow step. The backend tells the agent with a short
-//   note, so the agent and the status line above the message box agree.
+// - The user chose a target for selection and a crossed target for Unselect
+//   (bead-bb-o6j). The latter clears selection only. On Simple it belongs
+//   in the menu; the prominent current-issue action is Finish instead.
+// - Finish opens the existing ending/Git dialog. It never unselects or
+//   closes directly. Start asks the agent to work without moving a step.
 // - Confirmation only when another issue is current and would be replaced
 //   (the user's decision). Making an issue current when there is none, and
 //   releasing one, are one click to undo and are not asked about.
 
 import { Button } from "@/components/ui/button";
+import { Icon } from "@/components/ui/icon";
 import {
   Dialog,
   DialogContent,
@@ -42,14 +34,12 @@ import { cn } from "@/lib/utils";
 import type { Issue } from "../server/contract.ts";
 import { CLOSED_STATUS } from "../shared/constants.ts";
 import { useActions } from "./actions.ts";
+import { useWorkflow } from "./workflow-controls.tsx";
 
 /**
  * The icon for the current-issue button: a target when pressing makes the
- * issue current, an exit door when pressing releases it (`on`).
- *
- * Drawn here because BB's icon set has neither (checked in its bundle), and
- * an unknown name would show BB's fallback icon. The door's paths are
- * Tabler Icons' "door-exit", unchanged (see the design notes).
+ * issue current, a crossed target when pressing unselects it (`on`).
+ * Both share the same target geometry; the slash marks clearing selection.
  */
 export function CurrentIcon({ on, className }: { on: boolean; className?: string }) {
   return (
@@ -63,31 +53,21 @@ export function CurrentIcon({ on, className }: { on: boolean; className?: string
       aria-hidden="true"
       className={className}
     >
-      {on ? (
-        <>
-          <path d="M13 12v.01" />
-          <path d="M3 21h18" />
-          <path d="M5 21v-16a2 2 0 0 1 2 -2h7.5m2.5 10.5v7.5" />
-          <path d="M14 7h7m-3 -3l3 3l-3 3" />
-        </>
-      ) : (
-        <>
-          <circle cx="12" cy="12" r="10" />
-          <circle cx="12" cy="12" r="6" />
-          <circle cx="12" cy="12" r="2" />
-        </>
-      )}
+      <circle cx="12" cy="12" r="10" />
+      <circle cx="12" cy="12" r="6" />
+      <circle cx="12" cy="12" r="2" />
+      {on ? <path d="M3 3l18 18" /> : null}
     </svg>
   );
 }
 
 /**
- * The target button for one issue.
+ * The main current-issue control: Simple Start/Finish, Standard selection.
  *
  * Draws nothing where there is no thread (nothing can be current there) and
  * on a closed issue (a closed issue is never current).
  *
- * @param withLabel Show words beside the icon ("Make current", "Release"),
+ * @param withLabel Show the action's words beside its icon,
  *   for the opened issue's row of small text buttons. On a row it is the
  *   icon alone.
  * @param className Extra classes, for the row's spacing.
@@ -102,13 +82,29 @@ export function CurrentToggle({
   className?: string;
 }) {
   const actions = useActions();
+  const simple = useWorkflow() === null;
   const { setCurrent, makeCurrent } = actions;
   if (setCurrent === null || makeCurrent === null) return null;
   if (issue.status === CLOSED_STATUS) return null;
   const on = actions.currentBeadId === issue.id;
+  if (simple && on) {
+    return (
+      <Button
+        variant="outline"
+        size={withLabel ? "sm" : "icon"}
+        className={className}
+        tip="Finish this issue: choose how it ended and what to do with its Git work."
+        aria-label={`Finish ${issue.id}`}
+        onClick={() => actions.close(issue.id)}
+      >
+        <Icon name="Check" className="size-4" />
+        {withLabel ? "Finish" : null}
+      </Button>
+    );
+  }
   const tip = on
-    ? "This is the current issue. Press to stop treating it as current; its workflow is not touched."
-    : "Make this the current issue. It does not start the agent or move the issue's workflow.";
+    ? "Unselect this issue. It stays open and its workflow is not touched."
+    : simple ? "Start the agent on this issue." : "Make this the current issue. It does not start the agent or move the issue's workflow.";
   const toggle = () => (on ? setCurrent(null) : makeCurrent(issue.id));
   if (withLabel) {
     return (
@@ -121,7 +117,7 @@ export function CurrentToggle({
         onClick={toggle}
       >
         <CurrentIcon on={on} className="size-4" />
-        {on ? "Release" : "Make current"}
+        {on ? "Unselect" : simple ? "Start" : "Make current"}
       </Button>
     );
   }
@@ -138,8 +134,8 @@ export function CurrentToggle({
       tip={tip}
       aria-label={
         on
-          ? `Stop treating ${issue.id} as the current issue`
-          : `Make ${issue.id} the current issue`
+          ? `Unselect ${issue.id}`
+          : simple ? `Start ${issue.id}` : `Make ${issue.id} the current issue`
       }
       onClick={toggle}
     >
@@ -163,11 +159,13 @@ export function SwitchDialog({
   to,
   onConfirm,
   onCancel,
+  simple = false,
 }: {
   from: Issue | null;
   to: Issue | null;
   onConfirm: (to: Issue) => void;
   onCancel: () => void;
+  simple?: boolean;
 }) {
   return (
     <Dialog
@@ -189,9 +187,9 @@ export function SwitchDialog({
           {from === null
             ? "This conversation has another current issue now. "
             : `This conversation is on ${from.id} now: ${from.title}. `}
-          If you switch, {to?.id} will become its current issue instead and
-          the agent will be told. No work will be started and no issue's
-          workflow will be moved.
+          {simple
+            ? `If you switch, ${to?.id} becomes current and the agent starts working on it.`
+            : `If you switch, ${to?.id} becomes current and the agent is told. No work is started and no workflow step is moved.`}
         </p>
         <DialogFooter>
           <Button variant="outline" onClick={() => onCancel()}>

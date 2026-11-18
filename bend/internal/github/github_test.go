@@ -361,12 +361,12 @@ func TestCommentsSayWhoWroteThemClosingWithAReasonReopening(t *testing.T) {
 		}
 		return found
 	}
+	issue := show(t, adapter, id)
 	same(t, said(adapter, id), [][2]string{
 		{"agent-7", "Decision: use the queue"},
-		{"agent-7", "Closed: Shipped in 2.1"},
+		{"agent-7", "Closed as done; not committed. Shipped in 2.1\n\n<!-- airbender-close:" + *issue.ClosedAt + " -->"},
 	})
-	issue := show(t, adapter, id)
-	same(t, []string{issue.Status, issue.CloseReason}, []string{"closed", "completed"})
+	same(t, []string{issue.Status, issue.CloseReason}, []string{"closed", "Shipped in 2.1"})
 	same(t, issue.CommentCount, 2)
 	wantRefused(t, adapter.Start(id), `is closed`)
 	must(t, adapter.Reopen(id))

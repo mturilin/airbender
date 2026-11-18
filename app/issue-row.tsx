@@ -40,6 +40,44 @@ import { CurrentToggle } from "./current-toggle.tsx";
 import { EnterEpicIcon } from "./epic-band.tsx";
 
 /**
+ * Classes that move a row's buttons onto their own line, under the title and
+ * its facts, while the row is narrow (bead-bb-fez, the user: "this UI looks
+ * too squished in narrower screen"). Beside the title they keep their full
+ * width, and on a narrow panel the title was left a sliver of the row.
+ *
+ * Two widths, because the buttons are two sizes: the thread's current issue
+ * has a full-size step button and moves them under at 42rem; every other row
+ * has a small, quiet one and keeps them beside the title down to 28rem. The
+ * width is the row's own (a container query on the row), not the window's:
+ * the panel is often a narrow side tab of a wide window.
+ *
+ * Written out in full for each width: Tailwind only builds classes it finds
+ * spelled out in the source, so they cannot be put together from parts.
+ */
+const BUTTONS_UNDER = {
+  wide: {
+    // The line itself: the full width of the row, lined up with the title
+    // (pl-12 plus the buttons' own margin is the grip and the chevron), and
+    // pulled up so it is as far from the facts as the facts are from the
+    // title. Its buttons wrap if even that line is too short.
+    line: "@max-2xl/row:basis-full @max-2xl/row:flex-wrap @max-2xl/row:-mt-1 @max-2xl/row:pl-12",
+    // Room under it for the open card's full dates, which then sit below
+    // the buttons instead of under the facts.
+    belowForDates: "@max-2xl/row:pb-5",
+    // Room on its right for the closed card's short date, on the same line.
+    besideForDate: "@max-2xl/row:pb-1 @max-2xl/row:pr-16",
+    // The title's column no longer needs the room for the dates.
+    titleColumn: "@max-2xl/row:pb-2",
+  },
+  narrow: {
+    line: "@max-md/row:basis-full @max-md/row:flex-wrap @max-md/row:-mt-1 @max-md/row:pl-12",
+    belowForDates: "@max-md/row:pb-5",
+    besideForDate: "@max-md/row:pb-1 @max-md/row:pr-16",
+    titleColumn: "@max-md/row:pb-2",
+  },
+} as const;
+
+/**
  * One issue: a compact line that opens to show its details, with its
  * sub-issues drawn indented underneath.
  *
@@ -132,6 +170,13 @@ export function IssueRow({
   const openCount = subIssues.filter(
     (subIssue) => subIssue.status !== CLOSED_STATUS,
   ).length;
+  // When this row's buttons move under its title: sooner on the current
+  // issue, whose step button is full size (see BUTTONS_UNDER).
+  const under =
+    actions.currentBeadId === issue.id
+      ? BUTTONS_UNDER.wide
+      : BUTTONS_UNDER.narrow;
+  const fullDates = open && times !== null;
   return (
     <li>
       <div
@@ -157,7 +202,10 @@ export function IssueRow({
           actions.setParent(dragged, issue.id);
         }}
         className={cn(
-          "group/row relative flex",
+          // A container, so that its buttons can move under the title when
+          // the row itself is narrow; wrapping lets them take a line of
+          // their own (see BUTTONS_UNDER).
+          "group/row @container/row relative flex flex-wrap",
           hoverClassName,
           compact ? "items-center" : "items-start",
           dropTarget && "bg-state-active outline outline-1 outline-ring",
@@ -258,7 +306,7 @@ export function IssueRow({
               // Room for the full dates in the open card's bottom right
               // corner; the short date of a closed card fits beside the
               // facts.
-              open && times !== null && "pb-5",
+              fullDates && ["pb-5", under.titleColumn],
             )}
           >
             <button
@@ -303,7 +351,23 @@ export function IssueRow({
             rule: no buttons on hover for sub-issues); everything they did is
             inside the opened sub-issue instead (see IssueDetails). Only the
             drag grip appears on hover, since it is a handle, not an action. */}
-        <div className={compact ? "hidden" : "contents"}>
+        {/* A box of its own, not drawn-through, so that on a narrow row
+            the buttons move under the title together (BUTTONS_UNDER). */}
+        <div
+          className={
+            compact
+              ? "hidden"
+              : cn(
+                  "flex shrink-0 items-start",
+                  under.line,
+                  corner === null
+                    ? null
+                    : fullDates
+                      ? under.belowForDates
+                      : under.besideForDate,
+                )
+          }
+        >
         {/* Opens the details window on this issue: the roomy view of an
             issue, with its sub-issues if it has any, and the only way to
             levels deeper than the one drawn here. On every issue (the
@@ -387,11 +451,9 @@ export function IssueRow({
             decision, for now): there everything is inside the opened
             sub-issue. Edit, Move to and Link open the row and are shown
             there. */}
-        {/* On the simple workflow there is no step button, and making an
-            issue current, releasing it and closing it are all there is to
-            do with one: they are buttons on the row, not menu entries (the
-            user: "select and release and close should be prominent, not on
-            menu"). Close is an icon so the title keeps its room. */}
+        {/* Simple offers Start on other issues and a prominent Finish on
+            the current one. Unselect belongs in its menu. The separate
+            Close icon is only needed where Finish is not already shown. */}
         {compact || !simple ? null : (
           <CurrentToggle
             issue={issue}
@@ -399,7 +461,7 @@ export function IssueRow({
             className="m-1 h-7 shrink-0 px-2"
           />
         )}
-        {compact || !simple || closed ? null : (
+        {compact || !simple || closed || actions.currentBeadId === issue.id ? null : (
           <Button
             variant="ghost"
             size="icon"

@@ -84,6 +84,8 @@ type Row struct {
 	AcceptanceCriteria string   `json:"acceptance_criteria"`
 	Notes              string   `json:"notes"`
 	CloseReason        string   `json:"close_reason"`
+	ClosedAt           *string  `json:"closed_at"`
+	Ending             string   `json:"-"`
 	CommentCount       int      `json:"comment_count"`
 	Priority           *int     `json:"priority"`
 	IssueType          *string  `json:"issue_type"`
@@ -136,12 +138,18 @@ func allKinds() []string { return append(slices.Clone(tracker.LinkKinds), ownKin
 // issues it sits inside (beads' own rule: a sub-issue of a blocked issue is
 // blocked). A loop in the parent data is not followed.
 func ToIssues(rows []Row) []tracker.Issue {
+	rows = slices.Clone(rows)
+	for index := range rows {
+		row := &rows[index]
+		normal := tracker.NormalizeClosing(tracker.Issue{Status: row.Status, Metadata: row.Metadata, CloseReason: row.CloseReason, ClosedAt: row.ClosedAt})
+		row.Status, row.Ending, row.CloseReason, row.ClosedAt = normal.Status, normal.Ending, normal.CloseReason, normal.ClosedAt
+	}
 	byID := make(map[string]*Row, len(rows))
 	for index := range rows {
 		byID[rows[index].ID] = &rows[index]
 	}
 	ref := func(row *Row) tracker.IssueRef {
-		return tracker.IssueRef{ID: row.ID, Title: row.Title, Status: row.Status}
+		return tracker.IssueRef{ID: row.ID, Title: row.Title, Status: row.Status, Ending: row.Ending}
 	}
 	links := map[string][]tracker.Link{}
 	add := func(owner string, link tracker.Link) {
@@ -167,13 +175,13 @@ func ToIssues(rows []Row) []tracker.Issue {
 				continue
 			}
 			kind := shownKind(dependency.Type)
-			add(row.ID, tracker.Link{ID: other.ID, Title: other.Title, Status: other.Status, Kind: kind, Direction: "out"})
+			add(row.ID, tracker.Link{ID: other.ID, Title: other.Title, Status: other.Status, Ending: other.Ending, Kind: kind, Direction: "out"})
 			direction := "in"
 			if twoWay(kind) {
 				direction = "out"
 			}
-			add(other.ID, tracker.Link{ID: row.ID, Title: row.Title, Status: row.Status, Kind: kind, Direction: direction})
-			if dependency.Type == "blocks" && row.Status != closed && other.Status != closed {
+			add(other.ID, tracker.Link{ID: row.ID, Title: row.Title, Status: row.Status, Ending: row.Ending, Kind: kind, Direction: direction})
+			if dependency.Type == "blocks" && row.Status != closed && tracker.Blocks(other.Status, other.Ending) {
 				direct[row.ID] = append(direct[row.ID], ref(other))
 			}
 		}
@@ -254,6 +262,8 @@ func ToIssues(rows []Row) []tracker.Issue {
 			Plan:         row.Design,
 			Notes:        row.Notes,
 			CloseReason:  row.CloseReason,
+			Ending:       row.Ending,
+			ClosedAt:     row.ClosedAt,
 			Labels:       labels,
 			Links:        links[row.ID],
 			SubIssues:    children[row.ID],
@@ -590,7 +600,17 @@ func (beads *Tracker) Ready() ([]tracker.Issue, error) {
 	if err != nil {
 		return nil, err
 	}
-	return beads.byIDs(ids)
+	found, err := beads.byIDs(ids)
+	if err != nil {
+		return nil, err
+	}
+	ready := []tracker.Issue{}
+	for _, issue := range found {
+		if !tracker.IsClosed(issue.Status) && len(issue.BlockedBy) == 0 {
+			ready = append(ready, issue)
+		}
+	}
+	return ready, nil
 }
 
 // Show gives one issue in full.
@@ -856,7 +876,7 @@ func (beads *Tracker) Start(id string) error {
 	if err != nil {
 		return err
 	}
-	if row.Status == closed {
+	if tracker.IsClosed(row.Status) {
 		return tracker.Refused("%s is closed. Reopen it before starting work on it.", id)
 	}
 	args := []string{"update", id, "--json", "--status", "in_progress"}
@@ -874,7 +894,7 @@ func (beads *Tracker) Stop(id string) error {
 	if err != nil {
 		return err
 	}
-	if row.Status == closed {
+	if tracker.IsClosed(row.Status) {
 		return tracker.Refused("%s is closed. Reopen it to work on it again.", id)
 	}
 	if row.Status != "in_progress" {
@@ -886,23 +906,94 @@ func (beads *Tracker) Stop(id string) error {
 
 // Close closes an issue; reason may be "".
 func (beads *Tracker) Close(id, reason string) error {
-	if _, _, err := beads.needIn(id); err != nil {
+	return beads.CloseWith(id, tracker.CloseOptions{Reason: reason})
+}
+
+// CloseWith validates all descendants and records one retryable closing.
+// It changes only this issue's status/closing metadata, an optional related
+// link, and one deduplicated note; it never cascades to sub-issues.
+func (beads *Tracker) CloseWith(id string, options tracker.CloseOptions) error {
+	options, err := options.Prepared()
+	if err != nil {
 		return err
 	}
-	args := []string{"close", id, "--json"}
-	if strings.TrimSpace(reason) != "" {
-		args = append(args, "--reason", reason)
+	rows, row, err := beads.needIn(id)
+	if err != nil {
+		return err
 	}
-	_, err := beads.bd(args, nil)
-	return err
+	if err := tracker.ValidateClose(ToIssues(rows), id, options); err != nil {
+		return err
+	}
+	previous := tracker.ClosingFrom(row.Metadata)
+	if tracker.IsClosed(row.Status) && previous.Ending != "" && options.Ending == previous.Ending && options.Reason == "" && options.Commit == "" && options.RequestID == "" && options.DuplicateOf == "" && options.PushResult == "" {
+		options = previous
+	}
+	if tracker.IsClosed(row.Status) && previous.Ending != "" && !tracker.SameClose(previous, options) {
+		return tracker.Refused("%s is already closed with different closing details. Reopen it first.", id)
+	}
+	if tracker.IsClosed(row.Status) && tracker.EndingOf(row.Status, previous.Ending) != options.Ending {
+		return tracker.Refused("%s is already closed with another ending. Reopen it first.", id)
+	}
+	if tracker.IsClosed(row.Status) && tracker.SameClose(previous, options) && previous.At != "" {
+		options.At = previous.At
+	}
+	if options.DuplicateOf != "" {
+		target, _ := need(rows, options.DuplicateOf)
+		existing := storedLink(row, options.DuplicateOf)
+		if existing == nil {
+			existing = storedLink(target, id)
+		}
+		if existing != nil && shownKind(existing.Type) != "related" {
+			return tracker.Refused("%s and %s already have another kind of link. Resolve it before marking a duplicate.", id, options.DuplicateOf)
+		}
+		if existing == nil {
+			if err := beads.Link(id, options.DuplicateOf, "related"); err != nil {
+				return err
+			}
+		}
+	}
+	encoded, _ := json.Marshal(options)
+	if options.Ending == "done" {
+		if row.Status != closed {
+			args := []string{"close", id, "--json"}
+			if options.Reason != "" {
+				args = append(args, "--reason", options.Reason)
+			}
+			if _, err := beads.bd(args, nil); err != nil {
+				return err
+			}
+		}
+		if err := beads.Edit(id, tracker.Changes{Metadata: []tracker.MetadataChange{{Key: tracker.ClosingKey, Value: tracker.Ptr(string(encoded))}}}); err != nil {
+			return err
+		}
+	} else {
+		if _, err := beads.bd([]string{"update", id, "--json", "--status", options.Ending, "--set-metadata", tracker.ClosingKey + "=" + string(encoded)}, nil); err != nil {
+			return err
+		}
+	}
+	note := tracker.ClosingNote(options)
+	comments, err := beads.Comments(id)
+	if err != nil {
+		return err
+	}
+	for _, comment := range comments {
+		if comment.Text == note {
+			return nil
+		}
+	}
+	return beads.Comment(id, note)
 }
 
 // Reopen reopens a closed issue.
 func (beads *Tracker) Reopen(id string) error {
-	if _, _, err := beads.needIn(id); err != nil {
+	_, row, err := beads.needIn(id)
+	if err != nil {
 		return err
 	}
-	_, err := beads.bd([]string{"reopen", id, "--json"}, nil)
+	if !tracker.IsClosed(row.Status) {
+		return nil
+	}
+	_, err = beads.bd([]string{"update", id, "--json", "--status", "open", "--unset-metadata", tracker.ClosingKey}, nil)
 	return err
 }
 

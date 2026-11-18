@@ -3,6 +3,7 @@ import { test } from "node:test";
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { standardWorkflow } from "../shared/standard-workflow.ts";
 import type { Issue } from "./contract.ts";
+import type { ClosingOptions } from "../shared/closing.ts";
 import type { CurrentBead } from "./current-bead.ts";
 import type { Store } from "./store.ts";
 import { createWork } from "./work.ts";
@@ -15,6 +16,7 @@ async function fixture(
   recheckMessage: string | null = null,
 ) {
   const effects: string[] = [];
+  const closed: ClosingOptions[] = [];
   const issue = {
     id: "x-1", title: "A change", step: "commit-merge", status: "open",
     branch: "feature", parentId: null, size: "s",
@@ -37,7 +39,11 @@ async function fixture(
     store: {
       issuesIn: async () => ({ path: "/checkout", issues: [{ ...issue }] }),
       readIssues: async () => ({ state: "ok", issues: [{ ...issue }] }),
-      setIssueOpen: async () => { effects.push("close"); return { message: null }; },
+      setIssueOpen: async (_command: string, input: { closing: ClosingOptions }) => {
+        closed.push(input.closing);
+        effects.push("close");
+        return { message: null };
+      },
       setBranch: async () => { effects.push("release-branch-record"); return { message: null }; },
       addComment: async () => { effects.push("comment"); return { message: null }; },
       changed: () => { effects.push("changed"); },
@@ -50,11 +56,11 @@ async function fixture(
     workTrees,
     verifyMergedPullRequest: async () => {
       duringVerification?.(issue);
-      return message === null ? { message: null, recheck: async () => recheckMessage } : { message };
+      return message === null ? { message: null, commit: "a".repeat(40), recheck: async () => recheckMessage } : { message };
     },
     events: { closed: () => { effects.push("closed-event"); } },
   });
-  return { work, effects, workTrees };
+  return { work, effects, workTrees, closed };
 }
 
 const input = {
@@ -76,11 +82,19 @@ test("pending or unknown PR evidence leaves the issue, conversation and worktree
 });
 
 test("verified merged delivery closes the issue without archiving or deleting its worktree", async () => {
-  const { work, effects, workTrees } = await fixture(null);
+  const { work, effects, workTrees, closed } = await fixture(null);
   assert.equal((await work.move(input, "agent")).message, null);
   assert.deepEqual(effects, ["close", "changed", "comment", "release-branch-record", "closed-event"]);
+  assert.deepEqual(closed, [{ ending: "done", commit: "a".repeat(40) }]);
   assert.equal(workTrees.threadFor("x-1"), "thread");
   assert.equal(workTrees.isOurs("thread"), true);
+});
+
+test("verified squash or rebase delivery records source evidence without imposing commit-only message rules", async () => {
+  const { work, closed } = await fixture(null);
+  const result = await work.move({ ...input, note: `Merged PR using squash commit ${"f".repeat(40)}` }, "agent");
+  assert.equal(result.message, null);
+  assert.deepEqual(closed, [{ ending: "done", commit: "a".repeat(40) }]);
 });
 
 test("a workflow change during PR verification prevents stale completion", async () => {
@@ -109,4 +123,51 @@ test("checkout changes during tracker reread prevent completion", async () => {
   const { work, effects } = await fixture(null, undefined, "HEAD changed during tracker reread");
   assert.equal((await work.move(input, "agent")).message, "HEAD changed during tracker reread");
   assert.deepEqual(effects, []);
+});
+
+/** Supplies only the boundaries used by these actions, retaining their writes. */
+function simpleFixture(simple = true) {
+  const issue = { id: "issue-1", title: "Work", status: "open", step: "commit", parentId: null, branch: null, size: "l" } as Issue;
+  const issues = [issue], sent: string[] = [], closed: ClosingOptions[] = [];
+  let current: string | null = issue.id;
+  const work = createWork({
+    bb: { sdk: { threads: { send: async ({ input }: { input: { text: string }[] }) => { sent.push(input[0]!.text); } } } },
+    store: {
+      issuesIn: async () => ({ path: "/no-repo", issues }),
+      setIssueOpen: async (_: unknown, input: { closing: ClosingOptions }) => { closed.push(input.closing); return { message: null }; },
+      changed: () => {}, addComment: async () => {},
+    },
+    currentBead: { read: async () => current, write: async (_: string, id: string | null) => { current = id; } },
+    workflowChoice: { workflowFor: () => simple ? null : standardWorkflow },
+    workTrees: { isOurs: () => false },
+    onUserSize: () => {}, hasUncommittedChanges: async () => false, currentBranch: async () => "main",
+  } as unknown as Parameters<typeof createWork>[0]);
+  return { work, issue, issues, sent, closed };
+}
+
+test("Simple Start sends actual work even when this issue is already current", async () => {
+  const f = simpleFixture();
+  assert.equal((await f.work.startSimple({ threadId: "working", beadId: f.issue.id })).message, null);
+  assert.equal(f.sent.length, 1);
+  assert.match(f.sent[0]!, /Work on issue issue-1/);
+  assert.match(f.sent[0]!, /mark it in progress/);
+  assert.doesNotMatch(f.sent[0]!, /No action is needed/);
+});
+
+test("Standard close records cancellation and refuses every open descendant", async () => {
+  const f = simpleFixture(false);
+  f.issues.push({ id: "child", parentId: f.issue.id, status: "open" } as Issue);
+  const scope = { threadId: "working", projectId: null, beadId: f.issue.id };
+  assert.match((await f.work.close(scope)).message!, /sub-issues/);
+  assert.match((await f.work.move({ ...scope, moveId: "done", note: "No files changed" }, "agent")).message!, /sub-issues/);
+  assert.equal(f.closed.length, 0);
+  f.issues[1]!.status = "closed";
+  assert.equal((await f.work.close(scope)).message, null);
+  assert.deepEqual(f.closed, [{ ending: "cancelled" }]);
+});
+
+test("Standard finish without file changes records Done without a commit", async () => {
+  const f = simpleFixture(false);
+  assert.equal((await f.work.move({ threadId: "working", projectId: null, beadId: f.issue.id, moveId: "done", note: "No files changed" }, "agent")).message, null);
+  assert.deepEqual(f.closed, [{ ending: "done", commit: undefined }]);
 });

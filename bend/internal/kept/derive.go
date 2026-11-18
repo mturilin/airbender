@@ -51,7 +51,7 @@ func pointerTo(issue *tracker.Issue) tracker.IssueRef {
 	if issue.Status == closedStatus {
 		state = closedStatus
 	}
-	return tracker.IssueRef{ID: issue.ID, Title: issue.Title, Status: state}
+	return tracker.IssueRef{ID: issue.ID, Title: issue.Title, Status: state, Ending: issue.Ending}
 }
 
 // ownLinks gives the links recorded on an issue itself: all but "blocked
@@ -96,7 +96,7 @@ func derive(issues []tracker.Issue) []tracker.Issue {
 	refresh := func(link tracker.Link) tracker.Link {
 		if other := byID[link.ID]; other != nil {
 			pointer := pointerTo(other)
-			link.Title, link.Status = pointer.Title, pointer.Status
+			link.Title, link.Status, link.Ending = pointer.Title, pointer.Status, pointer.Ending
 		}
 		return link
 	}
@@ -114,7 +114,7 @@ func derive(issues []tracker.Issue) []tracker.Issue {
 		}
 		for _, id := range waitedBy[issue.ID] {
 			pointer := pointerTo(byID[id])
-			links = append(links, tracker.Link{ID: pointer.ID, Title: pointer.Title, Status: pointer.Status, Kind: blockedBy, Direction: "in"})
+			links = append(links, tracker.Link{ID: pointer.ID, Title: pointer.Title, Status: pointer.Status, Ending: pointer.Ending, Kind: blockedBy, Direction: "in"})
 		}
 		for _, link := range own {
 			if link.Kind != blockedBy {
@@ -130,7 +130,7 @@ func derive(issues []tracker.Issue) []tracker.Issue {
 			add := func(ids []string) {
 				for _, id := range ids {
 					blocker := byID[id]
-					if blocker == nil || blocker.Status == closedStatus {
+					if blocker == nil || !tracker.Blocks(blocker.Status, blocker.Ending) {
 						continue
 					}
 					had := false

@@ -65,7 +65,7 @@ const pullRequestsSchema = z.array(z.object({
 export async function verifyMergedPullRequest(
   path: string,
   { git, gh }: Dependencies = { git: readGit, gh: readGh },
-): Promise<{ message: string } | { message: null; recheck: () => Promise<string | null> }> {
+): Promise<{ message: string } | { message: null; commit: string; recheck: () => Promise<string | null> }> {
   const pending = (why: string) => ({ message: `PR delivery is still pending: ${why}` });
   try {
     const [branch, head, remote, status] = await Promise.all([
@@ -132,7 +132,7 @@ export async function verifyMergedPullRequest(
       }
     };
     const changed = await recheck();
-    return changed === null ? { message: null, recheck } : { message: changed };
+    return changed === null ? { message: null, commit: head, recheck } : { message: changed };
   } catch (cause) {
     return pending(`merge evidence could not be read: ${cause instanceof Error ? cause.message : String(cause)}`);
   }

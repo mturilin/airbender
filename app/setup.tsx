@@ -304,15 +304,15 @@ function setupSteps(status: SetupStatus): SetupStep[] {
           key: "init",
           action: "init" as const,
           option: null,
-          label: onGitHub ? "Sign in to GitHub" : "Set up beads in this folder",
+          label: status.issuesStep?.label ?? (onGitHub ? "Sign in to GitHub" : "Set up beads in this folder"),
           // Where it cannot be done, the reason is said here: a step that
           // cannot be started opens no confirmation to say it in.
           why:
             status.issuesBlocked !== null && status.bdInstalled && status.trackerChosen
               ? status.issuesBlocked
-              : onGitHub
+              : status.issuesStep?.why ?? (onGitHub
                 ? "There is no GitHub login on this computer. Issues on GitHub are read and changed as you."
-                : "This folder has no issue database yet. Setting it up lets you track issues here.",
+                : "This folder has no issue database yet. Setting it up lets you track issues here."),
           needed:
             status.bdInstalled && bendReady && status.trackerChosen && !status.folderReady,
           blocked: status.folderReady
@@ -328,7 +328,7 @@ function setupSteps(status: SetupStatus): SetupStep[] {
                     : running,
           // Signing in has words of its own; setting beads up keeps the
           // confirmation written for it.
-          ...(onGitHub
+          ...(status.issuesStep != null ? { explain: status.issuesStep.explain } : onGitHub
             ? {
                 explain: {
                   lead: "Runs `gh auth login` in a terminal.",

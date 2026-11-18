@@ -115,6 +115,12 @@ func FormatIssue(issue tracker.Issue) string {
 	if issue.CloseReason != "" {
 		lines = append(lines, "Closed because: "+issue.CloseReason)
 	}
+	if issue.Ending != "" {
+		lines = append(lines, "Ending: "+issue.Ending)
+	}
+	if issue.ClosedAt != nil {
+		lines = append(lines, "Closed at: "+*issue.ClosedAt)
+	}
 	block := func(heading string, items []string) {
 		if len(items) == 0 {
 			return

@@ -25,6 +25,7 @@
 //   runs this file directly in the tests.
 
 import { CLOSED_STATUS } from "../shared/constants.ts";
+import { blocksWork } from "../shared/closing.ts";
 import { WORKFLOW_IDS, workflowFor } from "../shared/workflows.ts";
 import type { TrackerIssue } from "./bend.ts";
 import type { Issue, IssueLink } from "./contract.ts";
@@ -190,7 +191,8 @@ export function toIssues(found: TrackerIssue[]): Issue[] {
     if (!isOpen(issue)) continue;
     for (const link of issue.links) {
       if (link.kind !== BLOCKED_BY || link.direction !== "out") continue;
-      if (!isOpen(link)) continue;
+      const blocker = byId.get(link.id);
+      if (blocker === undefined || !blocksWork(blocker)) continue;
       const held = blocks.get(link.id) ?? [];
       held.push({ id: issue.id, title: issue.title });
       blocks.set(link.id, held);
@@ -237,6 +239,8 @@ export function toIssues(found: TrackerIssue[]): Issue[] {
     acceptance: issue.done,
     notes: issue.notes,
     closeReason: issue.closeReason,
+    ending: issue.ending as Issue["ending"] ?? (issue.status === CLOSED_STATUS ? "done" : null),
+    closedAt: issue.closedAt ?? null,
     commentCount: issue.commentCount,
     // An older bend says nothing of it: nothing waits.
     unsent: typeof issue.unsent === "number" ? issue.unsent : 0,
