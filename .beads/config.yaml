@@ -73,5 +73,4 @@
 
 sync:
     remote: "git+https://github.com/mturilin/airbender.git"
-
 events-journal: true
