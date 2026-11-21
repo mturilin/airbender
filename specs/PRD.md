@@ -149,6 +149,11 @@ When something the panel needs is missing, the panel offers to set it up.
      SHA-256 checksum before installation; Go is not required. Source
      builds remain available for other platforms. It runs in a terminal
      the owner can watch, when the owner presses it. `[c9l.4]` `[bk2]`
+     **Releases are published automatically**: a change to `bend` on the
+     main branch is released by itself, so the plugin installed from main
+     never needs a `bend` that no release has. A change in which the plugin
+     needs a newer `bend` than the `bend` beside it fails its checks.
+     `[vqw]`
   2. **Set up beads in this folder**, when the folder has no issue database.
      This is the most important one. **It sets up the issues only, and none
      of the tracker's own instructions for agents.** `[c9l.8]` **Beads asks
@@ -1771,6 +1776,13 @@ breaking a requirement above.
   output for programs change; the panel treats a `bend` older than it needs
   as missing and offers "Update bend", or "Build bend again" for a source
   build. `[c9l.4]` `[bk2]`
+- bend releases: a push to main that changes `bend` raises the plugin's
+  patch number, commits that to main as "Release vX.Y.Z", tags it and
+  publishes the binaries; a version raised by hand is released as it is,
+  and a release tag pushed by hand still publishes. Setup still downloads
+  the release matching the plugin's version, never the newest. The check
+  that the plugin needs no newer `bend` than its own runs in the tests and
+  in the release run. `[vqw]`
 - bend: for programs, a failure says which kind it is: refused, asked
   wrongly, not supported, the tracker's program is missing, the folder has
   no tracker, or there is no login. A quick form of status says the

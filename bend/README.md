@@ -60,8 +60,14 @@ an existing binary untouched. Other platforms retain "Build bend", using
 Go 1.24 or later and the source command above. The same source command can
 also be run manually on supported platforms.
 
-Release tags `vX.Y.Z` must match the plugin's `package.json` version. The
-release workflow tests bend and builds four CGO-free binaries:
+Releases are made by [the release workflow](../.github/workflows/release.yml).
+A push to main that changes bend raises the patch number in `package.json`,
+commits it as "Release vX.Y.Z", tags it and publishes; pull afterwards, as
+main has moved one commit. A version raised by hand is released as it is,
+and a tag pushed by hand still publishes. Tags `vX.Y.Z` must match the
+plugin's `package.json` version. The workflow first fails if the plugin's
+`NEEDED_VERSION` is above bend's `Version` (`npm test` checks the same), then
+tests bend and builds four CGO-free binaries:
 `bend-linux-amd64`, `bend-linux-arm64`, `bend-darwin-amd64` and
 `bend-darwin-arm64`, each with a `.sha256` file. The tab's installer never
 selects "latest" and never replaces a binary before its checksum is verified.

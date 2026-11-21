@@ -1,13 +1,53 @@
-# What: builds and publishes bend binaries when a plugin release tag is pushed.
-# Why: Linux/macOS users should not need Go to install Airbender (bead-bb-bk2).
-# Design: raw, CGO-free binaries and individual SHA-256 files; setup pins the
-# download to package.json. Releases are immutable: a rerun never clobbers one.
-# Gotchas: tag vX.Y.Z must match package.json, and the reviewed commit must be
-# tagged only after the owner approves publication. GitHub hosts the assets.
+# What: publishes bend binaries as a GitHub release, by itself when main
+# changes bend, or when a release tag is pushed by hand.
+#
+# Why: the plugin is installed from main, and its setup step downloads the
+# bend release whose number matches package.json. When main came to need a
+# newer bend and nobody published a release, every new machine was stuck
+# with a bend too old for the plugin (bead-bb-vqw). Releases by hand had
+# been the only way (bead-bb-bk2).
+#
+# Design notes:
+#   - A push to main that touches bend (or the plugin's needed bend version,
+#     or this file) runs "prepare". It first checks that the plugin does not
+#     need a newer bend than the code's bend reports, and fails loudly if it
+#     does: that mismatch is what stranded the machines.
+#   - Then it decides: if no tag exists yet for package.json's version (the
+#     owner raised it by hand), that version is released as it is. If the
+#     tag exists and bend has not changed since it, nothing is released.
+#     Otherwise the patch number is raised in package.json and
+#     package-lock.json, committed to main as "Release vX.Y.Z", tagged, and
+#     pushed in one atomic push.
+#   - setup keeps downloading the release matching package.json, never
+#     "latest": an older plugin never gets a bend newer than it was written
+#     for.
+#   - "publish" builds from the tag, not from the pushed commit, so the
+#     binaries are exactly what the tag names.
+#   - A tag pushed by hand still releases, as before; a tag pushed from here
+#     with the workflow's token starts no second run (GitHub does not start
+#     workflows from that token's pushes), so nothing is published twice.
+#   - Releases are immutable: a rerun never clobbers one.
+#
+# Gotchas:
+#   - After an automatic release, the local main is one commit behind:
+#     pull before the next push.
+#   - For the minute or two between a push and its release, main needs a
+#     bend no release has yet.
+#   - If main moves while "prepare" runs, its push is refused and the run
+#     fails; the run of the newer push does the release instead.
+#   - If "publish" fails after the tag was pushed, rerun the failed job: a
+#     new run sees the tag and bend unchanged since it, and releases nothing.
+#   - Path filters do not apply to tag pushes; every v* tag runs "publish".
 name: Release bend
 
 on:
   push:
+    branches: [main]
+    paths:
+      - "bend/**"
+      - "server/bend.ts"
+      - "package.json"
+      - ".github/workflows/release.yml"
     tags: ["v*"]
 
 permissions:
@@ -18,14 +58,74 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  release:
+  prepare:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.decide.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The newest main, not the pushed commit: runs wait for each other,
+          # and a later run must see the release commit of an earlier one.
+          ref: ${{ github.ref_type == 'tag' && github.ref || 'main' }}
+          fetch-depth: 0
+      - name: Check the plugin does not need a newer bend than the code's
+        run: |
+          set -eu
+          needed=$(sed -nE 's/^export const NEEDED_VERSION = ([0-9]+);$/\1/p' server/bend.ts)
+          offered=$(sed -nE 's/^const Version = ([0-9]+)$/\1/p' bend/internal/cli/run.go)
+          test -n "$needed" && test -n "$offered" || {
+            echo "Could not read NEEDED_VERSION (server/bend.ts) or Version (bend/internal/cli/run.go)." >&2
+            exit 1
+          }
+          test "$needed" -le "$offered" || {
+            echo "The plugin needs bend $needed, but the bend in the code reports $offered. Raise Version in bend/internal/cli/run.go." >&2
+            exit 1
+          }
+      - name: Decide the release, and make its commit and tag
+        id: decide
+        run: |
+          set -eu
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          current="v$(node -p 'require("./package.json").version')"
+          if ! git rev-parse -q --verify "refs/tags/$current" > /dev/null; then
+            # Raised by hand: release that version as it is.
+            git tag "$current"
+            git push origin "refs/tags/$current"
+            echo "tag=$current" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if git diff --quiet "$current" HEAD -- bend/; then
+            echo "bend has not changed since $current; nothing to release."
+            exit 0
+          fi
+          npm version patch --no-git-tag-version > /dev/null
+          next="v$(node -p 'require("./package.json").version')"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json
+          git commit -m "Release $next"
+          git tag "$next"
+          git push --atomic origin HEAD:refs/heads/main "refs/tags/$next"
+          echo "tag=$next" >> "$GITHUB_OUTPUT"
+
+  publish:
+    needs: prepare
+    if: needs.prepare.outputs.tag != ''
     runs-on: ubuntu-latest
     permissions:
       contents: write
     env:
-      BEND_TAG: ${{ github.ref_name }}
+      BEND_TAG: ${{ needs.prepare.outputs.tag }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ needs.prepare.outputs.tag }}
       - uses: actions/setup-go@v7
         with:
           go-version-file: bend/go.mod
