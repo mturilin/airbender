@@ -104,6 +104,16 @@ issues of the folder the conversation works in, grouped by what you can do
 about them: in progress, ready, blocked, other, and closed. It follows
 changes made anywhere, by an agent or by you in a terminal, by itself.
 
+Opening or refreshing the tab does not start sizing agents, resume Autopilot,
+rename conversations, or send queued tracker writes. Pending local changes
+remain visible. Use the issue menu to request sizing and **Sync now** to send
+queued changes explicitly. Autopilot pauses after a plugin reload until you
+turn it on again.
+
+In a Git worktree, tracker lookup stays inside the owning repository and uses
+the canonical main checkout's Beads store. Unrelated ancestor `.beads` folders
+are not trackers for that repository. Invalid Git ownership fails visibly.
+
 ### The workflow
 
 On the **Standard** workflow every issue goes through the same steps to be
@@ -164,12 +174,16 @@ the whole issue.
 ### Branches, work trees and epics
 
 - **Start in branch** does the issue's work on a branch of its own in the
-  same conversation, and "Commit & merge" lands it, pushes main and deletes
-  the branch.
+  same conversation. **Commit & merge** pushes that branch and uses the
+  repository's normal pull-request, review, CI and merge-queue requirements.
+  It never pushes directly to the target branch or bypasses protection.
 - **Start in worktree** opens a new conversation for the issue in a work
-  tree BB makes, so several issues can be worked at once. At the end the
-  agent brings main into its branch, lands it, and Airbender archives the
-  conversation and removes the work tree and the branch.
+  tree BB makes, so several issues can be worked at once. Completion requires
+  a merged GitHub PR matching origin, the current branch and exact HEAD in a
+  clean checkout, targeting the repository's default branch. An open or queued
+  PR, unsupported host, unavailable authentication or uncertain evidence leaves the issue
+  pending. Airbender retains the conversation, worktree and branch; cleanup is
+  an explicit user action after delivery.
 - **Epics** are issues with sub-issues, to any depth. Drag an issue onto
   another to nest it. **Start epic in branch** or **in worktree** gives the
   whole epic one branch and zooms the tab in on it. **Autopilot** then
@@ -243,13 +257,19 @@ the tab's setup do it. [bend/README.md](bend/README.md) has the whole
 story: setting a repository up from a terminal, the local copy, syncing,
 the JSON output for programs, and the tests.
 
+This version requires bend protocol 14 for the combined observation-only cache
+refresh and recorded close-ending contract. The two protocol-13 lineages each
+lack one capability and are rejected. Rebuild bend alongside the plugin;
+building source does not update an already installed plugin or helper.
+
 ## Settings
 
 In BB under Tools, then Airbender.
 
 - **bd command**: name or path of the beads tool, only if BB cannot find it.
-- **Size issues in the background**, and the **provider** and **model** the
-  sizing agent runs on (by default Claude Code and a small Claude model).
+- **Sizing provider** and **Sizing model**: used only when you explicitly
+  select **Size in the background** on an issue. List refreshes never request
+  sizing, including when an older installation saved automatic sizing as on.
 - **GitHub token**: optional, for "Import / export GitHub issues"; by default
   the `gh` command's sign-in is used and nothing is stored.
 

@@ -64,6 +64,9 @@ func folder(t *testing.T, root, name string, files ...string) string {
 // where git is not available.
 func runGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skipf("git is not available: %v", err)
+	}
 	command := exec.Command("git", args...)
 	command.Dir = dir
 	command.Env = append(os.Environ(),
@@ -71,7 +74,7 @@ func runGit(t *testing.T, dir string, args ...string) {
 		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.com",
 		"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.com")
 	if out, err := command.CombinedOutput(); err != nil {
-		t.Skipf("git is not available: %v\n%s", err, out)
+		t.Fatalf("git %v failed: %v\n%s", args, err, out)
 	}
 }
 
@@ -240,5 +243,220 @@ func TestSettingFileThatCannotBeUnderstood(t *testing.T) {
 	_, err = found(folder(t, root, "github-nowhere", SettingFile, `{"tracker": "github"}`))
 	if err == nil || !strings.Contains(err.Error(), "which repository cannot be told") {
 		t.Fatalf("got %v", err)
+	}
+}
+
+func linkedFolders(t *testing.T, root string) (string, string) {
+	t.Helper()
+	main := folder(t, root, "main")
+	tree := filepath.Join(root, "tree")
+	runGit(t, main, "init", "-q")
+	runGit(t, main, "commit", "-q", "--allow-empty", "-m", "start")
+	runGit(t, main, "worktree", "add", "-q", tree, "-b", "tree")
+	return main, tree
+}
+
+func TestLinkedWorktreeIgnoresAncestorMarkersAndRunsInCanonicalStore(t *testing.T) {
+	t.Setenv(LiveVariable, "1")
+	for _, ancestor := range []string{"beads", "github", "invalid-setting"} {
+		t.Run(ancestor, func(t *testing.T) {
+			root := base(t)
+			main, tree := linkedFolders(t, root)
+			folder(t, main, ".beads")
+			// A worktree may contain checked-in metadata, not its own database.
+			folder(t, tree, ".beads")
+			switch ancestor {
+			case "beads":
+				folder(t, root, ".beads")
+			case "github":
+				folder(t, root, ".", SettingFile, `{"tracker":"github","repository":"other/board"}`)
+			case "invalid-setting":
+				folder(t, root, ".", SettingFile, "{")
+			}
+			start := folder(t, tree, "deep/inside")
+			logFile := filepath.Join(root, "bd-log")
+			t.Setenv("DETECT_BD_LOG", logFile)
+			program := filepath.Join(root, "synthetic-bd")
+			script := "#!/bin/sh\nprintf '%s\\n' \"$PWD\" \"$*\" >> \"$DETECT_BD_LOG\"\n" +
+				"if [ \"$1\" = create ]; then printf '{\"id\":\"test-1\"}\\n'; else printf '[]\\n'; fi\n"
+			if err := os.WriteFile(program, []byte(script), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			result, err := Tracker(start, Options{BdCommand: program, GitHubClient: standIn})
+			if err != nil || result.Root != main || result.Tracker.About().Tracker != "beads" {
+				t.Fatalf("got %#v, %v; want canonical beads root %s", result, err, main)
+			}
+			if _, err := result.Tracker.List(tracker.ListFilter{}); err != nil {
+				t.Fatal(err)
+			}
+			if id, err := result.Tracker.Create(tracker.Draft{Title: "test"}); err != nil || id != "test-1" {
+				t.Fatalf("create got %q, %v", id, err)
+			}
+			logged, err := os.ReadFile(logFile)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := main + "\n--readonly list --all --json --limit 0\n" +
+				main + "\n--readonly list --all --json --limit 0\n" +
+				main + "\ncreate --json --title test\n"
+			if string(logged) != want {
+				t.Fatalf("child commands:\n%s\nwant:\n%s", logged, want)
+			}
+		})
+	}
+}
+
+func TestCanonicalSettingPrecedesWorktreeBeadsMetadata(t *testing.T) {
+	root := base(t)
+	main, tree := linkedFolders(t, root)
+	folder(t, main, ".", ".beads/", "", SettingFile, `{"tracker":"github","repository":"team/board"}`)
+	folder(t, tree, ".beads")
+	runGit(t, main, "remote", "add", "origin", "git@github.com:someone/thing.git")
+	for _, dir := range []string{main, folder(t, tree, "deep/inside")} {
+		expect(t, dir, "team/board")
+		expect(t, dir, "beads", "beads")
+	}
+}
+
+func TestRepositorySettingPrecedesSubdirectoryBeadsMetadata(t *testing.T) {
+	root := folder(t, base(t), "repo", SettingFile, `{"tracker":"github","repository":"team/board"}`)
+	runGit(t, root, "init", "-q")
+	expect(t, folder(t, root, "deep", ".beads/", ""), "team/board")
+}
+
+func TestNestedRepositoryDoesNotInheritEnclosingTracker(t *testing.T) {
+	for _, marker := range []string{"beads", "setting"} {
+		t.Run(marker, func(t *testing.T) {
+			outer := folder(t, base(t), "outer")
+			runGit(t, outer, "init", "-q")
+			if marker == "beads" {
+				folder(t, outer, ".beads")
+			} else {
+				folder(t, outer, ".", SettingFile, `{"tracker":"github","repository":"other/board"}`)
+			}
+			inner := folder(t, outer, "inner")
+			runGit(t, inner, "init", "-q")
+			for _, start := range []string{inner, folder(t, inner, "deep/inside")} {
+				if _, err := Tracker(start, Options{GitHubClient: standIn}); tracker.KindOf(err) != tracker.KindNotSetUp {
+					t.Fatalf("in %s: got %v; want no tracker inherited", start, err)
+				}
+			}
+			runGit(t, inner, "remote", "add", "origin", "git@github.com:inner/issues.git")
+			expect(t, inner, "inner/issues")
+			folder(t, inner, ".beads")
+			result, err := Tracker(inner, Options{})
+			if err != nil || result.Root != inner {
+				t.Fatalf("got %#v, %v; want inner root %s", result, err, inner)
+			}
+		})
+	}
+}
+
+func TestInvalidRepositoryCannotFallBackToAncestorTracker(t *testing.T) {
+	root := folder(t, base(t), "outer", ".beads/", "")
+	broken := folder(t, root, "broken", ".git", "gitdir: missing\n")
+	_, err := Tracker(folder(t, broken, "deep"), Options{})
+	if tracker.KindOf(err) != tracker.KindRefused {
+		t.Fatalf("got %v; want visible invalid-repository refusal", err)
+	}
+}
+
+func TestFileIsNotATrackerFolder(t *testing.T) {
+	root := folder(t, base(t), "plain", ".beads", "not a directory")
+	if _, err := Tracker(root, Options{Accept: []string{"beads"}}); tracker.KindOf(err) != tracker.KindRefused {
+		t.Fatalf("got %v; want invalid-store refusal", err)
+	}
+	_, err := Tracker(filepath.Join(root, ".beads"), Options{})
+	if tracker.KindOf(err) != tracker.KindRefused {
+		t.Fatalf("got %v; want invalid-folder refusal", err)
+	}
+}
+
+func TestBeadsChildUsesOwningRootFromSubdirectory(t *testing.T) {
+	t.Setenv(LiveVariable, "1")
+	for _, useGit := range []bool{false, true} {
+		name := "standalone"
+		if useGit {
+			name = "git"
+		}
+		t.Run(name, func(t *testing.T) {
+			root := folder(t, base(t), "repo", ".beads/", "")
+			if useGit {
+				runGit(t, root, "init", "-q")
+			}
+			start := folder(t, root, "deep/inside")
+			program := filepath.Join(root, "synthetic-bd")
+			logFile := filepath.Join(root, "bd-log")
+			t.Setenv("DETECT_BD_LOG", logFile)
+			script := "#!/bin/sh\nprintf '%s\\n' \"$PWD\" \"$*\" > \"$DETECT_BD_LOG\"\nprintf '[]\\n'\n"
+			if err := os.WriteFile(program, []byte(script), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			result, err := Tracker(start, Options{BdCommand: program})
+			if err != nil || result.Root != root {
+				t.Fatalf("got %#v, %v; want owner %s", result, err, root)
+			}
+			if _, err := result.Tracker.List(tracker.ListFilter{}); err != nil {
+				t.Fatal(err)
+			}
+			logged, err := os.ReadFile(logFile)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if want := root + "\n--readonly list --all --json --limit 0\n"; string(logged) != want {
+				t.Fatalf("child got %q, want %q", logged, want)
+			}
+		})
+	}
+}
+
+func TestInvalidCanonicalSettingCannotFallBackToWorktreeMetadata(t *testing.T) {
+	main, tree := linkedFolders(t, base(t))
+	folder(t, main, ".", SettingFile, "{")
+	folder(t, tree, ".beads")
+	if _, err := Tracker(tree, Options{}); tracker.KindOf(err) != tracker.KindRefused {
+		t.Fatalf("got %v; want invalid-setting refusal", err)
+	}
+}
+
+func TestExplicitWorktreeSettingOverridesCanonicalSetting(t *testing.T) {
+	main, tree := linkedFolders(t, base(t))
+	folder(t, main, ".", SettingFile, `{"tracker":"github","repository":"team/board"}`)
+	folder(t, tree, ".", SettingFile, `{"tracker":"github","repository":"team/branch"}`)
+	expect(t, folder(t, tree, "deep"), "team/branch")
+}
+
+func TestSeparateGitDirectoryKeepsTheWorkingFolderAsOwner(t *testing.T) {
+	root := base(t)
+	main := folder(t, root, "main", ".beads/", "")
+	runGit(t, main, "init", "-q", "--separate-git-dir", filepath.Join(root, "metadata"))
+	result, err := Tracker(folder(t, main, "deep"), Options{})
+	if err != nil || result.Root != main {
+		t.Fatalf("got %#v, %v; want owner %s", result, err, main)
+	}
+}
+
+func TestStandaloneStorePrecedesUnrelatedAncestorSetting(t *testing.T) {
+	for _, setting := range []string{`{"tracker":"github","repository":"other/board"}`, "{"} {
+		root := folder(t, base(t), "outer", SettingFile, setting)
+		owner := folder(t, root, "standalone", ".beads/", "")
+		result, err := Tracker(folder(t, owner, "deep"), Options{GitHubClient: standIn})
+		if err != nil || result.Root != owner || result.Tracker.About().Tracker != "beads" {
+			t.Fatalf("ancestor setting %q: got %#v, %v; want standalone owner %s", setting, result, err, owner)
+		}
+	}
+}
+
+func TestLinkedWorktreeWithSeparateGitDirectoryUsesCanonicalStore(t *testing.T) {
+	root := base(t)
+	main := folder(t, root, "main", ".beads/", "")
+	runGit(t, main, "init", "-q", "--separate-git-dir", filepath.Join(root, "metadata"))
+	runGit(t, main, "config", "core.worktree", main)
+	runGit(t, main, "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "--allow-empty", "-qm", "initial")
+	tree := filepath.Join(root, "linked")
+	runGit(t, main, "worktree", "add", "-q", "-b", "linked", tree)
+	result, err := Tracker(folder(t, tree, "deep"), Options{})
+	if err != nil || result.Root != main {
+		t.Fatalf("got %#v, %v; want canonical owner %s", result, err, main)
 	}
 }

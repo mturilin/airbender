@@ -908,7 +908,7 @@ func (kept *Tracker) Sync(full bool) (SyncResult, error) {
 	// A change recorded while the sync ran found the lock held, so nothing
 	// else will send it: this sync goes round again for it. A few times at
 	// most; what comes after that waits for the next sync.
-	for round := 0; round < 3 && err == nil && !result.Busy && result.Waiting > 0 && result.Problem == ""; round++ {
+	for round := 0; !kept.noSend && round < 3 && err == nil && !result.Busy && result.Waiting > 0 && result.Problem == ""; round++ {
 		var more SyncResult
 		more, err = kept.syncOnce(false)
 		result.Sent += more.Sent
@@ -992,7 +992,7 @@ func (kept *Tracker) syncOnce(full bool) (SyncResult, error) {
 	damaged := false
 	// --- Send, oldest first. A "not now" stops the sending, to keep the
 	// order; a "never" is put aside and the sending goes on.
-	for {
+	for !kept.noSend {
 		waiting, err := kept.readQueue()
 		if err != nil {
 			kept.putAside()

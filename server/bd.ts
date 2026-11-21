@@ -110,8 +110,7 @@ export function runBd(command: string, args: string[], cwd: string): Promise<BdR
  *   repository, or the command fails for any other reason. Callers treat
  *   null as "cannot tell".
  * Side effects: spawns a short-lived child process. Nothing is written:
- *   callers pass read-only commands only. The plugin changes git in one place
- *   only, deleteMergedBranch in server/folder.ts.
+ *   callers pass read-only commands only.
  */
 export function readGit(cwd: string, args: string[]): Promise<string | null> {
   return new Promise((resolve) => {

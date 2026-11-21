@@ -17,11 +17,10 @@
 //     accepted is passed over as if it were not there.
 //   - A folder with no supported tracker is a refusal with a plain message,
 //     not a guess.
-//   - A git work tree need not hold a `.beads` folder of its own: beads finds
-//     its database through git, in the repository's main folder. So when the
-//     walk upward finds nothing, the main folder is looked at too. Without
-//     this, the Airbender tab lost its issues in such a work tree, where
-//     running bd directly had shown them.
+//   - Git bounds are resolved before inspecting tracker metadata. A nested
+//     repository never inherits an enclosing repository's tracker. Linked
+//     worktrees consult the canonical repository's setting and store before
+//     falling back to worktree metadata.
 //
 // Gotchas:
 //   - Nothing is sent to GitHub here, and bd is not run: finding the tracker
@@ -97,21 +96,84 @@ func git(dir string, args ...string) (output string, ok bool) {
 	return strings.TrimSpace(string(out)), true
 }
 
-// mainFolderOf gives the main folder of the git repository a folder is a
-// work tree of; "" when the folder is not in a git repository, when git is
-// not installed, and when it cannot be told.
-//
-// Side effects: one read-only git command.
-func mainFolderOf(dir string) string {
-	common, ok := git(dir, "rev-parse", "--git-common-dir")
-	if !ok || common == "" {
-		return ""
+// repositoryFolders resolves the enclosing worktree and its canonical main
+// folder before any tracker metadata is considered. No .git marker means a
+// non-Git folder; an invalid marker is a refusal, never an ancestor fallback.
+func repositoryFolders(start string) (root, main string, err error) {
+	for folder := start; ; folder = filepath.Dir(folder) {
+		_, statErr := os.Lstat(filepath.Join(folder, ".git"))
+		if statErr == nil {
+			root = folder
+			break
+		}
+		if !os.IsNotExist(statErr) {
+			return "", "", tracker.Refused("The Git repository in %s could not be inspected: %v.", folder, statErr)
+		}
+		if filepath.Dir(folder) == folder {
+			return "", "", nil
+		}
 	}
-	// git answers relative to dir when the folder is the main one.
-	if !filepath.IsAbs(common) {
-		common = filepath.Join(dir, common)
+	top, ok := git(start, "rev-parse", "--show-toplevel")
+	if !ok {
+		return "", "", tracker.Refused("The Git repository in %s could not be resolved. Check its .git metadata and that git is installed.", root)
 	}
-	return filepath.Dir(filepath.Clean(common))
+	top, err = filepath.EvalSymlinks(top)
+	if err != nil || top != root {
+		return "", "", tracker.Refused("The Git repository in %s has an inconsistent worktree root.", root)
+	}
+	common, commonOK := git(start, "rev-parse", "--git-common-dir")
+	gitDir, dirOK := git(start, "rev-parse", "--git-dir")
+	resolve := func(path string) (string, error) {
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(start, path)
+		}
+		return filepath.EvalSymlinks(path)
+	}
+	if !commonOK || !dirOK || common == "" || gitDir == "" {
+		return "", "", tracker.Refused("The Git repository in %s has no resolvable common directory.", root)
+	}
+	common, err = resolve(common)
+	if err != nil {
+		return "", "", tracker.Refused("The Git common directory for %s could not be resolved: %v.", root, err)
+	}
+	gitDir, err = resolve(gitDir)
+	if err != nil {
+		return "", "", tracker.Refused("The Git directory for %s could not be resolved: %v.", root, err)
+	}
+	if gitDir == common {
+		// Also supports a main worktree using --separate-git-dir.
+		return root, root, nil
+	}
+	// A separated common directory needs core.worktree: Git's worktree list
+	// reports the metadata directory itself for that layout.
+	main, configured := git(start, "config", "--local", "--path", "--get", "core.worktree")
+	if configured && main != "" {
+		if !filepath.IsAbs(main) {
+			main = filepath.Join(common, main)
+		}
+	} else {
+		worktrees, listed := git(start, "worktree", "list", "--porcelain", "-z")
+		first, _, _ := strings.Cut(worktrees, "\x00")
+		if !listed || !strings.HasPrefix(first, "worktree ") {
+			return "", "", tracker.Refused("The canonical main folder for Git worktree %s could not be identified.", root)
+		}
+		main = strings.TrimPrefix(first, "worktree ")
+	}
+	main, err = filepath.EvalSymlinks(main)
+	if err != nil {
+		return "", "", tracker.Refused("The canonical main folder for Git worktree %s could not be resolved: %v.", root, err)
+	}
+	mainTop, topOK := git(main, "rev-parse", "--show-toplevel")
+	mainCommon, mainOK := git(main, "rev-parse", "--git-common-dir")
+	if !filepath.IsAbs(mainCommon) {
+		mainCommon = filepath.Join(main, mainCommon)
+	}
+	mainTop, topErr := filepath.EvalSymlinks(mainTop)
+	mainCommon, commonErr := filepath.EvalSymlinks(mainCommon)
+	if !topOK || !mainOK || topErr != nil || commonErr != nil || mainTop != main || mainCommon != common {
+		return "", "", tracker.Refused("The canonical main folder for Git worktree %s could not be validated.", root)
+	}
+	return root, main, nil
 }
 
 // GithubRepositoryOf gives the repository on github.com that a folder's
@@ -143,24 +205,29 @@ func ParseGithubRemote(url string) string {
 	return match[1] + "/" + match[2]
 }
 
-// exists says whether a path is there.
-func exists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
-}
-
 // Tracker finds the tracker for a folder.
 //
-// dir is where to start looking; its parents are tried in turn.
-// Fails with the kind not-set-up when no accepted tracker is found; Refused
-// when the folder does not exist, or its setting file cannot be understood
-// or names GitHub without a repository that can be found.
-// Side effects: reads the file system; up to two read-only git commands
-// when the walk upward finds nothing. Nothing is sent to GitHub here.
+// Git metadata bounds the search to the owning repository. Outside Git,
+// parents are tried in turn, preserving standalone Beads folders.
+// Fails with not-set-up when no accepted tracker is found, or Refused for
+// invalid folders, repository metadata, or tracker settings.
+// Side effects: reads files and runs read-only git commands. No network.
 func Tracker(dir string, options Options) (Found, error) {
 	start, err := filepath.Abs(dir)
-	if err != nil || !exists(start) {
-		return Found{}, tracker.Refused("The folder %s does not exist.", start)
+	if err != nil {
+		return Found{}, tracker.Refused("The folder %s could not be resolved.", dir)
+	}
+	start, err = filepath.EvalSymlinks(start)
+	if err != nil {
+		return Found{}, tracker.Refused("The folder %s could not be resolved: %v.", dir, err)
+	}
+	info, err := os.Stat(start)
+	if err != nil || !info.IsDir() {
+		return Found{}, tracker.Refused("The folder %s is not a readable directory.", start)
+	}
+	root, main, err := repositoryFolders(start)
+	if err != nil {
+		return Found{}, err
 	}
 	accept := options.Accept
 	if len(accept) == 0 {
@@ -178,22 +245,16 @@ func Tracker(dir string, options Options) (Found, error) {
 		// PATH reaches yet.
 		bdCommand = beads.Find()
 	}
-	beadsIn := func(root, runIn string) Found {
-		// Beads writes to the main folder's `.beads`, from whichever work
-		// tree it is run; that is where its sign of change is.
-		home := root
-		if main := mainFolderOf(root); main != "" && exists(filepath.Join(main, ".beads")) {
-			home = main
-		}
-		adapter := beads.New(runIn, options.Actor, bdCommand).At(home)
+	beadsIn := func(root string) Found {
+		// Both reads and writes start at the validated store owner. Never
+		// ask bd to rediscover ownership from an unrelated ancestor.
+		adapter := beads.New(root, options.Actor, bdCommand).At(root)
 		// Asked directly for every command only when the caller wants it.
 		if os.Getenv(LiveVariable) != "" {
 			return Found{Root: root, Tracker: adapter}
 		}
-		// From a copy on this machine (bead-bb-c9l.14): a read then starts
-		// no bd. Reread from where the command ran, so that bd is started
-		// there as the caller would start it.
-		held := kept.Open(adapter, localcopy.FolderFor(root, "beads"), kept.Options{Warn: options.Warn})
+		// A local copy and its change marker share the same owning root.
+		held := kept.Open(adapter, localcopy.FolderFor(root, "beads"), kept.Options{Warn: options.Warn, NoSend: os.Getenv("BEND_NO_SEND") != ""})
 		kept.Opened(held, start)
 		return Found{Root: root, Tracker: held}
 	}
@@ -210,15 +271,36 @@ func Tracker(dir string, options Options) (Found, error) {
 		// (bead-bb-c9l.15): changes wait there and are sent afterwards.
 		// Synced from where the command ran, so that the same setting file
 		// and the same repository are found again.
-		held := kept.Open(adapter, localcopy.FolderFor(root, repository), kept.Options{Warn: options.Warn, Actor: options.Actor})
+		held := kept.Open(adapter, localcopy.FolderFor(root, repository), kept.Options{Warn: options.Warn, Actor: options.Actor, NoSend: os.Getenv("BEND_NO_SEND") != ""})
 		kept.Opened(held, start)
 		return Found{Root: root, Tracker: held}
 	}
-	// A setting file may name the repository without naming the tracker:
-	// "the remote is not where the issues are". The nearest one is kept for
-	// the case where the remote is what decides, below.
-	namedRepository := ""
+	// Resolve every applicable setting before inferred Beads markers. In a
+	// linked worktree this includes the canonical setting even if it was
+	// never checked in or the worktree has its own .beads metadata.
+	folders := []string{}
 	for folder := start; ; folder = filepath.Dir(folder) {
+		folders = append(folders, folder)
+		if folder == root || filepath.Dir(folder) == folder {
+			break
+		}
+	}
+	if main != "" && main != root {
+		folders = append(folders, main)
+	}
+	namedRepository := ""
+	beadsFolder := func(folder string) (bool, error) {
+		path := filepath.Join(folder, ".beads")
+		info, err := os.Stat(path)
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		if err != nil || !info.IsDir() {
+			return false, tracker.Refused("The Beads store %s is not a readable directory.", path)
+		}
+		return true, nil
+	}
+	for _, folder := range folders {
 		setting, err := ReadSetting(folder)
 		if err != nil {
 			return Found{}, err
@@ -228,7 +310,17 @@ func Tracker(dir string, options Options) (Found, error) {
 		}
 		if setting != nil && setting.Tracker != "" && slices.Contains(accept, setting.Tracker) {
 			if setting.Tracker == "beads" {
-				return beadsIn(folder, folder), nil
+				owner := folder
+				if main != "" {
+					hasMainStore, err := beadsFolder(main)
+					if err != nil {
+						return Found{}, err
+					}
+					if hasMainStore {
+						owner = main
+					}
+				}
+				return beadsIn(owner), nil
 			}
 			repository := setting.Repository
 			if repository == "" {
@@ -241,35 +333,42 @@ func Tracker(dir string, options Options) (Found, error) {
 			}
 			return githubIn(folder, repository), nil
 		}
-		if slices.Contains(accept, "beads") && exists(filepath.Join(folder, ".beads")) {
-			return beadsIn(folder, folder), nil
-		}
-		if filepath.Dir(folder) == folder {
-			break
+		if root == "" && slices.Contains(accept, "beads") {
+			// Standalone non-Git stores retain nearest-marker precedence.
+			hasStore, err := beadsFolder(folder)
+			if err != nil {
+				return Found{}, err
+			}
+			if hasStore {
+				return beadsIn(folder), nil
+			}
 		}
 	}
-	main := mainFolderOf(start)
-	if slices.Contains(accept, "beads") && main != "" && exists(filepath.Join(main, ".beads")) {
-		// Run where the caller is, as it would run bd itself: beads finds
-		// the main folder's database from a work tree.
-		return beadsIn(main, start), nil
+	if slices.Contains(accept, "beads") && root != "" {
+		// The canonical database wins over a worktree's metadata.
+		stores := folders
+		if main != root {
+			stores = append([]string{main}, folders[:len(folders)-1]...)
+		}
+		for _, folder := range stores {
+			hasStore, err := beadsFolder(folder)
+			if err != nil {
+				return Found{}, err
+			}
+			if hasStore {
+				return beadsIn(folder), nil
+			}
+		}
 	}
-	if slices.Contains(accept, "github") {
+	if slices.Contains(accept, "github") && root != "" {
 		if repository := GithubRepositoryOf(start); repository != "" {
 			if namedRepository != "" {
 				repository = namedRepository
 			}
-			// The folder the facts file sits in: the repository's main
-			// folder, which is where a work tree's checked-in files come
-			// from too.
-			root := main
-			if root == "" {
-				root = start
-			}
-			return githubIn(root, repository), nil
+			return githubIn(main, repository), nil
 		}
 	}
 	return Found{}, tracker.Failed(tracker.KindNotSetUp,
-		"No supported issue tracker was found in %s or the folders above it. Supported: beads (a .beads folder) and GitHub issues (a remote called origin on github.com, or a `.bend.json` setting file).",
+		"No supported issue tracker was found for %s within its repository or standalone parent folders. Supported: beads (a .beads folder) and GitHub issues (a remote called origin on github.com, or a `.bend.json` setting file).",
 		start)
 }

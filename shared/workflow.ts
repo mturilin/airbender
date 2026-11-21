@@ -124,6 +124,11 @@ export interface WorkflowMove {
   /** A note is required: why it is sent back, or why it is skipped. */
   needsNote?: boolean;
   /**
+   * Closing this move requires independently verified merged PR evidence.
+   * An open PR, passing checks, approval or queue admission is not a merge.
+   */
+  needsMergedPullRequest?: boolean;
+  /**
    * Offered only when the issue's work is on a branch of its own (see
    * WorkflowContext), e.g. a move that merges. It is a matter of what to
    * show: the move itself stays valid, since only the tab knows the branch.
@@ -413,6 +418,12 @@ export function movesFor(
     .sort((left, right) => Number(right.primary ?? false) - Number(left.primary ?? false));
 }
 
+/** Facts verified by the server, never taken from the move's note. */
+export interface WorkflowMoveContext {
+  /** A PR for the current repository, branch and HEAD has actually merged. */
+  mergedPullRequest?: boolean;
+}
+
 /**
  * Checks one requested move against the workflow.
  *
@@ -426,6 +437,7 @@ export function checkMove(
   moveId: string,
   by: Actor,
   note: string,
+  context?: WorkflowMoveContext,
 ): WorkflowMove | { message: string } {
   const state = stateOf(workflow, step);
   const open = movesFor(workflow, state.id, by);
@@ -449,6 +461,11 @@ export function checkMove(
   }
   if (move.needsNote === true && note.trim() === "") {
     return { message: `"${move.label}" needs a reason.` };
+  }
+  if (move.needsMergedPullRequest === true && context?.mergedPullRequest !== true) {
+    return {
+      message: "Delivery is still pending: a merged pull request for this branch and commit must be verified before closing the issue.",
+    };
   }
   return move;
 }

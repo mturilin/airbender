@@ -21,9 +21,9 @@
 // - Each move is recorded as a comment on the issue, with who made it and
 //   the note given: the issue's own history, shown in the tab.
 // - A move to "closed" is the only way the workflow ends. Open descendants
-//   must be closed separately first. Committing is not done here: it is a
-//   step of the workflow, done by the agent. The plugin changes git in one
-//   place only: a merged branch left by a work tree (server/work-trees.ts).
+//   must be closed separately first. Committing and PR delivery are done by
+//   the agent, following repository policy. Merged completion is independently
+//   verified here; this plugin never mutates git or cleans up work trees.
 // - Which issue a thread is on is separate from the workflow: setCurrent
 //   moves no step. It still tells the agent, with a note that asks for
 //   nothing.
@@ -58,6 +58,7 @@ import type { WorkflowChoice } from "./workflow-choice.ts";
 import type { Issue } from "./contract.ts";
 import type { CurrentBead } from "./current-bead.ts";
 import type { FolderRef, Outcome, Store } from "./store.ts";
+import { verifyMergedPullRequest as readMergedPullRequest } from "./pull-request.ts";
 
 /** Turns anything thrown into a sentence. */
 const reason = (cause: unknown) =>
@@ -123,6 +124,7 @@ export function createWork({
   hasUncommittedChanges,
   currentBranch,
   workTrees,
+  verifyMergedPullRequest = readMergedPullRequest,
   events = {},
 }: {
   bb: BbPluginApi;
@@ -140,6 +142,8 @@ export function createWork({
   currentBranch: (path: string) => Promise<string | null>;
   /** Conversations opened for one issue in a work tree of its own. */
   workTrees: WorkTrees;
+  /** Read-only merged-PR evidence; a non-null message leaves delivery pending. */
+  verifyMergedPullRequest?: typeof readMergedPullRequest;
   events?: WorkEvents;
 }) {
   const {
@@ -394,11 +398,47 @@ export function createWork({
     const { beadId, threadId } = input;
     const found = await openIssue(input, beadId);
     if ("message" in found) return fail(found.message);
-    const { issue, issues, path } = found;
+    let { issue, issues } = found;
+    const { path } = found;
     const workflow = workflowChoice.workflowFor(path);
     if (workflow === null) return fail(NO_STEPS_MESSAGE);
     const from = stateOf(workflow, issue.step);
-    const checked = checkMove(workflow, issue.step, input.moveId, by, input.note);
+    const candidate = movesFor(workflow, from.id, by).find((move) => move.id === input.moveId);
+    let mergedPullRequest = false;
+    let deliveryCommit: string | undefined;
+    let recheckDelivery: (() => Promise<string | null>) | undefined;
+    if (candidate?.needsMergedPullRequest === true) {
+      const evidence = await verifyMergedPullRequest(path);
+      if (evidence.message !== null) {
+        return { message: evidence.message, state: from, instruction: null, warning: true };
+      }
+      // Verification waits on the host. A concurrent send-back, workflow
+      // switch or checkout change must not be closed using the old snapshot.
+      const reread = await store.readIssues(path, true);
+      if (!("issues" in reread)) {
+        return fail("The issue could not be reread after PR verification; delivery remains pending.");
+      }
+      const current = await openIssue(input, beadId);
+      if ("message" in current) return fail(current.message);
+      if (
+        current.path !== path ||
+        workflowChoice.workflowFor(path) !== workflow ||
+        current.issue.step !== issue.step ||
+        current.issue.status !== issue.status ||
+        current.issue.branch !== issue.branch ||
+        current.issue.parentId !== issue.parentId ||
+        current.issue.size !== issue.size
+      ) {
+        return fail("The issue or its checkout changed during PR verification. Review its current state before completing delivery.");
+      }
+      ({ issue, issues } = current);
+      recheckDelivery = evidence.recheck;
+      mergedPullRequest = true;
+      deliveryCommit = evidence.commit;
+    }
+    const checked = checkMove(workflow, issue.step, input.moveId, by, input.note, {
+      mergedPullRequest,
+    });
     if ("message" in checked) return fail(checked.message);
     const warn = (message: string) => ({ ...fail(message), warning: true });
     const openSubIssues = descendantsOf(issue.id, issues).filter(
@@ -488,21 +528,24 @@ export function createWork({
       );
 
     if (checked.to === CLOSED) {
-      let commit: string | undefined;
-      try { commit = await reportedCloseCommit(path, note, issue.id, issue.title); }
-      catch (cause) { return fail(reason(cause)); }
+      let commit = deliveryCommit;
+      if (!mergedPullRequest) {
+        try { commit = await reportedCloseCommit(path, note, issue.id, issue.title); }
+        catch (cause) { return fail(reason(cause)); }
+      }
+      if (recheckDelivery !== undefined) {
+        const message = await recheckDelivery();
+        if (message !== null) return fail(message);
+      }
       const closed = await finish(input, issues, commit);
       // Recorded only when the issue really was closed.
       if (closed.message === null) {
         await record("closed");
-        // A landed epic's branch is gone: the record of it goes too, so
-        // that an issue of it reopened later is not sent to that branch.
+        // Release the epic's branch association, not the branch itself:
+        // reopened children must not be redirected to completed delivery.
         if (issue.branch !== null) {
           await setBranch(path, threadId, beadId, null, false);
         }
-        // Landed from a conversation opened for it in a work tree: that
-        // conversation, its tree and its branch are closed up.
-        if (threadId !== null) workTrees.landed(threadId, beadId);
         if (threadId !== null) events.closed?.(threadId);
       }
       return { ...closed, state: null, instruction: null };

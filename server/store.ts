@@ -196,12 +196,9 @@ export function createStore({
     const found = await trackerFor(path);
     if ("state" in found) return found;
     try {
-      // Every issue: the closed ones are shown too. Where changes are
-      // queued (a hosted tracker) bend's copy is never reread for a list:
-      // there a reread is a whole sync over the network, which bend runs
-      // in its own time, and which would make the list fail
-      // with the network off. The copy already holds every change made
-      // through bend.
+      // Keep queued observations usable offline. Protocol 14 pulls stale
+      // queued copies synchronously without sending writes; window focus
+      // retains that freshness window rather than forcing a network request.
       const queued = trackers.aboutOf(path)?.queued === true;
       const issues = await found.tracker.list(anew && !queued, passive);
       return { state: "ok", issues: toIssues(issues) };
@@ -218,8 +215,8 @@ export function createStore({
    *
    * @returns An `IssuesResult`; see its `state` for the possible outcomes.
    *   Never throws for expected problems.
-   * Side effects: beyond the read, starts watching the folder for outside
-   *   changes, and clears a current issue that has been closed.
+   * Side effects: starts watching the folder for outside changes. Closed
+   * current issues are hidden in the response without notifying title agents.
    */
   async function listIssues(
     input: FolderRef & { fresh?: boolean; passive?: boolean },
@@ -260,14 +257,8 @@ export function createStore({
     watchFolder(path, trackers.watchOf(path));
     const about = trackers.aboutOf(path);
     const { issues } = read;
-    // A closed issue is finished, so it is no longer what the thread works
-    // on. The tab's own close button clears it directly, but an issue can
-    // also be closed outside the plugin (an agent or the user running
-    // `bd close`), which this plugin never hears about. Catching it here, on
-    // the tab's next read, covers every route. The stored choice is removed
-    // as well as hidden so it does not come back if the issue is reopened.
-    // No change signal is published: the caller is already getting the
-    // corrected answer, and publishing would make every tab reload again.
+    // Derive the visible current issue without modifying thread state:
+    // storing a change here would notify title handlers during a read.
     const ok = {
       state: "ok" as const,
       path,
@@ -300,7 +291,6 @@ export function createStore({
       current !== undefined &&
       current.status === CLOSED_STATUS
     ) {
-      await currentBead.store(input.threadId, null);
       return { ...ok, currentBeadId: null };
     }
     return ok;

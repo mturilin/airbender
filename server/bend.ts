@@ -50,7 +50,7 @@ import type { SyncEntry, SyncState } from "../sync/types.ts";
 import type { ClosingOptions } from "../shared/closing.ts";
 
 /** The bend this plugin needs at least; see `Version` in bend's cli. */
-export const NEEDED_VERSION = 13;
+export const NEEDED_VERSION = 14;
 
 /** How long one run of bend may take. */
 const BEND_TIMEOUT_MS = 60_000;
@@ -240,6 +240,7 @@ export interface RunOptions {
  * @param path The folder bend is to work in (passed as -C).
  * @param env Added to the environment of every run.
  * Side effects: none until it is called; then one child process per call.
+ * Read commands never send queued tracker writes or start background helpers.
  */
 export function createRun(
   command: string,
@@ -264,6 +265,13 @@ export function createRun(
             ...env,
             ...(options.env ?? {}),
             ...(options.passive === true ? { BEND_PASSIVE: "1" } : {}),
+            ...(
+              ["list", "show", "comments", "status", "ready", "search", "recall"].includes(args[0] ?? "") ||
+              (args[0] === "sync" && (args.includes("--status") || args.includes("--log"))) ||
+              (args[0] === "refused" && !args.includes("--again") && !args.includes("--dismiss"))
+                ? { BEND_NO_SEND: "1", BEND_NO_BACKGROUND: "1" }
+                : {}
+            ),
           },
         },
         (error, stdout, stderr) => {
