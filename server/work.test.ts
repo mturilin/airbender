@@ -6,6 +6,7 @@ import { createWork } from "./work.ts";
 import { standardWorkflow } from "../shared/standard-workflow.ts";
 import type { Issue } from "./contract.ts";
 import type { ClosingOptions } from "../shared/closing.ts";
+import { localFolder } from "./machine.ts";
 
 /** Supplies only the boundaries used by these actions, retaining their writes. */
 function fixture(simple = true) {
@@ -15,7 +16,7 @@ function fixture(simple = true) {
   const work = createWork({
     bb: { sdk: { threads: { send: async ({ input }: { input: { text: string }[] }) => { sent.push(input[0]!.text); } } } },
     store: {
-      issuesIn: async () => ({ path: "/no-repo", issues }),
+      issuesIn: async () => ({ folder: localFolder("/no-repo"), path: "/no-repo", issues }),
       setIssueOpen: async (_: unknown, input: { closing: ClosingOptions }) => { closed.push(input.closing); return { message: null }; },
       changed: () => {}, addComment: async () => {},
     },

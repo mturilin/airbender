@@ -14,6 +14,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { createWatcher } from "./watch.ts";
+import { localFolder } from "./machine.ts";
 
 /** Long enough for a change to be noticed and the burst to settle. */
 const settled = () => new Promise((resolve) => setTimeout(resolve, 700));
@@ -35,19 +36,19 @@ test("a folder whose copy moved is watched in the new place, not the old", async
       onDispose: (run: () => void) => void (dispose = run),
     } as unknown as BbPluginApi);
 
-    watchFolder(root, { copy: first, sign: null });
+    watchFolder(localFolder(root), { copy: first, sign: null });
     writeFileSync(join(first, "issues.json"), "[1]");
     await settled();
     assert.equal(told, 1, "a change in the copy is told");
 
     // The same place again: nothing is replaced, and it still works.
-    watchFolder(root, { copy: first, sign: null });
+    watchFolder(localFolder(root), { copy: first, sign: null });
     writeFileSync(join(first, "sync-runs.json"), "[1]");
     await settled();
     assert.equal(told, 2, "a change in the log of syncs is told");
 
     // The tracker was switched: the copy is elsewhere.
-    watchFolder(root, { copy: second, sign: null });
+    watchFolder(localFolder(root), { copy: second, sign: null });
     writeFileSync(join(first, "issues.json"), "[2]");
     writeFileSync(join(first, "sync-runs.json"), "[2]");
     await settled();

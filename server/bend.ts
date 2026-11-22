@@ -42,10 +42,13 @@
 //   log and its searches for the programs are handed in.
 // - A missing folder and a missing program look the same to the operating
 //   system; callers check the folder first (folders.folderFor).
+// - bend runs on the machine the folder is on (bead-bb-fyv), through
+//   server/machine.ts; a machine that cannot be reached is the failure kind
+//   "unreachable", which the tab shows as the machine being offline.
 
-import { execFile } from "node:child_process";
-import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { folderKey, machineOf } from "./machine.ts";
+import type { Folder } from "./machine.ts";
 import type { SyncEntry, SyncState } from "../sync/types.ts";
 import type { ClosingOptions } from "../shared/closing.ts";
 
@@ -183,6 +186,7 @@ export interface Changes {
  * with something that is not its JSON.
  */
 export type FailureKind =
+  | "unreachable"
   | "refused"
   | "no-program"
   | "not-set-up"
@@ -236,79 +240,73 @@ export interface RunOptions {
 /**
  * Builds the runner of one bend program for one folder.
  *
- * @param command The bend program.
- * @param path The folder bend is to work in (passed as -C).
+ * @param folder The folder bend is to work in (passed as -C), and so the
+ *   machine it runs on.
+ * @param command The bend program, as that machine names it.
  * @param env Added to the environment of every run.
- * Side effects: none until it is called; then one child process per call.
+ * Side effects: none until it is called; then one process per call on the
+ *   folder's machine.
  */
 export function createRun(
+  folder: Folder,
   command: string,
-  path: string,
   env: Record<string, string> = {},
 ): Run {
-  return (args, input, options = {}) =>
-    new Promise((resolve, reject) => {
-      const child = execFile(
-        command,
-        ["-C", path, "--json", ...args],
-        {
-          timeout:
-            args[0] === "sync" && !args.includes("--status") && !args.includes("--log")
-              ? BEND_SYNC_TIMEOUT_MS
-              : LONG_COMMANDS.includes(args[0] ?? "")
-                ? BEND_LONG_TIMEOUT_MS
-                : BEND_TIMEOUT_MS,
-          maxBuffer: BEND_MAX_OUTPUT_BYTES,
-          env: {
-            ...process.env,
-            ...env,
-            ...(options.env ?? {}),
-            ...(options.passive === true ? { BEND_PASSIVE: "1" } : {}),
-          },
-        },
-        (error, stdout, stderr) => {
-          if (error !== null && (error as NodeJS.ErrnoException).code === "ENOENT") {
-            return reject(
-              new BendFailure("no-bend", `The bend program (${command}) was not found.`),
-            );
-          }
-          let parsed: unknown;
-          try {
-            parsed = JSON.parse(stdout);
-          } catch {
-            return reject(
-              new BendFailure(
-                "not-understood",
-                stderr.trim() || stdout.trim() || error?.message || "bend printed nothing.",
-              ),
-            );
-          }
-          if (error === null) return resolve(parsed);
-          // A command that did what it was asked and says, by its exit
-          // status too, that the outcome was not good (a sync that
-          // failed): its answer is the answer.
-          if (
-            options.answers !== undefined &&
-            (error as { code?: unknown }).code === options.answers &&
-            (parsed as { ok?: unknown } | null)?.ok !== false
-          ) {
-            return resolve(parsed);
-          }
-          const failed = parsed as { kind?: unknown; error?: unknown } | null;
-          if (
-            typeof failed === "object" &&
-            failed !== null &&
-            typeof failed.kind === "string" &&
-            typeof failed.error === "string"
-          ) {
-            return reject(new BendFailure(failed.kind as FailureKind, failed.error));
-          }
-          reject(new BendFailure("not-understood", stdout.trim()));
-        },
-      );
-      // Always closed, so that bend never waits for input it was not sent.
-      child.stdin?.end(input ?? "");
+  return async (args, input, options = {}) => {
+    const ran = await machineOf(folder).run({
+      program: command,
+      args: ["-C", folder.path, "--json", ...args],
+      cwd: null,
+      input: input ?? "",
+      timeoutMs:
+        args[0] === "sync" && !args.includes("--status") && !args.includes("--log")
+          ? BEND_SYNC_TIMEOUT_MS
+          : LONG_COMMANDS.includes(args[0] ?? "")
+            ? BEND_LONG_TIMEOUT_MS
+            : BEND_TIMEOUT_MS,
+      maxBytes: BEND_MAX_OUTPUT_BYTES,
+      env: {
+        ...env,
+        ...(options.env ?? {}),
+        ...(options.passive === true ? { BEND_PASSIVE: "1" } : {}),
+      },
     });
+    if (ran.kind === "not-found") {
+      throw new BendFailure("no-bend", `The bend program (${command}) was not found.`);
+    }
+    if (ran.kind === "unreachable") throw new BendFailure("unreachable", ran.message);
+    const { stdout, stderr, error, exitCode } = ran;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(stdout);
+    } catch {
+      throw new BendFailure(
+        "not-understood",
+        stderr.trim() || stdout.trim() || error || "bend printed nothing.",
+      );
+    }
+    if (error === null) return parsed;
+    // A command that did what it was asked and says, by its exit status
+    // too, that the outcome was not good (a sync that failed): its answer
+    // is the answer.
+    if (
+      options.answers !== undefined &&
+      exitCode === options.answers &&
+      (parsed as { ok?: unknown } | null)?.ok !== false
+    ) {
+      return parsed;
+    }
+    const failed = parsed as { kind?: unknown; error?: unknown } | null;
+    if (
+      typeof failed === "object" &&
+      failed !== null &&
+      typeof failed.kind === "string" &&
+      typeof failed.error === "string"
+    ) {
+      throw new BendFailure(failed.kind as FailureKind, failed.error);
+    }
+    throw new BendFailure("not-understood", stdout.trim());
+  };
 }
 
 /** The operations the tab's store asks of a folder's tracker. */
@@ -517,10 +515,11 @@ export interface Problem {
    * no-bd: the beads program is not on this machine, and the folder's
    * tracker is beads. no-bend: the bend program is not, or is too old.
    * no-beads: the folder has no tracker chosen or set up. no-login: the
-   * tracker needs a sign-in there is none of (GitHub). error: anything
-   * else; the message says what.
+   * tracker needs a sign-in there is none of (GitHub). offline: the
+   * folder's machine cannot be reached. error: anything else; the message
+   * says what.
    */
-  state: "no-bd" | "no-bend" | "no-beads" | "no-login" | "error";
+  state: "no-bd" | "no-bend" | "no-beads" | "no-login" | "offline" | "error";
   /** The reason in plain words, for the tab to show. */
   message: string;
 }
@@ -528,6 +527,10 @@ export interface Problem {
 /** What the tab says about a folder that has no tracker in it. */
 const NOT_SET_UP_MESSAGE =
   "This folder has no issue tracker set up yet. Set it up to start tracking issues here.";
+
+/** What the tab says when a machine cannot be reached and BB gives no reason. */
+const UNREACHABLE_MESSAGE =
+  "The machine this folder is on cannot be reached. Its issues show here again when it is back.";
 
 /** What the tab says when bend's answer could not be read. */
 const NOT_UNDERSTOOD_MESSAGE =
@@ -543,12 +546,12 @@ const NOT_UNDERSTOOD_MESSAGE =
  */
 export async function findBendAmong(
   candidates: string[],
-  cwd: string,
-): Promise<string | "missing" | "old"> {
+  folder: Folder,
+): Promise<string | "missing" | "old" | "unreachable"> {
   let old = false;
   for (const candidate of candidates) {
     try {
-      const said = (await createRun(candidate, cwd)(["version"])) as {
+      const said = (await createRun(folder, candidate)(["version"])) as {
         version?: unknown;
       };
       if (typeof said.version === "number" && said.version >= NEEDED_VERSION) {
@@ -556,6 +559,8 @@ export async function findBendAmong(
       }
       old = true;
     } catch (cause) {
+      // The machine cannot be reached: no candidate can be tried.
+      if (cause instanceof BendFailure && cause.kind === "unreachable") return "unreachable";
       // Not there: try the next. There but not answering as bend does (the
       // launcher of the TypeScript bend, say): an old one.
       if (!(cause instanceof BendFailure && cause.kind === "no-bend")) old = true;
@@ -582,16 +587,16 @@ export function createTrackers({
   bendMessages,
   warn,
 }: {
-  findBd: (path: string) => Promise<string | null>;
-  findBend: (path: string) => Promise<string | "missing" | "old">;
+  findBd: (folder: Folder) => Promise<string | null>;
+  findBend: (folder: Folder) => Promise<string | "missing" | "old" | "unreachable">;
   notFoundMessage: string;
   bendMessages: { missing: string; old: string };
   warn: (line: string) => void;
 }) {
-  /** What was found for a folder: its tracker, and how to run bend there. */
+  /** What was found for a folder (by folderKey): its tracker, and how to run bend there. */
   const known = new Map<
     string,
-    { tracker: Tracker; run: Run; watch: Watched; about: About; root: string; chosen: string }
+    { tracker: Tracker; run: Run; watch: Watched; about: About; root: Folder; chosen: string }
   >();
 
   /**
@@ -603,16 +608,15 @@ export function createTrackers({
    * at the next read and not only after the plugin is reloaded.
    *
    * @param root The repository's top folder, as bend named it.
-   * Side effects: two looks at the file system, no process.
+   * Side effects: two looks at the folder's machine's files, no process.
    */
-  const chosenIn = (root: string): string => {
-    let written = "none";
-    try {
-      written = `${statSync(join(root, ".bend.json")).mtimeMs}`;
-    } catch {
-      // No setting file.
-    }
-    return `${written} ${existsSync(join(root, ".beads"))}`;
+  const chosenIn = async (root: Folder): Promise<string> => {
+    const machine = machineOf(root);
+    const [written, beads] = await Promise.all([
+      machine.stat(join(root.path, ".bend.json")),
+      machine.stat(join(root.path, ".beads")),
+    ]);
+    return `${written === null ? "none" : written.mtimeMs} ${beads !== null}`;
   };
 
   /**
@@ -624,9 +628,13 @@ export function createTrackers({
    * Side effects: forgets what was found for the folder when a program has
    *   gone, so it is looked for again next time.
    */
-  function problem(path: string, cause: unknown, what?: string): Problem {
+  function problem(folder: Folder, cause: unknown, what?: string): Problem {
+    const path = folderKey(folder);
     if (cause instanceof BendFailure) {
       switch (cause.kind) {
+        case "unreachable":
+          // Nothing is known to have gone: what was found stands.
+          return { state: "offline", message: cause.message };
         case "no-program":
           known.delete(path);
           return { state: "no-bd", message: notFoundMessage };
@@ -665,18 +673,21 @@ export function createTrackers({
    *   is (short-lived child processes).
    */
   async function bendIn(
-    path: string,
+    folder: Folder,
     foundBd?: string | null,
   ): Promise<{ run: Run } | Problem> {
-    const ready = known.get(path);
+    const ready = known.get(folderKey(folder));
     if (ready !== undefined) return { run: ready.run };
-    const bend = await findBend(path);
+    const bend = await findBend(folder);
+    if (bend === "unreachable") {
+      return { state: "offline", message: (await machineOf(folder).offline()) ?? UNREACHABLE_MESSAGE };
+    }
     if (bend === "missing" || bend === "old") {
       return { state: "no-bend", message: bendMessages[bend] };
     }
     // Looked for here unless the caller already has.
-    const bd = foundBd === undefined ? await findBd(path) : foundBd;
-    return { run: createRun(bend, path, bd === null ? {} : { BEND_BD: bd }) };
+    const bd = foundBd === undefined ? await findBd(folder) : foundBd;
+    return { run: createRun(folder, bend, bd === null ? {} : { BEND_BD: bd }) };
   }
 
   /**
@@ -690,23 +701,24 @@ export function createTrackers({
    *   processes; nothing is asked of the tracker itself).
    */
   async function trackerFor(
-    path: string,
+    folder: Folder,
   ): Promise<{ tracker: Tracker } | Problem> {
-    const ready = known.get(path);
+    const key = folderKey(folder);
+    const ready = known.get(key);
     if (ready !== undefined) {
-      if (ready.chosen === chosenIn(ready.root)) return { tracker: ready.tracker };
-      known.delete(path);
+      if (ready.chosen === (await chosenIn(ready.root))) return { tracker: ready.tracker };
+      known.delete(key);
     }
-    const bd = await findBd(path);
-    const bend = await bendIn(path, bd);
+    const bd = await findBd(folder);
+    const bend = await bendIn(folder, bd);
     if ("state" in bend) return bend;
     let watch: Watched = { copy: null, sign: null };
     let about: About;
-    let root = path;
+    let root = folder;
     // How the choice stood before bend was asked: if the tracker is
     // switched while bend answers, what is remembered below is the old
     // tracker under the old mark, and the next look asks again.
-    const before = chosenIn(ready?.root ?? path);
+    const before = await chosenIn(ready?.root ?? folder);
     try {
       // The quick form asks the tracker nothing: it says which tracker the
       // folder has, or fails saying that it has none.
@@ -719,7 +731,7 @@ export function createTrackers({
         copy?: unknown;
         watch?: unknown;
       };
-      root = typeof said.root === "string" ? said.root : path;
+      root = typeof said.root === "string" ? { hostId: folder.hostId, path: said.root } : folder;
       if (typeof said.tracker !== "string") {
         throw new BendFailure("not-understood", "bend did not say which tracker the folder has.");
       }
@@ -736,7 +748,7 @@ export function createTrackers({
         sign: typeof said.watch === "string" ? said.watch : null,
       };
     } catch (cause) {
-      return problem(path, cause);
+      return problem(folder, cause);
     }
     // Only beads needs its program; bend says so itself when it runs it,
     // and this says so before anything is asked.
@@ -749,9 +761,9 @@ export function createTrackers({
       watch,
       about,
       root,
-      chosen: root === (ready?.root ?? path) ? before : chosenIn(root),
+      chosen: root.path === (ready?.root ?? folder).path ? before : await chosenIn(root),
     };
-    known.set(path, found);
+    known.set(key, found);
     return { tracker: found.tracker };
   }
 
@@ -759,21 +771,21 @@ export function createTrackers({
    * What to watch to learn that a folder's issues changed; nothing when the
    * folder's tracker is not known yet.
    */
-  const watchOf = (path: string): Watched =>
-    known.get(path)?.watch ?? { copy: null, sign: null };
+  const watchOf = (folder: Folder): Watched =>
+    known.get(folderKey(folder))?.watch ?? { copy: null, sign: null };
 
   /**
    * What is known about a folder's tracker; null until `trackerFor` has
    * found it.
    */
-  const aboutOf = (path: string): About | null => known.get(path)?.about ?? null;
+  const aboutOf = (folder: Folder): About | null => known.get(folderKey(folder))?.about ?? null;
 
   /**
    * Forgets what was found for a folder, so that it is looked for again:
    * after its tracker was chosen or changed.
    */
-  const forget = (path: string): void => {
-    known.delete(path);
+  const forget = (folder: Folder): void => {
+    known.delete(folderKey(folder));
   };
 
   /**
@@ -786,8 +798,8 @@ export function createTrackers({
    * Side effects: one run of bend, told to accept beads only, which is not
    *   counted as bend being used.
    */
-  async function beadsIssues(path: string): Promise<TrackerIssue[] | null> {
-    const bend = await bendIn(path);
+  async function beadsIssues(folder: Folder): Promise<TrackerIssue[] | null> {
+    const bend = await bendIn(folder);
     if ("state" in bend) return null;
     try {
       return (await bend.run(["list", "--status", "all"], undefined, {

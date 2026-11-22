@@ -60,7 +60,9 @@
 import { execFile } from "node:child_process";
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { BEAD_ID_PATTERN, CLOSED_STATUS } from "../shared/constants.ts";
-import { readGit } from "./bd.ts";
+import { readGit, runBd } from "./bd.ts";
+import { folderKey } from "./machine.ts";
+import type { Folder } from "./machine.ts";
 import { comments, copyComments } from "./github-comments.ts";
 import type { Folders } from "./folder.ts";
 import type { FolderRef, Store } from "./store.ts";
@@ -292,6 +294,7 @@ const JOB_KEPT_MS = 10 * 60_000;
 /** One sync under way: what `progress` reports. */
 interface Job extends SyncReport {
   id: string;
+  /** The folder's folderKey. */
   path: string;
   threadId: string | null;
   /** Issues chosen, and how many of them the runs have been through. */
@@ -357,7 +360,7 @@ export function createGithub({
    * The issues a folder has in beads, whichever tracker its repository is
    * on; null when it has no beads database. For `switchPreview`.
    */
-  readBeads?: (path: string) => Promise<OwnIssue[] | null>;
+  readBeads?: (folder: Folder) => Promise<OwnIssue[] | null>;
   readToken: () => Promise<string>;
   readGhToken?: () => Promise<string>;
 }) {
@@ -373,14 +376,14 @@ export function createGithub({
    *   missing.
    */
   async function ready(input: FolderRef): Promise<
-    | { path: string; repository: Repository; token: string }
+    | { folder: Folder; repository: Repository; token: string }
     | { state: "unavailable" | "no-repository" | "no-token"; message: string }
   > {
     const folder = await folders.folderFor(input);
     if ("message" in folder) {
       return { state: "unavailable", message: folder.message };
     }
-    const remote = await readGit(folder.path, ["remote", "get-url", "origin"]);
+    const remote = await readGit(folder, ["remote", "get-url", "origin"]);
     const repository = remote === null ? null : repositoryOf(remote);
     if (repository === null) {
       return {
@@ -399,7 +402,7 @@ export function createGithub({
         message: `There is no GitHub sign-in to use. Either sign in with the gh command (\`gh auth login\`), or set a token in BB under Tools, then Airbender, as "GitHub token": a personal access token that may read and write the issues of ${repository.owner}/${repository.name}. Neither is written into the repository.`,
       };
     }
-    return { path: folder.path, repository, token };
+    return { folder, repository, token };
   }
 
   /**
@@ -431,7 +434,7 @@ export function createGithub({
     const none = { repository: null, issues: [], links: [], truncated: false };
     const start = await ready(input);
     if ("state" in start) return { ...start, ...none };
-    const { path, repository, token } = start;
+    const { folder, repository, token } = start;
     const name = `${repository.owner}/${repository.name}`;
     // Which GitHub issue each beads issue is linked to.
     const linked = new Map<number, string>();
@@ -441,7 +444,7 @@ export function createGithub({
     const links: { id: string; number: number }[] = [];
     let mine = own;
     if (mine === undefined) {
-      const read = await store.readIssues(path);
+      const read = await store.readIssues(folder);
       mine = read.state === "ok" ? read.issues : [];
     }
     for (const issue of mine) {
@@ -526,54 +529,44 @@ export function createGithub({
    * @returns What it printed on both channels, or why it could not run.
    */
   async function runSync(
-    path: string,
+    folder: Folder,
     args: string[],
     repository: Repository,
     token: string,
     onText: (text: string) => void,
   ): Promise<{ stdout: string; stderr: string } | { message: string }> {
-    const bd = await folders.findBd(path);
+    const bd = await folders.findBd(folder);
     if (bd === null) return { message: folders.BD_NOT_FOUND_MESSAGE };
-    return new Promise((resolve) => {
-      const child = execFile(
-        bd,
-        ["github", "sync", ...args],
-        {
-          cwd: path,
-          timeout: BATCH_TIMEOUT_MS,
-          maxBuffer: 4 * 1024 * 1024,
-          env: {
-            ...process.env,
-            GITHUB_TOKEN: token,
-            GITHUB_REPOSITORY: `${repository.owner}/${repository.name}`,
-          },
-        },
-        (error, stdout, stderr) => {
-          const out = withoutToken(stdout, token);
-          const err = withoutToken(stderr, token);
-          if (error !== null) {
-            const said =
-              err
-                .split("\n")
-                .filter((line) => !line.startsWith("Warning:"))
-                .join("\n")
-                .trim() ||
-              out.trim() ||
-              withoutToken(error.message, token);
-            bb.log.warn(`bd github sync failed in ${path}: ${said.slice(0, 400)}`);
-            resolve({ message: said });
-            return;
-          }
-          resolve({ stdout: out, stderr: err });
-        },
-      );
-      for (const stream of [child.stdout, child.stderr]) {
-        stream?.on("data", (chunk: Buffer | string) =>
-          onText(withoutToken(String(chunk), token)),
-        );
-      }
+    // On the folder's machine (bead-bb-fyv), which sends on what bd prints
+    // as it prints it.
+    const ran = await runBd(folder, bd, ["github", "sync", ...args], {
+      timeoutMs: BATCH_TIMEOUT_MS,
+      maxBytes: 4 * 1024 * 1024,
+      onOutput: (text) => onText(withoutToken(text, token)),
+      env: {
+        GITHUB_TOKEN: token,
+        GITHUB_REPOSITORY: `${repository.owner}/${repository.name}`,
+      },
     });
+    if (ran.kind === "not-found") return { message: folders.BD_NOT_FOUND_MESSAGE };
+    const out = withoutToken(ran.stdout, token);
+    const err = withoutToken(ran.stderr, token);
+    if (ran.kind === "failed") {
+      if (ran.unreachable === true) return { message: ran.message };
+      const said =
+        err
+          .split("\n")
+          .filter((line) => !line.startsWith("Warning:"))
+          .join("\n")
+          .trim() ||
+        out.trim() ||
+        withoutToken(ran.message, token);
+      bb.log.warn(`bd github sync failed in ${folderKey(folder)}: ${said.slice(0, 400)}`);
+      return { message: said };
+    }
+    return { stdout: out, stderr: err };
   }
+
 
   /**
    * Closes a GitHub issue. The one change this file makes on GitHub itself
@@ -611,16 +604,16 @@ export function createGithub({
    * The texts of a beads issue's comments, for the comment copying; null
    * when they cannot be read.
    */
-  const readLocal = (path: string, beadId: string): Promise<string[] | null> =>
-    store.commentTextsIn(path, beadId);
+  const readLocal = (folder: Folder, beadId: string): Promise<string[] | null> =>
+    store.commentTextsIn(folder, beadId);
 
   /** Adds a comment to a beads issue under another person's name. */
   const addAs = (
-    path: string,
+    folder: Folder,
     beadId: string,
     author: string,
     text: string,
-  ): Promise<string | null> => store.commentAsIn(path, beadId, author, text);
+  ): Promise<string | null> => store.commentAsIn(folder, beadId, author, text);
 
   /** The runs under way and just finished, by id. */
   const jobs = new Map<string, Job>();
@@ -647,11 +640,11 @@ export function createGithub({
     job: Job,
     plan: { label: string; flags: string[]; chosen: string[] }[],
     common: string[],
-    start: { path: string; repository: Repository; token: string },
+    start: { folder: Folder; repository: Repository; token: string },
     preview: boolean,
     withComments: boolean,
   ): Promise<void> {
-    const { path, repository, token } = start;
+    const { folder, repository, token } = start;
     const problems: string[] = [];
     try {
       for (const { label, flags, chosen } of plan) {
@@ -662,7 +655,7 @@ export function createGithub({
           const pushing = !preview && flags.includes("--push-only");
           // Which of them are not on GitHub yet, to know afterwards which
           // were created by this batch.
-          const before = pushing ? await store.readIssues(path) : null;
+          const before = pushing ? await store.readIssues(folder) : null;
           const unlinked = new Set(
             before?.state === "ok"
               ? before.issues
@@ -675,7 +668,7 @@ export function createGithub({
               : [],
           );
           const run = await runSync(
-            path,
+            folder,
             [...flags, "--issues", batch.join(","), ...common],
             repository,
             token,
@@ -693,7 +686,7 @@ export function createGithub({
           );
           // The command changed issues here without going through the
           // store: the kept list no longer stands.
-          store.stale(path);
+          store.stale(folder);
           if ("message" in run) {
             problems.push(`${label}: ${run.message}`);
           } else {
@@ -703,7 +696,7 @@ export function createGithub({
             job.warnings.push(...part.warnings);
           }
           if (unlinked.size > 0) {
-            const after = await store.readIssues(path);
+            const after = await store.readIssues(folder);
             let closed = 0;
             for (const issue of after.state === "ok" ? after.issues : []) {
               if (!unlinked.has(issue.id) || issue.status !== CLOSED_STATUS) continue;
@@ -723,7 +716,7 @@ export function createGithub({
           // carries none, so they are copied after it. All of it is in
           // server/github-comments.ts; this only says which issues.
           if (withComments && !("message" in run) && !pushing && !flags.includes("--push-only")) {
-            const now = await store.readIssues(path);
+            const now = await store.readIssues(folder);
             const here = now.state === "ok" ? now.issues : [];
             const pairs = flags.includes("--pull-only")
               ? batch.map((number) => ({
@@ -746,8 +739,8 @@ export function createGithub({
               token,
               issues: pairs,
               preview,
-              readLocal: (beadId) => readLocal(path, beadId),
-              add: (beadId, author, text) => addAs(path, beadId, author, text),
+              readLocal: (beadId) => readLocal(folder, beadId),
+              add: (beadId, author, text) => addAs(folder, beadId, author, text),
             });
             job.copied += done.copied;
             job.notes.push(...done.would);
@@ -817,13 +810,13 @@ export function createGithub({
     if (pull.length === 0 && both.length === 0 && push.length === 0) {
       return { jobId: null, message: "Nothing is ticked." };
     }
-    if ([...jobs.values()].some((job) => !job.done && job.path === start.path)) {
+    if ([...jobs.values()].some((job) => !job.done && job.path === folderKey(start.folder))) {
       return { jobId: null, message: "A sync of this folder is already running." };
     }
     jobCount += 1;
     const job: Job = {
       id: `sync-${Date.now()}-${jobCount}`,
-      path: start.path,
+      path: folderKey(start.folder),
       threadId: input.threadId,
       total: pull.length + both.length + push.length,
       finished: 0,
@@ -895,7 +888,7 @@ export function createGithub({
         needsRepository: start.state === "no-repository",
       };
     }
-    const mine = await readBeads(start.path);
+    const mine = await readBeads(start.folder);
     if (mine === null) {
       return {
         cannot:

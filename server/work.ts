@@ -55,6 +55,7 @@ import { workflowLine } from "./agent-tools.ts";
 import { reportedCloseCommit } from "./close-git.ts";
 import type { WorkTrees } from "./work-trees.ts";
 import type { WorkflowChoice } from "./workflow-choice.ts";
+import type { Folder } from "./machine.ts";
 import type { Issue } from "./contract.ts";
 import type { CurrentBead } from "./current-bead.ts";
 import type { FolderRef, Outcome, Store } from "./store.ts";
@@ -133,11 +134,11 @@ export function createWork({
    * Told when the user has set an issue's size themselves, so that the
    * background sizing treats that size as theirs (server/sizing.ts).
    */
-  onUserSize: (path: string, beadId: string) => void;
+  onUserSize: (folder: Folder, beadId: string) => void;
   /** Whether a folder has uncommitted changes to tracked files. */
-  hasUncommittedChanges: (path: string) => Promise<boolean>;
+  hasUncommittedChanges: (folder: Folder) => Promise<boolean>;
   /** The branch a folder is on; null when it cannot be told. */
-  currentBranch: (path: string) => Promise<string | null>;
+  currentBranch: (folder: Folder) => Promise<string | null>;
   /** Conversations opened for one issue in a work tree of its own. */
   workTrees: WorkTrees;
   events?: WorkEvents;
@@ -190,7 +191,7 @@ export function createWork({
     workflow: Workflow,
     issue: Issue,
     issues: Issue[],
-    path: string,
+    folder: Folder,
   ): Promise<string | null> {
     const own = stateOf(workflow, issue.step).holdsBranch === true;
     const home = own ? issue : homeOf(workflow, issue, issues);
@@ -201,7 +202,7 @@ export function createWork({
     if (home.branch === null) {
       return `${what} in a work tree that is still being set up. Try again in a moment.`;
     }
-    const here = await currentBranch(path);
+    const here = await currentBranch(folder);
     if (here === home.branch) return null;
     return `${what} on the branch ${home.branch}. This folder is on ${here ?? "no branch"}: work on it in a folder that is on ${home.branch}.`;
   }
@@ -240,7 +241,7 @@ export function createWork({
   async function openIssue(
     input: FolderRef,
     beadId: string,
-  ): Promise<{ path: string; issues: Issue[]; issue: Issue } | { message: string }> {
+  ): Promise<{ folder: Folder; issues: Issue[]; issue: Issue } | { message: string }> {
     const found = await issuesIn(input, beadId);
     if ("message" in found) {
       // A row that has gone since the tab loaded: say how to get it back.
@@ -276,7 +277,7 @@ export function createWork({
   }): Promise<Outcome> {
     const found = await openIssue({ threadId, projectId: null }, beadId);
     if ("message" in found) return found;
-    const workflow = workflowChoice.workflowFor(found.path);
+    const workflow = workflowChoice.workflowFor(found.folder);
     if (workflow === null) return { message: NO_STEPS_MESSAGE };
     const state = stateOf(workflow, found.issue.step);
     if (state.actor !== "agent") {
@@ -288,7 +289,7 @@ export function createWork({
       workflow,
       found.issue,
       found.issues,
-      found.path,
+      found.folder,
     );
     if (elsewhere !== null) return { message: elsewhere };
     try {
@@ -333,7 +334,7 @@ export function createWork({
   }): Promise<Outcome> {
     const found = await openIssue({ threadId, projectId: null }, beadId);
     if ("message" in found) return found;
-    const workflow = workflowChoice.workflowFor(found.path);
+    const workflow = workflowChoice.workflowFor(found.folder);
     if (workflow === null) return { message: NO_STEPS_MESSAGE };
     const state = stateOf(workflow, found.issue.step);
     if (state.actor === "agent") return run({ threadId, beadId, preface });
@@ -354,7 +355,7 @@ export function createWork({
       workflow,
       found.issue,
       found.issues,
-      found.path,
+      found.folder,
     );
     if (elsewhere !== null) return { message: elsewhere };
     try {
@@ -394,8 +395,8 @@ export function createWork({
     const { beadId, threadId } = input;
     const found = await openIssue(input, beadId);
     if ("message" in found) return fail(found.message);
-    const { issue, issues, path } = found;
-    const workflow = workflowChoice.workflowFor(path);
+    const { issue, issues, folder } = found;
+    const workflow = workflowChoice.workflowFor(folder);
     if (workflow === null) return fail(NO_STEPS_MESSAGE);
     const from = stateOf(workflow, issue.step);
     const checked = checkMove(workflow, issue.step, input.moveId, by, input.note);
@@ -418,7 +419,7 @@ export function createWork({
     const elsewhere =
       checked.dropsBranch === true
         ? null
-        : await wrongPlace(workflow, issue, issues, path);
+        : await wrongPlace(workflow, issue, issues, folder);
     if (elsewhere !== null) return warn(elsewhere);
     if (home !== null && checked.merges === true) {
       return fail(
@@ -475,21 +476,21 @@ export function createWork({
     // refused with the move's own warning, and nothing is changed.
     if (
       checked.needsCleanFolder !== undefined &&
-      (await hasUncommittedChanges(path))
+      (await hasUncommittedChanges(folder))
     ) {
       return { ...fail(checked.needsCleanFolder), warning: true };
     }
     const note = input.note.trim();
     const record = (to: string) =>
       addComment(
-        path,
+        folder,
         beadId,
         `Workflow: ${from.label} → ${to} (${checked.label.toLowerCase()}, by the ${by})${note === "" ? "." : `: ${note}`}`,
       );
 
     if (checked.to === CLOSED) {
       let commit: string | undefined;
-      try { commit = await reportedCloseCommit(path, note, issue.id, issue.title); }
+      try { commit = await reportedCloseCommit(folder, note, issue.id, issue.title); }
       catch (cause) { return fail(reason(cause)); }
       const closed = await finish(input, issues, commit);
       // Recorded only when the issue really was closed.
@@ -498,7 +499,7 @@ export function createWork({
         // A landed epic's branch is gone: the record of it goes too, so
         // that an issue of it reopened later is not sent to that branch.
         if (issue.branch !== null) {
-          await setBranch(path, threadId, beadId, null, false);
+          await setBranch(folder, threadId, beadId, null, false);
         }
         // Landed from a conversation opened for it in a work tree: that
         // conversation, its tree and its branch are closed up.
@@ -516,7 +517,7 @@ export function createWork({
       if (checked.ownConversation === true) {
         const started = await workTrees.open({
           from: input,
-          home: path,
+          home: folder,
           beadId,
           title: issue.title,
           prompt: text,
@@ -532,11 +533,11 @@ export function createWork({
             bb.log.warn(`the work tree branch of epic ${beadId} could not be read`);
             return;
           }
-          await setBranch(path, threadId, beadId, branch);
+          await setBranch(folder, threadId, beadId, branch);
         });
       } else {
         const named = await setBranch(
-          path,
+          folder,
           threadId,
           beadId,
           forEpic.branch?.(about) ?? null,
@@ -544,7 +545,7 @@ export function createWork({
         );
         if (named.message !== null) return fail(named.message);
       }
-      const moved = await setStep(path, threadId, beadId, holding.id, false);
+      const moved = await setStep(folder, threadId, beadId, holding.id, false);
       if (moved.message !== null) return fail(moved.message);
       await record(
         `${holding.label}${openThreadId === undefined ? "" : ", in a conversation and work tree of its own"}`,
@@ -570,7 +571,7 @@ export function createWork({
     const to = stateOf(workflow, checked.to);
     // Leaving the epic's step without landing it: the branch is forgotten.
     if (checked.dropsBranch === true) {
-      const dropped = await setBranch(path, threadId, beadId, null, false);
+      const dropped = await setBranch(folder, threadId, beadId, null, false);
       if (dropped.message !== null) return fail(dropped.message);
     }
     // A move that is made in a conversation of its own: the conversation
@@ -584,7 +585,7 @@ export function createWork({
       });
       const started = await workTrees.open({
         from: input,
-        home: path,
+        home: folder,
         beadId,
         title: issue.title,
         prompt: [
@@ -594,7 +595,7 @@ export function createWork({
       });
       if ("message" in started) return fail(started.message);
       await currentBead.store(started.threadId, beadId);
-      const moved = await setStep(path, threadId, beadId, to.id, false);
+      const moved = await setStep(folder, threadId, beadId, to.id, false);
       if (moved.message !== null) return fail(moved.message);
       await record(`${to.label}, in a conversation and work tree of its own`);
       changed(threadId);
@@ -607,13 +608,13 @@ export function createWork({
     }
     // Not published yet: the comment and a possible message follow, and the
     // tabs should reload once, on the finished move.
-    const stepped = await setStep(path, threadId, beadId, to.id, false);
+    const stepped = await setStep(folder, threadId, beadId, to.id, false);
     if (stepped.message !== null) return fail(stepped.message);
     // A move may also record the issue's size: that is how the agent says
     // which path it chose. What follows is then told for that size.
     let sized = issue;
     if (checked.size !== undefined) {
-      const resized = await setSize(path, threadId, beadId, checked.size, false);
+      const resized = await setSize(folder, threadId, beadId, checked.size, false);
       if (resized.message !== null) return fail(resized.message);
       sized = { ...issue, size: checked.size };
     }
@@ -712,8 +713,8 @@ export function createWork({
     const { beadId, threadId, size } = input;
     const found = await openIssue(input, beadId);
     if ("message" in found) return found;
-    const { issue, issues, path } = found;
-    const workflow = workflowChoice.workflowFor(path);
+    const { issue, issues, folder } = found;
+    const workflow = workflowChoice.workflowFor(folder);
     if (workflow === null) return { message: NO_STEPS_MESSAGE };
     const known = workflow.sizes?.find((candidate) => candidate.id === size);
     if (known === undefined) {
@@ -726,15 +727,15 @@ export function createWork({
         message: `Issue ${beadId} is at "${state.label}": its size can no longer be changed. Use "Send back" and say what should be redone.`,
       };
     }
-    const resized = await setSize(path, threadId, beadId, size, false);
+    const resized = await setSize(folder, threadId, beadId, size, false);
     if (resized.message !== null) return resized;
-    onUserSize(path, beadId);
+    onUserSize(folder, beadId);
     const labelOf = (id: string | null) =>
       id === null
         ? "none"
         : (workflow.sizes?.find((candidate) => candidate.id === id)?.label ?? id);
     await addComment(
-      path,
+      folder,
       beadId,
       `Workflow: size ${labelOf(issue.size)} → ${known.label} (by the user).`,
     );
@@ -779,7 +780,7 @@ export function createWork({
     if ("message" in found) return found;
     const open = descendantsOf(input.beadId, found.issues).some((issue) => issue.status !== CLOSED_STATUS);
     if (open) return { message: `${input.beadId} has open sub-issues. Close them first.` };
-    const outcome = await setIssueOpen("close", { ...input, closing: { ending: workflowChoice.workflowFor(found.path) === null ? "done" : "cancelled" } });
+    const outcome = await setIssueOpen("close", { ...input, closing: { ending: workflowChoice.workflowFor(found.folder) === null ? "done" : "cancelled" } });
     if (outcome.message === null && input.threadId !== null) {
       events.closed?.(input.threadId);
     }
@@ -814,7 +815,7 @@ export function createWork({
       const found = await openIssue({ threadId, projectId: null }, beadId);
       if ("message" in found) return found;
       title = found.issue.title;
-      applies = ` ${workflowLine(workflowChoice.workflowFor(found.path), found.issue.step)}`;
+      applies = ` ${workflowLine(workflowChoice.workflowFor(found.folder), found.issue.step)}`;
     }
     let previous: string | null;
     try {
@@ -845,7 +846,7 @@ export function createWork({
   async function startSimple(input: { threadId: string; beadId: string }): Promise<Outcome> {
     const found = await openIssue({ ...input, projectId: null }, input.beadId);
     if ("message" in found) return found;
-    if (workflowChoice.workflowFor(found.path) !== null) return { message: "Use the issue's workflow button on Standard." };
+    if (workflowChoice.workflowFor(found.folder) !== null) return { message: "Use the issue's workflow button on Standard." };
     events.ownerCurrent?.(input.threadId);
     await currentBead.write(input.threadId, input.beadId);
     try {

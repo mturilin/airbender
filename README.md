@@ -258,8 +258,9 @@ In BB under Tools, then Airbender.
 - The tab edits an issue's title, description, type, priority, category,
   parent and links. Design, acceptance criteria, notes and comments are
   written by agents through `bend`, and issues are not deleted from the tab.
-- The repository must be on the machine BB runs on. A conversation whose
-  folder is on another machine gets an explanation instead of a list.
+- A conversation's folder may be on any machine enrolled in BB: the tab
+  works on it there, through the plugin's part BB runs on each machine.
+  While that machine is offline the tab says so and shows no list.
 
 ## Development
 

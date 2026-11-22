@@ -8,7 +8,9 @@ import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createFakePluginHost, makeThreadResponse } from "@get-bb/plugin-sdk/testing";
+import { experimental_createHostEntryHarness } from "@get-bb/plugin-sdk/testing/host";
 import plugin from "../server.ts";
+import hostEntry from "../host.ts";
 import { builtBend } from "./bend-for-tests.ts";
 
 test("registered Simple Start, preview, commit completion across reload, and reopen", async (t) => {
@@ -28,10 +30,19 @@ test("registered Simple Start, preview, commit completion across reload, and reo
   const beadId = run("create", "Work");
   let metadata: Record<string, unknown> = {};
   const thread = makeThreadResponse({ id: "thread-work", projectId: "project-test", environmentId: null });
-  let { bb, harness } = createFakePluginHost({ pluginId: "airbender", settings: {
+  // The plugin's own part on the machine (host.ts) answers its calls, as
+  // BB's daemon would on the folder's machine (bead-bb-fyv).
+  const host = experimental_createHostEntryHarness(hostEntry);
+  const machine = {
+    experimental_callHostRpc: (call: { method: string; input: unknown }) =>
+      host.experimental_call(call.method as never, call.input as never),
+  };
+  const hosts = { get: async () => ({ id: "host-test", name: "test", status: "connected", lifecycle: { phase: "active" } }) };
+  let { bb, harness } = createFakePluginHost({ pluginId: "airbender", ...machine, settings: {
     bendCommand: bend, backgroundSizing: false, issueTitles: false, summaryBackend: "off",
   }, sdk: {
     system: { config: async () => ({ primaryHostId: "host-test" }) },
+    hosts,
     projects: { get: async () => ({ id: "project-test", sources: [{ hostId: "host-test", path, isDefault: true }] }) },
     threads: {
       get: async () => thread, list: async () => [thread], send: async () => ({}),

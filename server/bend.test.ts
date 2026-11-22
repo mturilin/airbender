@@ -19,6 +19,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test as nodeTest } from "node:test";
 import { builtBend } from "./bend-for-tests.ts";
+import { localFolder } from "./machine.ts";
 import {
   BendFailure,
   NEEDED_VERSION,
@@ -56,8 +57,24 @@ function build(bd: string | null = "bd", found: string | "missing" | "old" = ben
     bendMessages: { missing: "no bend here", old: "an old bend here" },
     warn: (line) => log.push(line),
   });
-  return { ...trackers, log, searches: () => searches };
+  // Folders here are paths on this machine.
+  const here = localFolder;
+  return {
+    trackerFor: (path: string) => trackers.trackerFor(here(path)),
+    bendIn: (path: string, bd?: string | null) => trackers.bendIn(here(path), bd),
+    problem: (path: string, cause: unknown, what?: string) => trackers.problem(here(path), cause, what),
+    watchOf: (path: string) => trackers.watchOf(here(path)),
+    aboutOf: (path: string) => trackers.aboutOf(here(path)),
+    forget: (path: string) => trackers.forget(here(path)),
+    beadsIssues: (path: string) => trackers.beadsIssues(here(path)),
+    log,
+    searches: () => searches,
+  };
 }
+
+/** A runner of `command` in a folder on this machine. */
+const runIn = (command: string, path: string, env?: Record<string, string>) =>
+  createRun(localFolder(path), command, env);
 
 test("each kind of failure becomes the tab's state and words", () => {
   const { problem, log } = build();
@@ -219,27 +236,27 @@ test("a run reports bend's own kind of failure, a missing program, and nonsense"
     }
     return assert.fail("the run did not fail");
   };
-  assert.deepEqual(await fails(createRun(bend!, withBeads), ["list", "--wat"]), [
+  assert.deepEqual(await fails(runIn(bend!, withBeads), ["list", "--wat"]), [
     "usage",
     "Unknown option --wat.",
   ]);
   // A tracker the tab does not accept is passed over.
   writeFileSync(join(without, ".bend.json"), '{"tracker": "github", "repository": "a/b"}');
-  const [kind] = await fails(createRun(bend!, without, { BEND_ACCEPT: "beads" }), ["list"]);
+  const [kind] = await fails(runIn(bend!, without, { BEND_ACCEPT: "beads" }), ["list"]);
   assert.equal(kind, "not-set-up");
   rmSync(join(without, ".bend.json"));
-  const [missing] = await fails(createRun(join(base, "no-such-bend"), withBeads), ["version"]);
+  const [missing] = await fails(runIn(join(base, "no-such-bend"), withBeads), ["version"]);
   assert.equal(missing, "no-bend");
   // The beads program the plugin found is the one bend runs.
   const [noBd] = await fails(
-    createRun(bend!, withBeads, { BEND_BD: join(base, "no-such-bd") }),
+    runIn(bend!, withBeads, { BEND_BD: join(base, "no-such-bd") }),
     ["list"],
   );
   assert.equal(noBd, "no-program");
   const talker = join(base, "talker");
   writeFileSync(talker, "#!/bin/sh\necho hello\n");
   chmodSync(talker, 0o755);
-  assert.deepEqual(await fails(createRun(talker, withBeads), ["version"]), [
+  assert.deepEqual(await fails(runIn(talker, withBeads), ["version"]), [
     "not-understood",
     "hello",
   ]);
@@ -247,15 +264,15 @@ test("a run reports bend's own kind of failure, a missing program, and nonsense"
 
 test("bend is found among the candidates; one that is not bend, or too old, is 'old'", async () => {
   const gone = join(base, "no-such-bend");
-  assert.equal(await findBendAmong([gone, bend!], base), bend);
-  assert.equal(await findBendAmong([gone], base), "missing");
-  assert.equal(await findBendAmong([], base), "missing");
+  assert.equal(await findBendAmong([gone, bend!], localFolder(base)), bend);
+  assert.equal(await findBendAmong([gone], localFolder(base)), "missing");
+  assert.equal(await findBendAmong([], localFolder(base)), "missing");
   const old = join(base, "old-bend");
   writeFileSync(old, `#!/bin/sh\necho '{"version": ${NEEDED_VERSION - 1}}'\n`);
   chmodSync(old, 0o755);
-  assert.equal(await findBendAmong([gone, old], base), "old");
+  assert.equal(await findBendAmong([gone, old], localFolder(base)), "old");
   // A newer one further down the list is still found.
-  assert.equal(await findBendAmong([old, bend!], base), bend);
+  assert.equal(await findBendAmong([old, bend!], localFolder(base)), bend);
 });
 
 test("every operation is one run, with free text where it cannot be read as an option", async () => {

@@ -44,6 +44,16 @@ is a view of that tracker, not a second tracker.
 - It shows the issues of the folder the conversation is working in. On the
   new-conversation screen it shows the issues of the selected project.
   `[02g]`
+- **The folder may be on any machine BB has**, not only the one BB runs on.
+  The panel follows the conversation: its own folder, on the machine it
+  works on. With no conversation, it shows the project's default folder,
+  on whichever machine that is. There is no choice of machine. `[fyv]`
+- **When that machine is asleep or cannot be reached, the panel says so in
+  plain words**, naming the machine, and shows no list. It shows the
+  issues again by itself once the machine is back. `[fyv]`
+- **Each machine's copy of a project is separate.** Nothing of the panel's
+  is shared or synced between copies of a repository on different
+  machines. `[fyv]`
 
 ## Layout
 
@@ -91,6 +101,8 @@ Rules for the layout:
 When something the panel needs is missing, the panel offers to set it up.
 `[80e]`
 
+- **Setup works on the machine the folder is on**: its terminals open
+  there, and bend and beads are installed there. `[fyv]`
 - **Setting a repository up does not need the panel.** The same steps can
   be run from a plain terminal with `bend setup`; the panel's setup shows
   the state that command reports and runs its steps, so the two never
@@ -598,7 +610,8 @@ The owner sees at a glance which issue each conversation is working on.
 - **The choice is made in the toolbar's "⋯" menu**, since it is not made
   often. It can be changed at any time. `[8j6]`
 - **The choice belongs to the repository.** Each repository remembers its
-  own. `[8j6]`
+  own. `[8j6]` The same repository on two machines is two copies, each
+  with its own choice. `[fyv]`
 - **A work tree continues its repository's workflow.** `[8j6]`
 - **A repository that has never chosen is on Standard.** `[8j6]`
 - **Switching keeps each issue's step.** On Simple the step is not shown;
@@ -908,7 +921,8 @@ agent's messages. `[3l4]` `[eg0]`
 - The panel refreshes on its own when issues change outside it: an agent or
   the owner working in a terminal. `[6v6]`
 - This is triggered by watching for the change, not by checking on a timer.
-  `[6v6]`
+  `[6v6]` The one exception is a folder whose machine is offline: the
+  panel asks again now and then until it is back. `[fyv]`
 - **Switching between repositories must not take seconds.** `[3pr]`
 
 ## How agents work with it
@@ -1122,8 +1136,9 @@ panel. `[bwr]`
   `[e1d]` `[0uh]`
 - **Not a git tool.** The panel never commits by itself; it asks the agent
   to. Pushing is done by the repository, not by the panel. `[d37]` `[bfi]`
-- **Not multi-machine.** It reads the repository on the machine the app
-  itself runs on. `[02g]`
+- **Not a sync between machines.** Each machine's copy of a project is
+  separate; the panel works on the copy of the machine it is shown for.
+  `[fyv]`
 - **No picker beside the message box.** Choosing the issue to work on from
   the message area was dropped in favour of the panel. `[prr]`
 
@@ -1599,8 +1614,8 @@ breaking a requirement above.
   steps, each with a line saying what it means and a tick on the one in
   use. It is offered only where the folder has issues to show. The choice
   takes effect at once, in every open tab and at the message box.
-- The choice is kept on this machine. A separate copy (clone) of a
-  repository has its own choice.
+- The choice is kept by the plugin, on the machine BB runs on. A separate
+  copy (clone) of a repository has its own choice.
 - On Simple: a row of an open issue shows Start and a Close icon. On the
   current issue, one prominent Finish button replaces both, opening the
   ending/Git dialog. Its menu offers Unselect with a crossed-target icon,
@@ -2044,8 +2059,18 @@ breaking a requirement above.
   tracker's to remove it is called "Replace beads' instructions with
   Airbender's"; otherwise "Add Airbender's instructions for agents".
   `[c9l.8]`
-- Setup: nothing is offered for a folder on another machine or when no
-  project is chosen.
+- Setup: nothing is offered when the folder's machine is offline or when
+  no project is chosen.
+- A folder on another machine: while its machine is offline, the panel
+  asks again every half minute. The panel's home folder ("~" in paths) is
+  that of the folder's machine.
+- A folder on another machine: installing bend there is the release
+  download only; building it from source is offered only on the machine BB
+  runs on, where the plugin's copy of the source is.
+- A folder on another machine: "Import / export GitHub issues" uses the
+  GitHub sign-in of the machine BB runs on (or the token set in BB); bend,
+  on a repository whose issues are in GitHub, uses the sign-in of the
+  machine the folder is on.
 - For "all sub-issues are blocked", only open sub-issues count, and it
   works through every level: a sub-issue with sub-issues of its own counts
   as blocked by the same rule. An issue whose sub-issues are all closed is

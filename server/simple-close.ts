@@ -15,8 +15,11 @@ import { ENDINGS, GIT_CHOICES } from "../shared/closing.ts";
 import type { ClosingOptions, Ending, GitChoice } from "../shared/closing.ts";
 import { descendantsOf } from "../shared/tree.ts";
 import type { Issue } from "./contract.ts";
+import { folderOfKey } from "./machine.ts";
 
 export interface CloseScope { threadId: string | null; projectId: string | null; beadId: string }
+/** `path` here is always a folderKey (server/machine.ts): the folder may be
+ * on another machine than BB's (bead-bb-fyv), and stored requests keep it. */
 export interface CloseContext { path: string; repository: string; projectId: string; issue: Issue; issues: Issue[]; simple: boolean }
 export interface WorkingConversation { threadId: string; path: string }
 export interface CloseGitState { repository: string; branch: string | null; head: string | null; changes: boolean }
@@ -113,7 +116,7 @@ export function createSimpleClose(deps: SimpleCloseDependencies) {
     const push = pending.git === "push"
       ? "Push the commit on this branch. Report a push failure without making another commit. Include --push-result success or --push-result 'failed: <reason>' in the completion command."
       : "Make no explicit push. Do not disable the repository's hooks; if a hook's push fails, report it and include --push-result 'failed: <reason>' in the completion command.";
-    await deps.send(pending.threadId, `The user chose to close issue ${pending.scope.beadId}: ${JSON.stringify(pending.title)} as ${pending.ending}, with ${pending.git === "push" ? "Commit & push" : "Commit only"}. Work in ${JSON.stringify(pending.path)} on branch ${JSON.stringify(pending.branch)}. Review this conversation and the diff, then commit only this issue's changes, selecting portions of shared files when needed. Follow the repository's commit rules and use the issue's id and title in the subject. If the changes cannot be identified confidently, ask the user and leave the issue open. If the commit fails, leave it open. Do not discard, merge or include unrelated work. ${push} After the commit is made, run ${command}. This command records the chosen ending and closes through bend; do not call the Standard workflow tool or close the issue another way.`);
+    await deps.send(pending.threadId, `The user chose to close issue ${pending.scope.beadId}: ${JSON.stringify(pending.title)} as ${pending.ending}, with ${pending.git === "push" ? "Commit & push" : "Commit only"}. Work in ${JSON.stringify(folderOfKey(pending.path).path)} on branch ${JSON.stringify(pending.branch)}. Review this conversation and the diff, then commit only this issue's changes, selecting portions of shared files when needed. Follow the repository's commit rules and use the issue's id and title in the subject. If the changes cannot be identified confidently, ask the user and leave the issue open. If the commit fails, leave it open. Do not discard, merge or include unrelated work. ${push} After the commit is made, run ${command}. This command records the chosen ending and closes through bend; do not call the Standard workflow tool or close the issue another way.`);
     pending.delivered = true; await save(pending);
     return { message: null, openThreadId: pending.threadId };
   }

@@ -14,6 +14,7 @@ import type { SyncEntry, SyncState } from "../sync/types.ts";
 import type { Tracker, Trackers } from "./bend.ts";
 import type { Store } from "./store.ts";
 import { createSync } from "./sync.ts";
+import { localFolder } from "./machine.ts";
 
 const state = (over: Partial<SyncState> = {}): SyncState => ({
   source: "made-up",
@@ -89,37 +90,37 @@ test("what the plugin's earlier sync kept in storage is removed", () => {
 test("the state and the log are bend's answers, and a passive read is asked as one", async () => {
   const { sync, did } = made({ state: state({ halted: true }) });
   did.length = 0;
-  assert.equal((await sync.state("/repo")).halted, true);
-  await sync.state("/repo", true);
-  assert.deepEqual(await sync.log("/repo", true), [entry]);
+  assert.equal((await sync.state(localFolder("/repo"))).halted, true);
+  await sync.state(localFolder("/repo"), true);
+  assert.deepEqual(await sync.log(localFolder("/repo"), true), [entry]);
   assert.deepEqual(did, ["state", "state passive", "log failed"]);
 });
 
 test("a folder with no tracker has nothing to say and nothing to sync", async () => {
   const { sync } = made({ noTracker: true });
-  const found = await sync.state("/repo");
+  const found = await sync.state(localFolder("/repo"));
   assert.equal(found.remote, null);
   assert.equal(found.helper, null);
-  assert.deepEqual(await sync.log("/repo"), []);
-  assert.equal((await sync.refresh("/repo")).message, "This folder has no tracker.");
+  assert.deepEqual(await sync.log(localFolder("/repo")), []);
+  assert.equal((await sync.refresh(localFolder("/repo"))).message, "This folder has no tracker.");
 });
 
 test("refresh starts one sync, says it is running, and tells the tabs at both ends", async () => {
   const { sync, did, endSync } = made();
   did.length = 0;
-  assert.deepEqual(await sync.refresh("/repo"), { message: null });
+  assert.deepEqual(await sync.refresh(localFolder("/repo")), { message: null });
   // Asked again while it runs: not a second sync.
-  assert.deepEqual(await sync.refresh("/repo"), { message: null });
-  assert.equal((await sync.state("/repo")).running, true);
+  assert.deepEqual(await sync.refresh(localFolder("/repo")), { message: null });
+  assert.equal((await sync.state(localFolder("/repo"))).running, true);
   assert.deepEqual(did, ["state", "tabs told", "sync", "state"]);
   endSync(entry);
   await settled();
   assert.deepEqual(did.slice(4), ["list stale", "tabs told"]);
-  assert.equal((await sync.state("/repo")).running, false);
+  assert.equal((await sync.state(localFolder("/repo"))).running, false);
 });
 
 test("issues synced with nothing are not synced, and the owner is told where to look", async () => {
   const { sync, did } = made({ state: state({ remote: null }) });
-  assert.match((await sync.refresh("/repo")).message ?? "", /not synced with anything yet/u);
+  assert.match((await sync.refresh(localFolder("/repo"))).message ?? "", /not synced with anything yet/u);
   assert.ok(!did.includes("sync"));
 });

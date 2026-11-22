@@ -62,6 +62,8 @@ import { CHANGED_CHANNEL, CLOSED_STATUS } from "../shared/constants.ts";
 import { stateOf } from "../shared/workflow.ts";
 import type { Workflow } from "../shared/workflow.ts";
 import type { Issue } from "./contract.ts";
+import { folderKey } from "./machine.ts";
+import type { Folder } from "./machine.ts";
 
 /** What is remembered about one issue the background has dealt with. */
 export interface Sized {
@@ -233,7 +235,9 @@ interface Scope {
 
 /** One worker's errand. */
 interface Job {
+  /** The folder's folderKey: what the maps below are keyed by. */
   path: string;
+  folder: Folder;
   workflow: Workflow;
   /** The issues it was given, with the content they had then. */
   batch: { issue: Issue; fingerprint: string }[];
@@ -273,23 +277,29 @@ export async function createSizing({
     model: string;
   }>;
   readIssues: (
-    path: string,
+    folder: Folder,
   ) => Promise<{ state: "ok"; issues: Issue[] } | { state: string }>;
   setSize: (
-    path: string,
+    folder: Folder,
     threadId: string | null,
     beadId: string,
     size: string,
     publish?: boolean,
   ) => Promise<{ message: string | null }>;
   addComment: (
-    path: string,
+    folder: Folder,
     beadId: string,
     text: string,
   ) => Promise<{ message: string | null }>;
-  workflowFor: (path: string) => Workflow | null;
+  workflowFor: (folder: Folder) => Workflow | null;
 }) {
-  /** Folder path -> issue id -> what the background did. */
+  /**
+   * The folder behind each folderKey seen. Everything below is kept by
+   * folderKey (a bare path on the BB machine, as before folders could be
+   * on other machines: bead-bb-fyv).
+   */
+  const places = new Map<string, Folder>();
+  /** Folder key -> issue id -> what the background did. */
   const memory = new Map<string, Record<string, Sized>>();
   const saved = await bb.storage.kv.get<unknown>(MEMORY_KEY).catch(() => undefined);
   if (typeof saved === "object" && saved !== null) {
@@ -328,8 +338,10 @@ export async function createSizing({
    * Looks at a freshly read list and, if anything needs a size, arranges
    * for a worker. Returns at once; never throws.
    */
-  function consider(path: string, issues: Issue[], scope: Scope): void {
-    const workflow = workflowFor(path);
+  function consider(folder: Folder, issues: Issue[], scope: Scope): void {
+    const path = folderKey(folder);
+    places.set(path, folder);
+    const workflow = workflowFor(folder);
     if (workflow === null) return;
     scopes.set(path, scope);
     if (pending.has(path) || running.has(path)) return;
@@ -348,7 +360,8 @@ export async function createSizing({
   }
 
   /** The user set this issue's size: it is theirs now. */
-  function forget(path: string, beadId: string): void {
+  function forget(folder: Folder, beadId: string): void {
+    const path = folderKey(folder);
     const entries = memory.get(path);
     if (entries !== undefined && beadId in entries) {
       delete entries[beadId];
@@ -372,10 +385,12 @@ export async function createSizing({
    *   queued behind a running one; otherwise why it could not be.
    */
   async function request(
-    path: string,
+    folder: Folder,
     beadId: string,
     scope: Scope,
   ): Promise<{ message: string | null }> {
+    const path = folderKey(folder);
+    places.set(path, folder);
     scopes.set(path, scope);
     asked.set(path, (asked.get(path) ?? new Set()).add(beadId));
     const entries = memory.get(path);
@@ -415,7 +430,7 @@ export async function createSizing({
     if (job === undefined) {
       return "This tool is only for Airbender's own background sizing; nothing was changed.";
     }
-    const read = await readIssues(job.path);
+    const read = await readIssues(job.folder);
     if (!("issues" in read)) return "The issues could not be read; nothing was changed.";
     const now = new Map(read.issues.map((issue) => [issue.id, issue]));
     const lines: string[] = [];
@@ -432,14 +447,14 @@ export async function createSizing({
       else if (!job.asked.has(entry.id) && issue.size !== given.issue.size) skip("its size was changed meanwhile");
       else {
         job.done.add(entry.id);
-        const written = await setSize(job.path, null, entry.id, known.id, false);
+        const written = await setSize(job.folder, null, entry.id, known.id, false);
         if (written.message !== null) {
           skip(written.message);
           continue;
         }
         const reason = entry.reason.trim().replace(/\s+/gu, " ").slice(0, 300);
         await addComment(
-          job.path,
+          job.folder,
           entry.id,
           `Size ${known.label}, sized in the background${reason === "" ? "." : `: ${reason}`}`,
         );
@@ -451,7 +466,7 @@ export async function createSizing({
       }
     }
     void save();
-    bb.realtime.publish(CHANGED_CHANNEL, { path: job.path });
+    bb.realtime.publish(CHANGED_CHANNEL, { path: job.folder.path });
     return lines.length === 0 ? "Nothing was reported." : lines.join("\n");
   }
 
@@ -463,7 +478,9 @@ export async function createSizing({
    *   waiting for the worker and the tidying up go on afterwards.
    */
   async function run(path: string): Promise<{ message: string | null }> {
-    const workflow = workflowFor(path);
+    const folder = places.get(path);
+    if (folder === undefined) return { message: "This folder's workflow has no sizes." };
+    const workflow = workflowFor(folder);
     const scope = scopes.get(path);
     if (workflow === null || workflow.sizes === undefined || scope === undefined) {
       return { message: "This folder's workflow has no sizes." };
@@ -476,7 +493,7 @@ export async function createSizing({
     }
     // Read again: time has passed, and the list that queued this may be
     // stale.
-    const read = await readIssues(path);
+    const read = await readIssues(folder);
     if (!("issues" in read)) {
       return { message: "The issues could not be read." };
     }
@@ -516,7 +533,7 @@ export async function createSizing({
     // exists: BB asks which tools a thread gets as its session starts,
     // which can be before the call that creates it has returned.
     const title = `${WORKER_TITLE}${Date.now().toString(36)}-${++serial}`;
-    const job: Job = { path, workflow, batch, asked: wanted, done: new Set() };
+    const job: Job = { path, folder, workflow, batch, asked: wanted, done: new Set() };
     jobs.set(title, job);
     running.add(path);
     /** Whatever was not reported is remembered as tried, as it was. */
@@ -557,14 +574,12 @@ export async function createSizing({
       }
       if (projectId === null) throw new Error("Pick a project first.");
       if (environment === null) {
-        // The machine the folder is on: the project's default source,
-        // which is where the folder was found (server/folder.ts).
-        const project = await bb.sdk.projects.get({ projectId });
-        const hostId = project.sources.find((source) => source.isDefault)?.hostId;
+        // The machine the folder is on (server/folder.ts), whichever that
+        // is (bead-bb-fyv).
         environment = {
           type: "host",
-          ...(hostId === undefined ? {} : { hostId }),
-          workspace: { type: "unmanaged", path },
+          hostId: folder.hostId,
+          workspace: { type: "unmanaged", path: folder.path },
         };
       }
       const worker = await bb.sdk.threads.spawn({
@@ -613,7 +628,7 @@ export async function createSizing({
       })
       .finally(() => {
         settle();
-        bb.realtime.publish(CHANGED_CHANNEL, { path });
+        bb.realtime.publish(CHANGED_CHANNEL, { path: folder.path });
         // Anything the user asked for meanwhile goes next.
         if ((asked.get(path)?.size ?? 0) > 0) {
           void run(path).catch((cause) =>

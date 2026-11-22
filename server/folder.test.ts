@@ -17,6 +17,7 @@ import { join } from "node:path";
 import { after, test } from "node:test";
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { createFolders } from "./folder.ts";
+import { localFolder } from "./machine.ts";
 
 const root = mkdtempSync(join(tmpdir(), "airbender-folder-"));
 after(() => rmSync(root, { recursive: true, force: true }));
@@ -50,24 +51,24 @@ test("a folder is clean until a tracked file changes; untracked files do not cou
   writeFileSync(join(root, "tracked.txt"), "one\n");
   git("add", "tracked.txt");
   git("commit", "-q", "-m", "first");
-  assert.equal(await hasUncommittedChanges(root), false);
-  assert.equal(await hasCloseChanges(root), false);
+  assert.equal(await hasUncommittedChanges(localFolder(root)), false);
+  assert.equal(await hasCloseChanges(localFolder(root)), false);
   // A file git has never been told about is not a change to any branch.
   writeFileSync(join(root, "local-settings.json"), "{}\n");
-  assert.equal(await hasUncommittedChanges(root), false);
-  assert.equal(await hasCloseChanges(root), true);
+  assert.equal(await hasUncommittedChanges(localFolder(root)), false);
+  assert.equal(await hasCloseChanges(localFolder(root)), true);
   // An edit to a tracked file is, staged or not.
   writeFileSync(join(root, "tracked.txt"), "two\n");
-  assert.equal(await hasUncommittedChanges(root), true);
+  assert.equal(await hasUncommittedChanges(localFolder(root)), true);
   git("add", "tracked.txt");
-  assert.equal(await hasUncommittedChanges(root), true);
+  assert.equal(await hasUncommittedChanges(localFolder(root)), true);
   git("commit", "-q", "-m", "second");
-  assert.equal(await hasUncommittedChanges(root), false);
+  assert.equal(await hasUncommittedChanges(localFolder(root)), false);
 });
 
 test("a branch is deleted only when everything on it is on the main branch", async () => {
   // Continues in the repository the test above made.
-  const main = await mainBranch(root);
+  const main = await mainBranch(localFolder(root));
   assert.ok(main === "main" || main === "master", String(main));
   const branches = () => git("branch", "--format=%(refname:short)").toString().trim().split("\n");
   // A branch with a commit of its own is left alone, and says why.
@@ -75,17 +76,17 @@ test("a branch is deleted only when everything on it is on the main branch", asy
   writeFileSync(join(root, "tracked.txt"), "three\n");
   git("commit", "-q", "-am", "third");
   git("switch", "-q", main!);
-  assert.match((await deleteMergedBranch(root, "unmerged")) ?? "", /not fully on/u);
+  assert.match((await deleteMergedBranch(localFolder(root), "unmerged")) ?? "", /not fully on/u);
   assert.ok(branches().includes("unmerged"));
   // Once the main branch has it, the branch goes, even while the folder
   // itself is on some other branch.
   git("merge", "-q", "--ff-only", "unmerged");
   git("switch", "-q", "-c", "elsewhere", "HEAD~1");
-  assert.equal(await deleteMergedBranch(root, "unmerged"), null);
+  assert.equal(await deleteMergedBranch(localFolder(root), "unmerged"), null);
   assert.ok(!branches().includes("unmerged"));
   // The main branch is never deleted; a branch that is not there is fine.
-  assert.match((await deleteMergedBranch(root, main!)) ?? "", /main branch/u);
-  assert.equal(await deleteMergedBranch(root, "never-existed"), null);
+  assert.match((await deleteMergedBranch(localFolder(root), main!)) ?? "", /main branch/u);
+  assert.equal(await deleteMergedBranch(localFolder(root), "never-existed"), null);
   assert.ok(branches().includes(main!));
 });
 
@@ -94,13 +95,13 @@ test("a work tree knows the repository's main folder", async () => {
   const tree = join(root, "..", `airbender-tree-${process.pid}`);
   git("worktree", "add", "-q", "-b", "in-a-tree", tree);
   try {
-    assert.equal(await mainFolder(tree), await mainFolder(root));
-    assert.ok((await mainFolder(root))?.endsWith(root.split("/").pop()!));
+    assert.equal(await mainFolder(localFolder(tree)), await mainFolder(localFolder(root)));
+    assert.ok((await mainFolder(localFolder(root)))?.endsWith(root.split("/").pop()!));
   } finally {
     git("worktree", "remove", "--force", tree);
   }
 });
 
 test("a folder that is not a git repository counts as clean", async () => {
-  assert.equal(await hasUncommittedChanges(tmpdir()), false);
+  assert.equal(await hasUncommittedChanges(localFolder(tmpdir())), false);
 });

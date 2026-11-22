@@ -36,6 +36,7 @@ import { createStore } from "./store.ts";
 import { builtBend } from "./bend-for-tests.ts";
 import { createTrackers } from "./bend.ts";
 import type { WorkflowChoice } from "./workflow-choice.ts";
+import { localFolder } from "./machine.ts";
 
 /** The bend built from this repository's source; null without Go. */
 const bend = builtBend();
@@ -81,7 +82,7 @@ function storeIn(path: string, bd: string | null = "bd") {
       realtime: { publish: () => void (reloads += 1) },
     } as unknown as BbPluginApi,
     folders: {
-      folderFor: async () => ({ path }),
+      folderFor: async () => localFolder(path),
       onOwnBranch: async () => false,
       currentBranch: async () => null,
       isWorkTree: async () => false,
@@ -141,10 +142,10 @@ test("create and edit: a sub-issue takes its parent's category and nothing else"
   const store = storeIn(root);
   const epic = await create(store, "Checkout", { category: "  UX  Polish " });
   assert.match(epic, /^t-/u);
-  assert.equal((await store.setStep(root, null, epic, "plan")).message, null);
-  assert.equal((await store.setSize(root, null, epic, "l")).message, null);
+  assert.equal((await store.setStep(localFolder(root), null, epic, "plan")).message, null);
+  assert.equal((await store.setSize(localFolder(root), null, epic, "l")).message, null);
   assert.equal(
-    (await store.setBranch(root, null, epic, "t-1-checkout")).message,
+    (await store.setBranch(localFolder(root), null, epic, "t-1-checkout")).message,
     null,
   );
   const child = await create(store, "-starts with a dash", { parentId: epic });
@@ -168,11 +169,11 @@ test("create and edit: a sub-issue takes its parent's category and nothing else"
   assert.deepEqual(issues.get(epic)!.labels, []);
 
   // A step replaces the one before it: never two.
-  assert.equal((await store.setStep(root, null, epic, "implement")).message, null);
+  assert.equal((await store.setStep(localFolder(root), null, epic, "implement")).message, null);
   const before = reloads;
-  assert.equal((await store.setStep(root, null, epic, "implement")).message, null);
+  assert.equal((await store.setStep(localFolder(root), null, epic, "implement")).message, null);
   assert.equal(reloads, before, "setting the same step again reloads nothing");
-  assert.equal((await store.setBranch(root, null, epic, null)).message, null);
+  assert.equal((await store.setBranch(localFolder(root), null, epic, null)).message, null);
 
   assert.equal(
     (
@@ -350,8 +351,8 @@ test("comments, closing and reopening", async (t) => {
   if (skip) return t.skip(skip);
   const store = storeIn(root);
   const id = await create(store, "To close");
-  assert.equal((await store.addComment(root, id, "-first, with a dash")).message, null);
-  assert.equal((await store.addComment(root, id, "second")).message, null);
+  assert.equal((await store.addComment(localFolder(root), id, "-first, with a dash")).message, null);
+  assert.equal((await store.addComment(localFolder(root), id, "second")).message, null);
   const read = await store.listComments({ ...here, beadId: id });
   assert.equal(read.message, null);
   assert.deepEqual(read.comments.map((comment) => comment.text), ["-first, with a dash", "second"]);
@@ -403,12 +404,12 @@ test("the beads issues can be read whichever tracker the repository is on", asyn
   // same, and GitHub is not asked anything.
   writeFileSync(join(root, ".bend.json"), JSON.stringify({ tracker: "github", repository: "nobody/nothing" }));
   try {
-    const found = await trackers.beadsIssues(root);
+    const found = await trackers.beadsIssues(localFolder(root));
     assert.ok(found !== null && found.some((issue) => issue.id === id));
   } finally {
     rmSync(join(root, ".bend.json"), { force: true });
   }
-  assert.equal(await trackers.beadsIssues(empty), null, "no beads database: nothing to read");
+  assert.equal(await trackers.beadsIssues(localFolder(empty)), null, "no beads database: nothing to read");
 });
 
 test("a folder without beads and a machine without bd are told apart", async (t) => {

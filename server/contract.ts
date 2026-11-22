@@ -159,7 +159,9 @@ const issuesResultSchema = z.object({
   /**
    * ok — `issues` is the full list for `path`.
    * no-beads — the folder exists but has no beads database.
-   * unavailable — there is no folder on this machine to look in.
+   * unavailable — there is no folder to look in.
+   * offline — the machine the folder is on cannot be reached; `message`
+   *   names it. The tab asks again by itself (bead-bb-fyv).
    * no-bend — the bend program, which the tab reads and changes issues
    *   with, is not on this machine or is too old. Setup offers to build it.
    * no-bd — the beads program is not on this machine. Its own state, apart
@@ -168,12 +170,12 @@ const issuesResultSchema = z.object({
    *   (GitHub issues). Setup offers to sign in.
    * error — the tracker failed; `message` says why.
    */
-  state: z.enum(["ok", "no-beads", "no-bd", "no-bend", "no-login", "unavailable", "error"]),
+  state: z.enum(["ok", "no-beads", "no-bd", "no-bend", "no-login", "unavailable", "offline", "error"]),
   /** Folder bd ran in; null when none could be resolved. */
   path: z.string().nullable(),
   /**
-   * The home folder of the user the plugin's server runs as, so that the
-   * tab can show a path inside it with "~" (bead-bb-ty5.3).
+   * The home folder of the user BB runs as on the folder's machine, so
+   * that the tab can show a path inside it with "~" (bead-bb-ty5.3).
    */
   home: z.string(),
   /** Plain-language explanation for every state except "ok". */

@@ -9,7 +9,9 @@
 // Design notes:
 // - Refreshes on mount, on window focus, and whenever the backend publishes a
 //   change. No timer: beads keeps its database in one local store, and polling
-//   would compete with an agent writing issues.
+//   would compete with an agent writing issues. The one exception is a folder
+//   whose machine is offline (bead-bb-fyv): nothing there can say it is back,
+//   so the tab asks again every half minute until it is.
 
 import { useRealtime, useRpc } from "@get-bb/plugin-sdk/app";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -49,6 +51,9 @@ const underWay = new Map<string, { sent: Promise<IssuesResult>; at: number }>();
  * than this and sends a request of its own).
  */
 const JOIN_MS = 100;
+
+/** How often a folder whose machine is offline is asked for again. */
+const OFFLINE_RETRY_MS = 30_000;
 
 /** The key a scope's answer is kept under. */
 const keyOf = (scope: Scope) =>
@@ -150,5 +155,11 @@ export function useIssues(scope: Scope) {
   // Never another scope's list, also in the moment before the effect above
   // has run for a new scope.
   const result = held !== null && held.key === key ? held.result : null;
+  const offline = result?.state === "offline";
+  useEffect(() => {
+    if (!offline) return;
+    const timer = window.setInterval(() => refresh(false, true), OFFLINE_RETRY_MS);
+    return () => window.clearInterval(timer);
+  }, [offline, refresh]);
   return { rpc, result, failure, loading, refresh };
 }

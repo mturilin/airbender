@@ -53,4 +53,5 @@ from source with Go 1.24 or later.
 
 Open the Airbender tab, pick beads or GitHub issues, and say yes to setup:
 it installs what is missing and adds the rules for your agent, in a terminal
-you can watch. Folders on another machine are not supported yet.
+you can watch. A folder on another machine enrolled in BB works the same
+way: setup runs on that machine.

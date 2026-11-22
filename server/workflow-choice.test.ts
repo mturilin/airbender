@@ -19,7 +19,16 @@ import { join } from "node:path";
 import { after, test } from "node:test";
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { standardWorkflow } from "../shared/standard-workflow.ts";
-import { createWorkflowChoice, repositoryKey } from "./workflow-choice.ts";
+import { createWorkflowChoice, readRepositoryKey, repositoryKey } from "./workflow-choice.ts";
+import { localFolder } from "./machine.ts";
+import type { Folder } from "./machine.ts";
+
+/** A folder on this machine whose repository has been read, as folders.folderFor does. */
+async function at(path: string): Promise<Folder> {
+  const folder = localFolder(path);
+  await readRepositoryKey(folder);
+  return folder;
+}
 
 const root = mkdtempSync(join(tmpdir(), "airbender-choice-"));
 after(() => rmSync(root, { recursive: true, force: true }));
@@ -60,31 +69,46 @@ function fakeBb(data = new Map<string, unknown>(), failing = false) {
   } as unknown as BbPluginApi;
 }
 
-test("a work tree has the same key as its repository", () => {
+test("a work tree has the same key as its repository", async () => {
   for (const relative of [false, true]) {
     const { main, tree } = repository(`keys-${relative}`, relative);
-    assert.equal(repositoryKey(main), join(main, ".git"));
-    assert.equal(repositoryKey(tree), repositoryKey(main));
+    assert.equal(await readRepositoryKey(localFolder(main)), join(main, ".git"));
+    assert.equal(await readRepositoryKey(localFolder(tree)), join(main, ".git"));
+    // Kept, for the answers that cannot wait.
+    assert.equal(repositoryKey(localFolder(tree)), join(main, ".git"));
   }
 });
 
-test("a folder outside git, or with unreadable git files, is its own key", () => {
+test("the same path on another machine is another repository", async () => {
+  const { main } = repository("elsewhere");
+  const there = { hostId: "host_other", path: main };
+  assert.equal(await readRepositoryKey(there), `host_other:${join(main, ".git")}`);
+  const choice = await createWorkflowChoice(fakeBb());
+  await choice.set(await at(main), "simple");
+  assert.equal(choice.idFor(there), "standard");
+});
+
+test("a folder outside git, or with unreadable git files, is its own key", async () => {
   const plain = join(root, "plain");
   mkdirSync(plain);
-  assert.equal(repositoryKey(plain), plain);
+  assert.equal(await readRepositoryKey(localFolder(plain)), plain);
   const broken = join(root, "broken");
   mkdirSync(broken);
   writeFileSync(join(broken, ".git"), "gitdir: /nowhere/at/all\n");
-  assert.equal(repositoryKey(broken), broken);
+  assert.equal(await readRepositoryKey(localFolder(broken)), broken);
   const odd = join(root, "odd");
   mkdirSync(odd);
   writeFileSync(join(odd, ".git"), "not a pointer\n");
-  assert.equal(repositoryKey(odd), odd);
+  assert.equal(await readRepositoryKey(localFolder(odd)), odd);
+  // Never read: the folder is its own key.
+  assert.equal(repositoryKey(localFolder(join(root, "unseen"))), join(root, "unseen"));
 });
 
 test("a repository is on standard until it chooses, and its work trees follow", async () => {
-  const { main, tree } = repository("follow");
-  const other = repository("other");
+  const paths = repository("follow");
+  const main = await at(paths.main);
+  const tree = await at(paths.tree);
+  const other = { main: await at(repository("other").main) };
   const choice = await createWorkflowChoice(fakeBb());
   assert.equal(choice.idFor(main), "standard");
   assert.equal(choice.workflowFor(tree), standardWorkflow);
@@ -99,7 +123,7 @@ test("a repository is on standard until it chooses, and its work trees follow", 
 });
 
 test("a choice survives a reload, and junk in storage is ignored", async () => {
-  const { main } = repository("reload");
+  const main = await at(repository("reload").main);
   const data = new Map<string, unknown>();
   await (await createWorkflowChoice(fakeBb(data))).set(main, "simple");
   assert.equal((await createWorkflowChoice(fakeBb(data))).idFor(main), "simple");
@@ -112,7 +136,7 @@ test("a choice survives a reload, and junk in storage is ignored", async () => {
 });
 
 test("a choice that cannot be saved is not taken", async () => {
-  const { main } = repository("failing");
+  const main = await at(repository("failing").main);
   const choice = await createWorkflowChoice(fakeBb(new Map(), true));
   await assert.rejects(choice.set(main, "simple"), /disk full/u);
   assert.equal(choice.idFor(main), "standard");

@@ -46,12 +46,18 @@
 //   (a conversation, a folder or a merged branch), never half-removed work.
 
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
+import { folderKey, folderOfKey, onSameMachine } from "./machine.ts";
+import type { Folder } from "./machine.ts";
 
 /** What is remembered about one conversation the plugin opened. */
 interface Opened {
   /** The issue it was opened for. */
   beadId: string;
-  /** The repository's main folder: where its branch is deleted from afterwards. */
+  /**
+   * The repository's main folder: where its branch is deleted from
+   * afterwards. Stored as its folderKey, so that a folder on another machine
+   * is deleted from there (bead-bb-fyv).
+   */
   home: string;
 }
 
@@ -98,9 +104,9 @@ export async function createWorkTrees({
   deleteMergedBranch,
 }: {
   bb: BbPluginApi;
-  mainBranch: (path: string) => Promise<string | null>;
-  mainFolder: (path: string) => Promise<string | null>;
-  deleteMergedBranch: (path: string, branch: string) => Promise<string | null>;
+  mainBranch: (folder: Folder) => Promise<string | null>;
+  mainFolder: (folder: Folder) => Promise<string | null>;
+  deleteMergedBranch: (folder: Folder, branch: string) => Promise<string | null>;
 }) {
   /** Conversation id -> what it was opened for. */
   const opened = new Map<string, Opened>();
@@ -136,7 +142,7 @@ export async function createWorkTrees({
     prompt,
   }: {
     from: { threadId: string | null; projectId: string | null };
-    home: string;
+    home: Folder;
     beadId: string;
     title: string;
     prompt: string;
@@ -191,7 +197,11 @@ export async function createWorkTrees({
       // The branch is deleted later from the repository's main folder, not
       // from the folder that asked: that one may itself be a work tree,
       // and gone by then.
-      opened.set(thread.id, { beadId, home: (await mainFolder(home)) ?? home });
+      const main = await mainFolder(home);
+      opened.set(thread.id, {
+        beadId,
+        home: folderKey(main === null ? home : onSameMachine(home, main)),
+      });
       void save();
       await addTab(thread.id);
       return { threadId: thread.id };
@@ -328,7 +338,7 @@ export async function createWorkTrees({
     let problem: string | null = "the work tree was not removed in time";
     for (let attempt = 0; attempt < REMOVAL_TRIES; attempt += 1) {
       await pause(REMOVAL_POLL_MS);
-      problem = await deleteMergedBranch(entry.home, branch);
+      problem = await deleteMergedBranch(folderOfKey(entry.home), branch);
       if (problem === null) return;
     }
     bb.log.warn(`branch ${branch} was left in ${entry.home}: ${problem}`);

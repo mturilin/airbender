@@ -14,6 +14,12 @@
 // - The watched folders are remembered across plugin reloads, so a tab that
 //   was open before a reload keeps following along.
 //
+// - The file is watched on the machine the folder is on (bead-bb-fyv),
+//   through server/machine.ts; folders are kept by folderKey, so the same
+//   path on two machines is two watches. A watch that ends by itself (the
+//   machine restarted, an error) is dropped and started again by the next
+//   list.
+//
 // Gotchas:
 // - `bd delete` does not rewrite that file, so a deletion made outside the
 //   plugin is not noticed.
@@ -21,23 +27,25 @@
 //   harmless reload.
 
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
-import { existsSync, watch } from "node:fs";
-import type { FSWatcher } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { CHANGED_CHANNEL } from "../shared/constants.ts";
 import type { Watched } from "./bend.ts";
+import { folderKey, folderOfKey, machineOf, noteServerHost } from "./machine.ts";
+import type { Folder, Unwatch } from "./machine.ts";
 
 /**
  * Starts the change watcher: restores the folders watched before the last
  * reload and closes every watch when the plugin is disposed.
  *
- * @returns `watchFolder(path)`, which starts watching a folder's beads
+ * @returns `watchFolder(folder)`, which starts watching a folder's beads
  *   directory if it is not watched yet. Safe to call on every list.
  * Side effects: file watches; one read of the plugin's key-value storage
  *   now, and a write whenever a new folder is added.
  */
 export async function createWatcher(
   bb: BbPluginApi,
+  /** How long after loading the saved watches are started again. */
+  restoreAfterMs = 3_000,
 ) {
   /** Most folders watched at once; the oldest is dropped beyond this. */
   const MAX_WATCHED_FOLDERS = 32;
@@ -48,14 +56,12 @@ export async function createWatcher(
   /** Storage key for the list of watched folders, kept across reloads. */
   const WATCHED_FOLDERS_KEY = "watchedFolders";
 
-  /** Live watchers by folder path, in the order they were started. */
-  const watchers = new Map<string, FSWatcher>();
   /**
-   * What each watch looks at, by the same key: when a folder is to be
-   * watched somewhere else (its tracker was switched, so bend's copy of the
-   * issues is in another folder, bead-bb-c9l.18), the watch is replaced.
+   * Live watches, in the order they were started, by "<folderKey>" for
+   * beads' mark and "<folderKey>\ncopy" / "\nruns" for bend's files.
    */
-  const watching = new Map<string, string>();
+  const watchers = new Map<string, { stop: Unwatch | null; target: string }>();
+  let disposed = false;
 
   /**
    * Starts telling open tabs about beads changes made outside this plugin in
@@ -66,90 +72,93 @@ export async function createWatcher(
    * itself, because a file that is replaced (written to a temporary name and
    * renamed) would silently end a watch placed on the old file.
    *
-   * Side effects: holds one operating-system file watch per folder until the
-   *   plugin is reloaded or disabled (see the dispose hook below), or until
-   *   the watch fails, in which case it is dropped and restarted by the next
-   *   list.
+   * Side effects: holds one file watch per watched file on the folder's
+   *   machine until the plugin is reloaded or disabled (see the dispose hook
+   *   below), or until the watch ends, in which case it is dropped and
+   *   restarted by the next list.
    */
   function watchFolder(
-    path: string,
+    folder: Folder,
     watched: Watched = { copy: null, sign: null },
   ): void {
+    const key = folderKey(folder);
     // Beads' own mark of a change: where bend says it is (the repository's
     // main folder, also for a work tree, whose own `.beads` folder beads
     // never writes to), else in the folder itself.
-    const sign = watched.sign ?? join(path, ".beads", "last-touched");
-    watchOne(path, dirname(sign), basename(sign), path);
+    const sign = watched.sign ?? join(folder.path, ".beads", "last-touched");
+    watchOne(folder, dirname(sign), basename(sign), key);
     // bend's copy of the issues (bead-bb-c9l.14): it changes whenever any
     // bend process rereads it and finds something new, whoever made the
     // change.
     if (watched.copy !== null) {
-      watchOne(path, watched.copy, "issues.json", `${path}\ncopy`);
+      watchOne(folder, watched.copy, "issues.json", `${key}\ncopy`);
       // bend's log of syncs, kept beside the copy (bead-bb-c9l.16): a sync
       // made in a terminal or by bend's helper then shows in an open tab,
       // with no timer here.
-      watchOne(path, watched.copy, "sync-runs.json", `${path}\nruns`);
+      watchOne(folder, watched.copy, "sync-runs.json", `${key}\nruns`);
     }
   }
 
+  /** Stops and forgets one watch. */
+  function drop(key: string): void {
+    watchers.get(key)?.stop?.();
+    watchers.delete(key);
+  }
+
   /**
-   * Watches one file in one folder and tells the tabs of `path` when it
+   * Watches one file in one folder and tells the tabs of `folder` when it
    * changes.
    *
    * @param key What the watch is kept under; one watch per key.
    */
-  function watchOne(path: string, beadsDir: string, file: string, key: string): void {
+  function watchOne(folder: Folder, beadsDir: string, file: string, key: string): void {
     const target = join(beadsDir, file);
-    if (watchers.has(key)) {
-      if (watching.get(key) === target) return;
+    const kept = watchers.get(key);
+    if (kept !== undefined) {
+      if (kept.target === target) return;
       // Another place for the same folder: the old watch would go on
       // telling of changes that are no longer this folder's, and miss the
       // ones that are.
-      watchers.get(key)?.close();
-      watchers.delete(key);
-      watching.delete(key);
+      drop(key);
     }
-    if (!existsSync(beadsDir)) return;
+    // Held at once, so that lists arriving together start one watch.
+    const entry: { stop: Unwatch | null; target: string } = { stop: null, target };
+    watchers.set(key, entry);
     let timer: NodeJS.Timeout | null = null;
-    let watcher: FSWatcher;
-    try {
-      watcher = watch(beadsDir, (_event, filename) => {
-        if (filename !== file) return;
-        if (timer !== null) clearTimeout(timer);
-        timer = setTimeout(() => {
-          timer = null;
-          bb.log.info("beads changed in " + path + "; telling open tabs");
-          bb.realtime.publish(CHANGED_CHANNEL, { path });
-        }, WATCH_SETTLE_MS);
-      });
-    } catch (cause) {
-      bb.log.warn("could not watch " + beadsDir + ": " + cause);
-      return;
-    }
-    const stop = () => {
+    const onChange = () => {
       if (timer !== null) clearTimeout(timer);
-      watcher.close();
-      if (watchers.get(key) === watcher) {
-        watchers.delete(key);
-        watching.delete(key);
-      }
+      timer = setTimeout(() => {
+        timer = null;
+        bb.log.info("beads changed in " + folderKey(folder) + "; telling open tabs");
+        bb.realtime.publish(CHANGED_CHANNEL, { path: folder.path });
+      }, WATCH_SETTLE_MS);
     };
-    watcher.on("error", stop);
-    watcher.on("close", () => {
+    const onEnd = () => {
       if (timer !== null) clearTimeout(timer);
-    });
-    watchers.set(key, watcher);
-    watching.set(key, target);
+      if (watchers.get(key) === entry) watchers.delete(key);
+    };
+    machineOf(folder)
+      .watch(beadsDir, file, onChange, onEnd)
+      .then(
+        (stop) => {
+          if (stop === null || disposed || watchers.get(key) !== entry) {
+            stop?.();
+            if (watchers.get(key) === entry) watchers.delete(key);
+            return;
+          }
+          entry.stop = stop;
+        },
+        (cause) => {
+          bb.log.warn("could not watch " + beadsDir + ": " + cause);
+          if (watchers.get(key) === entry) watchers.delete(key);
+        },
+      );
     // A folder has up to three watches; the limit counts folders, and the
     // oldest folder goes with all of its.
-    const folders = [...new Set([...watchers.keys()].map((kept) => kept.split("\n")[0]!))];
+    const folders = [...new Set([...watchers.keys()].map((held) => held.split("\n")[0]!))];
     if (folders.length > MAX_WATCHED_FOLDERS) {
       const oldest = folders[0]!;
-      for (const kept of [oldest, `${oldest}\ncopy`, `${oldest}\nruns`]) {
-        watchers.get(kept)?.close();
-        watchers.delete(kept);
-        watching.delete(kept);
-      }
+      for (const held of [oldest, `${oldest}\ncopy`, `${oldest}\nruns`]) drop(held);
     }
     // Remember the folder so the watch comes back after the plugin is
     // reloaded or BB restarts. Not awaited: a failed save only costs the
@@ -158,7 +167,7 @@ export async function createWatcher(
       // Folders only: the copy's place is found again from bend.
       .set(
         WATCHED_FOLDERS_KEY,
-        [...watchers.keys()].filter((kept) => !kept.includes("\n")),
+        [...watchers.keys()].filter((held) => !held.includes("\n")),
       )
       .catch((cause) => bb.log.warn("could not save watched folders: " + cause));
   }
@@ -166,20 +175,33 @@ export async function createWatcher(
   // Watches live in memory, so a reload of the plugin (or a restart of BB)
   // would otherwise leave tabs that are already open deaf to outside changes
   // until something made them list again. Start them again from the saved
-  // list; folders that no longer use beads are skipped by watchFolder.
+  // list, a moment after loading: a machine cannot be asked while the plugin
+  // loads, and which machine BB is on must be known to read the keys.
+  // Folders that no longer use beads are skipped by watchFolder.
   const savedFolders = await bb.storage.kv
     .get<unknown>(WATCHED_FOLDERS_KEY)
     .catch(() => undefined);
 
   if (Array.isArray(savedFolders)) {
-    for (const folder of savedFolders.slice(-MAX_WATCHED_FOLDERS)) {
-      if (typeof folder === "string") watchFolder(folder);
-    }
+    const restore = setTimeout(() => {
+      void bb.sdk.system
+        .config()
+        .then(({ primaryHostId }) => {
+          noteServerHost(primaryHostId);
+          if (disposed) return;
+          for (const saved of savedFolders.slice(-MAX_WATCHED_FOLDERS)) {
+            if (typeof saved === "string") watchFolder(folderOfKey(saved));
+          }
+        })
+        .catch((cause) => bb.log.warn("watched folders were not restored: " + cause));
+    }, restoreAfterMs);
+    bb.onDispose(() => clearTimeout(restore));
   }
 
   // Release every file watch when the plugin is reloaded or disabled.
   bb.onDispose(() => {
-    for (const watcher of watchers.values()) watcher.close();
+    disposed = true;
+    for (const entry of watchers.values()) entry.stop?.();
     watchers.clear();
   });
 

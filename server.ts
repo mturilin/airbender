@@ -54,11 +54,12 @@
 //   a second `bd blocked` call, so the tab always shows one consistent
 //   snapshot. A change reads that list once more before it writes: the
 //   adapter checks there what it is asked to change.
-// - `bd` runs on the machine the BB server runs on. A thread whose folder is
-//   on another enrolled machine gets an explicit "unavailable" answer instead
-//   of a wrong list (tracked as bead-bb-hl3).
-// - Problems the user can act on (no beads here, bd not installed, folder on
-//   another machine) are returned as data with a `state`, not thrown, so the
+// - bend, bd and git run on the machine the folder is on, whichever machine
+//   BB has that is (bead-bb-fyv): through the plugin's own part on each
+//   machine (host.ts), reached through server/machine.ts. A folder whose
+//   machine is offline gets an "offline" answer the tab shows in plain words.
+// - Problems the user can act on (no beads here, bd not installed, the
+//   folder's machine offline) are returned as data with a `state`, not thrown, so the
 //   tab can explain them in plain words.
 //
 // - Changes made outside the plugin (an agent or a terminal running bd) reach
@@ -86,8 +87,6 @@
 
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { cliCommand, defineCli } from "@get-bb/plugin-sdk";
-import { homedir } from "node:os";
-import { join } from "node:path";
 import { z } from "zod";
 import {
   CURRENT_TOOL,
@@ -114,6 +113,8 @@ import { closeGitState, verifyCloseCommit } from "./server/close-git.ts";
 import type { WorkEvents } from "./server/work.ts";
 import { createWorkTrees } from "./server/work-trees.ts";
 import { createWorkflowChoice, repositoryKey } from "./server/workflow-choice.ts";
+import { folderKey, folderOfKey, useMachines } from "./server/machine.ts";
+import { createHostMachines } from "./server/machine-host.ts";
 import {
   SUMMARY_BACKENDS,
   SUMMARY_OFF,
@@ -244,13 +245,18 @@ export default async function plugin(bb: BbPluginApi) {
   });
   const { bdCommand, bendCommand } = await settings.get();
 
+  // Every program run, file check and watch goes to the machine the folder
+  // is on, through the plugin's part there (host.ts, bead-bb-fyv).
+  useMachines(createHostMachines(bb));
+
   // Tried in order until one exists. The extra locations cover installs that
-  // are on a login shell's PATH but not on the BB server's.
+  // are on a login shell's PATH but not on BB's. "~/" is the home folder on
+  // the machine the folder is on.
   const bdCandidates = [
     bdCommand.trim() || "bd",
-    join(homedir(), ".local", "share", "mise", "shims", "bd"),
-    join(homedir(), ".local", "bin", "bd"),
-    join(homedir(), "go", "bin", "bd"),
+    "~/.local/share/mise/shims/bd",
+    "~/.local/bin/bd",
+    "~/go/bin/bd",
     "/usr/local/bin/bd",
     "/opt/homebrew/bin/bd",
   ];
@@ -262,8 +268,8 @@ export default async function plugin(bb: BbPluginApi) {
   // Installing or building bend puts it in the first of the extra places.
   const bendCandidates = [
     bendCommand.trim() || "bend",
-    join(homedir(), ".local", "bin", "bend"),
-    join(homedir(), "go", "bin", "bend"),
+    "~/.local/bin/bend",
+    "~/go/bin/bend",
     "/usr/local/bin/bend",
   ];
   const folders = createFolders({ bb, bdCandidates, bendCandidates });
@@ -324,15 +330,17 @@ export default async function plugin(bb: BbPluginApi) {
       if ("message" in found) throw new Error(found.message);
       const projectId = scope.threadId === null ? scope.projectId : (await bb.sdk.threads.get({ threadId: scope.threadId })).projectId;
       if (projectId === null) throw new Error("Pick a project to close an issue.");
-      return { path: found.path, repository: repositoryKey(found.path), projectId,
+      // Folders are named by folderKey here: they may be on another machine
+      // (bead-bb-fyv), and a pending close request is stored with its folder.
+      return { path: folderKey(found.folder), repository: repositoryKey(found.folder), projectId,
         issue: found.issues.find((issue) => issue.id === scope.beadId)!, issues: found.issues,
-        simple: workflowChoice.workflowFor(found.path) === null };
+        simple: workflowChoice.workflowFor(found.folder) === null };
     },
     working: (context, scope) => currentBead.workingFor(context.projectId, scope.beadId, scope.threadId, async (threadId) => {
       const found = await folders.folderFor({ threadId, projectId: context.projectId });
-      return "message" in found || repositoryKey(found.path) !== context.repository ? null : found.path;
+      return "message" in found || repositoryKey(found) !== context.repository ? null : folderKey(found);
     }),
-    git: closeGitState,
+    git: (key) => closeGitState(folderOfKey(key)),
     verify: verifyCloseCommit,
     send: async (threadId, text) => { await bb.sdk.threads.send({ threadId, mode: "auto", input: [{ type: "text", text, mentions: [] }] }); },
     close: (scope, closing) => store.setIssueOpen("close", { ...scope, closing }),
@@ -435,11 +443,11 @@ export default async function plugin(bb: BbPluginApi) {
   // for an expected problem, so the tab has one way to show a failure.
   bb.rpc.register(rpcContract, {
     issues_list: async (input) => {
-      const listed = await store.listIssues(input);
+      const { folder, ...listed } = await store.listIssues(input);
       // Every list a tab asks for is also the moment to see whether an
       // issue is new or has changed and wants a size (server/sizing.ts).
-      if (listed.state === "ok" && listed.path !== null) {
-        sizing.consider(listed.path, listed.issues, input);
+      if (listed.state === "ok" && folder !== null) {
+        sizing.consider(folder, listed.issues, input);
       }
       // Which issues have a conversation of their own in a work tree is
       // the plugin's knowledge, not beads': added here, for the tab.
@@ -500,10 +508,10 @@ export default async function plugin(bb: BbPluginApi) {
             helper: null,
           }
         : {
-            ...(await issueSync.state(folder.path, input.passive === true)),
+            ...(await issueSync.state(folder, input.passive === true)),
             // Asked the same way: every run of bend this request makes
             // must be passive, or none is.
-            refused: await store.refusedIn(folder.path, input.passive === true),
+            refused: await store.refusedIn(folder, input.passive === true),
           };
     },
     sync_refused_settle: (input) => store.settleRefused(input),
@@ -511,14 +519,14 @@ export default async function plugin(bb: BbPluginApi) {
       const folder = await folders.folderFor(input);
       return {
         entries:
-          "message" in folder ? [] : await issueSync.log(folder.path, input.failed === true),
+          "message" in folder ? [] : await issueSync.log(folder, input.failed === true),
       };
     },
     sync_now: async (input) => {
       const folder = await folders.folderFor(input);
       return "message" in folder
         ? { message: folder.message }
-        : issueSync.refresh(folder.path);
+        : issueSync.refresh(folder);
     },
     github_issues: (input) => github.issues(input),
     github_sync: (input) => github.sync(input),
@@ -528,14 +536,14 @@ export default async function plugin(bb: BbPluginApi) {
     issue_request_sizing: async (input) => {
       const found = await store.issuesIn(input, input.beadId);
       if ("message" in found) return { message: found.message };
-      return sizing.request(found.path, input.beadId, input);
+      return sizing.request(found.folder, input.beadId, input);
     },
     workflow_set: async (input) => {
       const folder = await folders.folderFor(input);
       if ("message" in folder) return { message: folder.message };
-      const before = workflowChoice.idFor(folder.path);
+      const before = workflowChoice.idFor(folder);
       try {
-        await workflowChoice.set(folder.path, input.workflow);
+        await workflowChoice.set(folder, input.workflow);
       } catch (cause) {
         return {
           message: `The workflow could not be saved: ${cause instanceof Error ? cause.message : String(cause)}`,

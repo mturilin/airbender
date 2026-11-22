@@ -25,14 +25,20 @@
 //   for a while: minutes when everything is in place, seconds otherwise,
 //   and dropped whenever something is run here.
 //
+// - The folder may be on another machine than BB's (bead-bb-fyv): bend runs
+//   there, terminals open there, and bend is installed there, for that
+//   machine's system. Building bend from source is offered only on BB's own
+//   machine, where the plugin's copy of the source is.
+//
 // Gotchas:
 // - Something set up or taken away outside the tab is noticed only when
 //   the kept answer has run out.
 
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { folderKey, machineOf } from "./machine.ts";
+import type { Folder } from "./machine.ts";
 import { CHANGED_CHANNEL } from "../shared/constants.ts";
 import type { SetupAction } from "../shared/constants.ts";
 import { programExists, shellQuote } from "./bd.ts";
@@ -167,14 +173,15 @@ export function createSetup({
    * Told the folder when a step may have changed which tracker it has, so
    * that nothing remembered about the old one is used again.
    */
-  trackerChanged?: (path: string) => void;
+  trackerChanged?: (folder: Folder) => void;
   bb: BbPluginApi;
   folders: Folders;
   store: Store;
   /** How to run bend in a folder (server/bend.ts). */
   bendIn: Trackers["bendIn"];
 }) {
-  const { resolveFolder, findBd, findBend } = folders;
+  const { findBd, findBend } = folders;
+  // Everything kept below is by folderKey.
   /** The setup action running in a terminal, per folder. */
   const setupRunning = new Map<
     string,
@@ -188,7 +195,8 @@ export function createSetup({
   const dropped = new Map<string, number>();
 
   /** Drops what is kept about a folder: something may have changed it. */
-  function forget(path: string): void {
+  function forget(folder: Folder): void {
+    const path = folderKey(folder);
     kept.delete(path);
     dropped.set(path, (dropped.get(path) ?? 0) + 1);
   }
@@ -200,7 +208,8 @@ export function createSetup({
    *   run failed), in plain words.
    * Side effects: one run of bend, unless the answer kept still stands.
    */
-  async function stateOf(path: string): Promise<BendSetup | { message: string }> {
+  async function stateOf(folder: Folder): Promise<BendSetup | { message: string }> {
+    const path = folderKey(folder);
     const held = kept.get(path);
     if (
       held !== undefined &&
@@ -208,7 +217,7 @@ export function createSetup({
     ) {
       return held.state;
     }
-    const bend = await bendIn(path);
+    const bend = await bendIn(folder);
     if ("state" in bend) return { message: bend.message };
     const asked = dropped.get(path) ?? 0;
     try {
@@ -225,19 +234,21 @@ export function createSetup({
   }
 
   /**
-   * How bend is installed on this machine: a verified pinned release
-   * download, or the source-build fallback, shown before either is run.
+   * How bend is installed on the folder's machine: a verified pinned
+   * release download for that machine's system, or (on BB's own machine
+   * only) the source-build fallback, shown before either is run.
    *
    * The source is the `bend` folder that comes with the plugin, found from
    * where this file is (it may be run from the plugin's folder or from its
    * build output inside that folder). The program goes into the owner's own
-   * commands folder, which is where the plugin looks for it next to the
-   * PATH.
+   * commands folder there, which is where the plugin looks for it next to
+   * the PATH.
    *
-   * Side effects: reads package/source locations and looks for tools.
-   * No download or build happens until the owner starts the setup step.
+   * Side effects: reads package/source locations and looks for tools on
+   * the folder's machine. No download or build happens until the owner
+   * starts the setup step.
    */
-  function bendBuild(): SetupStatus["bendBuild"] {
+  async function bendBuild(folder: Folder): Promise<SetupStatus["bendBuild"]> {
     let source: string | null = null;
     let version: string | null = null;
     for (let folder = import.meta.dirname; ; folder = dirname(folder)) {
@@ -255,8 +266,22 @@ export function createSetup({
       }
       if (dirname(folder) === folder) break;
     }
-    return planBendInstall({ platform: process.platform, arch: process.arch, version, source,
-      target: join(homedir(), ".local", "bin"), hasProgram: programExists });
+    const machine = machineOf(folder);
+    let system;
+    try {
+      system = await machine.system();
+    } catch (cause) {
+      return { method: null, command: null, unavailable: `The machine this folder is on cannot be reached: ${reasonOf(cause)}` };
+    }
+    const { primaryHostId } = await bb.sdk.system.config();
+    const tools = ["sha256sum", "shasum", "curl", "sh", "go"];
+    const present = new Set(
+      (await Promise.all(tools.map(async (name) => ((await programExists(folder, name)) ? name : null))))
+        .filter((name): name is string => name !== null),
+    );
+    return planBendInstall({ platform: system.platform, arch: system.arch, version,
+      source: folder.hostId === primaryHostId ? source : null,
+      target: join(system.home, ".local", "bin"), hasProgram: (name) => present.has(name) });
   }
 
   /** How the last setup terminal ended, per folder. */
@@ -272,6 +297,14 @@ export function createSetup({
     threadId: string | null;
     projectId: string | null;
   }): Promise<SetupStatus> {
+    return (await statusFor(input)).status;
+  }
+
+  /** setupStatus, with the folder it is about (null when there is none). */
+  async function statusFor(input: {
+    threadId: string | null;
+    projectId: string | null;
+  }): Promise<{ status: SetupStatus; folder: Folder | null }> {
     const nothing = {
       tracker: null,
       trackerChosen: false,
@@ -306,40 +339,41 @@ export function createSetup({
       lastRun: null,
       syncSteps: { on: null, fetch: null },
     };
-    const folder = await resolveFolder(input);
-    if ("reason" in folder) {
-      return { path: null, unavailable: folder.reason, ...nothing };
+    const found = await folders.folderFor(input);
+    if ("message" in found) {
+      return { status: { path: found.path, unavailable: found.message, ...nothing }, folder: null };
     }
+    const folder = found;
     const { path } = folder;
-    if (!existsSync(path)) {
-      return {
-        path,
-        unavailable: `The folder ${path} does not exist on the machine BB runs on.`,
-        ...nothing,
-      };
+    const running = setupRunning.get(folderKey(folder)) ?? null;
+    const lastRun = setupLastRun.get(folderKey(folder)) ?? null;
+    const bendFound = await findBend(folder);
+    if (bendFound === "unreachable") {
+      const offline = (await machineOf(folder).offline()) ?? "The machine this folder is on cannot be reached.";
+      return { status: { path, unavailable: offline, ...nothing }, folder: null };
     }
-    const running = setupRunning.get(path) ?? null;
-    const lastRun = setupLastRun.get(path) ?? null;
-    const found = await findBend(path);
-    if (found === "missing" || found === "old") {
+    if (bendFound === "missing" || bendFound === "old") {
       // Without bend nothing else can be asked. Whether beads is there is
       // still said, so that the tab does not offer to install what is.
       return {
-        path,
-        unavailable: null,
-        ...nothing,
-        bdInstalled: (await findBd(path)) !== null,
-        bend: found,
-        bendBuild: bendBuild(),
-        running,
-        lastRun,
+        status: {
+          path,
+          unavailable: null,
+          ...nothing,
+          bdInstalled: (await findBd(folder)) !== null,
+          bend: bendFound,
+          bendBuild: await bendBuild(folder),
+          running,
+          lastRun,
+        },
+        folder,
       };
     }
-    const state = await stateOf(path);
+    const state = await stateOf(folder);
     if ("message" in state) {
-      return { path, unavailable: state.message, ...nothing, bend: "ready", running, lastRun };
+      return { status: { path, unavailable: state.message, ...nothing, bend: "ready", running, lastRun }, folder };
     }
-    return {
+    return { folder, status: {
       path,
       unavailable: null,
       bend: "ready",
@@ -347,7 +381,7 @@ export function createSetup({
       ...fromBend(state),
       running,
       lastRun,
-    };
+    } };
   }
 
   /**
@@ -358,7 +392,7 @@ export function createSetup({
    * password, folder setup asks questions, and the user should see what is
    * done to their machine. A terminal that belongs to the thread is used
    * when there is one, so it shows up beside that thread; otherwise one on
-   * this machine in the folder.
+   * the folder's machine, in the folder.
    *
    * @returns Once the terminal is started. The wait for its end goes on in
    *   the background: when it exits (or after SETUP_TIMEOUT_MS) the exit
@@ -368,16 +402,13 @@ export function createSetup({
    */
   async function runInTerminal(input: {
     threadId: string | null;
-    path: string;
+    folder: Folder;
     action: SetupAction;
     title: string;
     command: string;
   }): Promise<void> {
-    const { threadId, path, action, title } = input;
-    const { primaryHostId } = await bb.sdk.system.config();
-    if (threadId === null && primaryHostId === null) {
-      throw new Error("BB did not say which machine it runs on.");
-    }
+    const { threadId, folder, action, title } = input;
+    const path = folderKey(folder);
     const session = await bb.sdk.terminals.create({
       cols: 100,
       rows: 30,
@@ -385,17 +416,17 @@ export function createSetup({
       scope:
         threadId !== null
           ? { kind: "thread", threadId }
-          : { kind: "host_path", hostId: primaryHostId!, cwd: path },
+          : { kind: "host_path", hostId: folder.hostId, cwd: folder.path },
       // The command goes through a shell (checked with a test terminal),
       // so the cd and the pipe in the install script work as written.
       start: {
         mode: "command",
-        command: `cd ${shellQuote(path)} && ${input.command}`,
+        command: `cd ${shellQuote(folder.path)} && ${input.command}`,
       },
     });
     setupRunning.set(path, { action, title });
     setupLastRun.delete(path);
-    bb.realtime.publish(CHANGED_CHANNEL, { path });
+    bb.realtime.publish(CHANGED_CHANNEL, { path: folder.path });
     const startedAt = Date.now();
     const watchTerminal = async () => {
       let exitCode: number | null = null;
@@ -435,9 +466,9 @@ export function createSetup({
       setupLastRun.set(path, { action, title, exitCode, tail });
       // A setup step may have made, fetched or changed the issues, and
       // may be the very thing a failed check was waiting for.
-      store.stale(path);
-      forget(path);
-      bb.realtime.publish(CHANGED_CHANNEL, { path });
+      store.stale(folder);
+      forget(folder);
+      bb.realtime.publish(CHANGED_CHANNEL, { path: folder.path });
     };
     void watchTerminal();
   }
@@ -476,11 +507,10 @@ export function createSetup({
     option: string | null;
     anyway?: boolean;
   }): Promise<{ message: string | null }> {
-    const status = await setupStatus({ threadId, projectId });
-    if (status.path === null || (status.unavailable !== null && status.bend !== "ready")) {
+    const { status, folder } = await statusFor({ threadId, projectId });
+    if (folder === null || (status.unavailable !== null && status.bend !== "ready")) {
       return { message: status.unavailable ?? "There is no folder to set up." };
     }
-    const { path } = status;
     if (status.running !== null) {
       return { message: `"${status.running.title}" is still running.` };
     }
@@ -489,23 +519,23 @@ export function createSetup({
       if (status.bendBuild.command === null) {
         return { message: status.bendBuild.unavailable ?? "bend cannot be installed here." };
       }
-      return inTerminal(threadId, path, action, status.bendBuild.method === "download" ? "Install bend" : "Build bend", status.bendBuild.command);
+      return inTerminal(threadId, folder, action, status.bendBuild.method === "download" ? "Install bend" : "Build bend", status.bendBuild.command);
     }
     if (status.bend !== "ready") return { message: "Install bend first." };
 
     /** Runs a step that only writes files, and tells the tabs. */
     const direct = async (args: string[]) => {
-      const bend = await bendIn(path);
+      const bend = await bendIn(folder);
       if ("state" in bend) return { message: bend.message };
       try {
         await bend.run(["setup", ...args]);
       } catch (cause) {
         return { message: reasonOf(cause) };
       } finally {
-        forget(path);
-        trackerChanged(path);
-        store.stale(path);
-        bb.realtime.publish(CHANGED_CHANNEL, { path });
+        forget(folder);
+        trackerChanged(folder);
+        store.stale(folder);
+        bb.realtime.publish(CHANGED_CHANNEL, { path: folder.path });
       }
       return { message: null };
     };
@@ -561,9 +591,9 @@ export function createSetup({
     }
 
     // The rest run an outside program, in a terminal.
-    const bend = await findBend(path);
-    if (bend === "missing" || bend === "old") return { message: "Install bend first." };
-    const bd = await findBd(path);
+    const bend = await findBend(folder);
+    if (bend === "missing" || bend === "old" || bend === "unreachable") return { message: "Install bend first." };
+    const bd = await findBd(folder);
     /** bend, told which beads program the plugin found. */
     const bendCommand = `env ${bd === null ? "" : `BEND_BD=${shellQuote(bd)} `}${shellQuote(bend)} setup`;
     if (action === "install") {
@@ -574,7 +604,7 @@ export function createSetup({
       }
       return inTerminal(
         threadId,
-        path,
+        folder,
         action,
         `Install beads (${method.label})`,
         `${bendCommand} program --method ${shellQuote(method.id)} --yes`,
@@ -591,7 +621,7 @@ export function createSetup({
       }
       return inTerminal(
         threadId,
-        path,
+        folder,
         action,
         fetching
           ? status.syncSteps.fetch!.label
@@ -607,7 +637,7 @@ export function createSetup({
       }
       return inTerminal(
         threadId,
-        path,
+        folder,
         action,
         status.commitStep.label,
         `${bendCommand} commit --yes`,
@@ -621,7 +651,7 @@ export function createSetup({
       }
       return inTerminal(
         threadId,
-        path,
+        folder,
         action,
         status.syncSteps.on.label,
         `${bendCommand} publish --yes`,
@@ -633,13 +663,13 @@ export function createSetup({
   /** Opens the terminal for a step; the reason in plain words when it cannot. */
   async function inTerminal(
     threadId: string | null,
-    path: string,
+    folder: Folder,
     action: SetupAction,
     title: string,
     command: string,
   ): Promise<{ message: string | null }> {
     try {
-      await runInTerminal({ threadId, path, action, title, command });
+      await runInTerminal({ threadId, folder, action, title, command });
     } catch (cause) {
       return { message: `The terminal could not be opened: ${reasonOf(cause)}` };
     }

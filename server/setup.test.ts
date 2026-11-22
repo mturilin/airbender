@@ -17,6 +17,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { fromBend, type BendSetup } from "./setup.ts";
+import { localFolder } from "./machine.ts";
+import type { Folder } from "./machine.ts";
 
 /** A step as bend gives it. */
 const step = (
@@ -194,12 +196,12 @@ test("a repository set up the old way is switched over by the tab's actions", as
     const setup = createSetup({
       bb: { realtime: { publish: () => void (published += 1) }, log: { warn: () => {} } } as never,
       folders: {
-        resolveFolder: async () => ({ path: root }),
+        folderFor: async () => localFolder(root),
         findBd: async () => "bd",
         findBend: async () => bend,
       } as never,
       store: { stale: () => {} } as never,
-      bendIn: async (path: string) => ({ run: createRun(bend, path) }),
+      bendIn: async (folder: Folder) => ({ run: createRun(folder, bend) }),
     });
     const here = { threadId: null, projectId: "p" };
 

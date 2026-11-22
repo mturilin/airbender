@@ -238,8 +238,8 @@ export async function createAutopilot({
         stop(threadId, `The epic ${epicId} could not be read: ${found.message}`);
         return;
       }
-      const { issues, path } = found;
-      const workflow = workflowChoice.workflowFor(path);
+      const { issues, folder } = found;
+      const workflow = workflowChoice.workflowFor(folder);
       const epic = issues.find((issue) => issue.id === epicId)!;
       if (workflow === null || epic.status === CLOSED_STATUS) {
         stop(threadId, null);
@@ -364,7 +364,7 @@ export async function createAutopilot({
     }
     const found = await store.issuesIn({ threadId, projectId: null }, epicId);
     if ("message" in found) return { message: found.message };
-    if (workflowChoice.workflowFor(found.path) === null) {
+    if (workflowChoice.workflowFor(found.folder) === null) {
       return { message: "Autopilot needs the standard workflow: on the simple one issues have no steps to take." };
     }
     const epic = found.issues.find((issue) => issue.id === epicId)!;

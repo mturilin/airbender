@@ -1,18 +1,21 @@
 // server/folder.ts — finding the folder, the beads and bend programs, and
 // what git says about the folder.
 //
-// What: works out which folder on this machine a thread or project works
+// What: works out which folder, on which machine, a thread or project works
 // in, finds the beads program among the places it may be installed, and
 // reads the folder's git state (branch, work tree, uncommitted changes).
 //
 // Why: every request begins with the first two questions, and both have
-// several plain-language ways to fail (the thread is on another machine, no
-// project is picked, the folder is gone, beads is not installed). Answered
-// once here, every caller reports them in the same words.
+// several plain-language ways to fail (the machine is offline, no project
+// is picked, the folder is gone, beads is not installed). Answered once
+// here, every caller reports them in the same words.
 //
 // Design notes:
 // - A thread's own checkout wins over the project's default folder, because
-//   it may be a worktree.
+//   it may be a worktree. Either may be on any machine BB has (bead-bb-fyv):
+//   the thread's on the thread's machine, and with no thread the project's
+//   default folder wherever it is.
+// - Every look at the folder goes to its machine (server/machine.ts).
 // - Issues are not read or changed here: that goes through the bend
 //   program (server/bend.ts), which is handed what `findBd` and `findBend`
 //   find.
@@ -22,13 +25,15 @@
 //   system, so `folderFor` checks the folder first; without that a missing
 //   folder would be reported as "bd not found".
 // - The BB server may have a shorter PATH than a shell, which is why a list
-//   of candidate locations is tried.
+//   of candidate locations is tried. A candidate may start with "~/": the
+//   home folder on the folder's machine.
 
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
-import { execFile } from "node:child_process";
-import { existsSync } from "node:fs";
-import { readGit, runBd } from "./bd.ts";
+import { readGit, runBd, runGit } from "./bd.ts";
 import { findBendAmong } from "./bend.ts";
+import { expandHome, machineOf, noteServerHost } from "./machine.ts";
+import { readRepositoryKey } from "./workflow-choice.ts";
+import type { Folder } from "./machine.ts";
 
 /**
  * Builds the folder and bd helpers for this plugin instance.
@@ -56,27 +61,42 @@ export function createFolders({
     old: "The bend command on this machine is older than this version of Airbender needs. Update it with the bend setup step.",
   };
 
-  /**
-   * The bend program that works on this machine: the first of the known
-   * locations that runs and is new enough; else "missing" or "old".
-   */
-  const findBend = (cwd: string) => findBendAmong(bendCandidates, cwd);
+  /** The candidates as the folder's machine names them ("~/" expanded). */
+  const onMachine = (folder: Folder, candidates: string[]) =>
+    Promise.all(candidates.map((candidate) => expandHome(folder, candidate)));
 
   /**
-   * Finds the folder on the BB server machine that a thread or project works
-   * in.
+   * The bend program that works on the folder's machine: the first of the
+   * known locations that runs and is new enough; else "missing" or "old",
+   * or "unreachable" when the machine cannot be reached.
+   */
+  async function findBend(folder: Folder) {
+    let candidates: string[];
+    try {
+      candidates = await onMachine(folder, bendCandidates);
+    } catch {
+      return "unreachable" as const;
+    }
+    return findBendAmong(candidates, folder);
+  }
+
+  /**
+   * Finds the folder a thread or project works in, and its machine.
    *
-   * A thread's own checkout wins (it may be a worktree); otherwise the
-   * project's default folder is used.
+   * A thread's own checkout wins (it may be a worktree), on whichever
+   * machine the thread runs; otherwise the project's default folder, on
+   * whichever machine that is.
    *
-   * @returns `{ path }`, or `{ reason }` in plain language when there is no
-   *   folder on this machine to look in.
+   * @returns The folder, or `{ reason }` in plain language when there is no
+   *   folder to look in.
+   * Side effects: notes which machine BB runs on (see folderKey).
    */
   async function resolveFolder(input: {
     threadId: string | null;
     projectId: string | null;
-  }): Promise<{ path: string } | { reason: string }> {
+  }): Promise<Folder | { reason: string }> {
     const { primaryHostId } = await bb.sdk.system.config();
+    noteServerHost(primaryHostId);
     let projectId = input.projectId;
     if (input.threadId !== null) {
       const thread = await bb.sdk.threads.get({ threadId: input.threadId });
@@ -85,62 +105,74 @@ export function createFolders({
         const environment = await bb.sdk.environments.get({
           environmentId: thread.environmentId,
         });
-        if (environment.hostId !== primaryHostId) {
-          return {
-            reason:
-              "This thread works on another machine. The Airbender tab can only read folders on the machine BB itself runs on.",
-          };
+        if (environment.path !== null) {
+          return { hostId: environment.hostId, path: environment.path };
         }
-        if (environment.path !== null) return { path: environment.path };
       }
     }
     if (projectId === null) {
       return { reason: "Pick a project to see its issues." };
     }
     const project = await bb.sdk.projects.get({ projectId });
-    const local = project.sources.filter(
-      (source) => source.hostId === primaryHostId,
-    );
-    const source = local.find((candidate) => candidate.isDefault) ?? local[0];
+    const source =
+      project.sources.find((candidate) => candidate.isDefault) ??
+      project.sources.find((candidate) => candidate.hostId === primaryHostId) ??
+      project.sources[0];
     if (source === undefined) {
       return {
-        reason:
-          "This project has no folder on the machine BB itself runs on, so there is nowhere to look for issues.",
+        reason: "This project has no folder on any machine, so there is nowhere to look for issues.",
       };
     }
-    return { path: source.path };
+    return { hostId: source.hostId, path: source.path };
   }
 
   /**
-   * The folder for a request, checked to exist.
+   * The folder for a request, checked to exist, on a machine that can be
+   * reached.
    *
-   * @returns `{ path }`, or the reason in plain words. `path` comes with the
-   *   reason when a folder was found but is not there any more, so the tab
-   *   can still show which folder was meant.
+   * @returns The folder, or the reason in plain words. `path` comes with
+   *   the reason when a folder was found but cannot be read, so the tab can
+   *   still show which folder was meant; `offline` says the reason is that
+   *   its machine cannot be reached.
    */
   async function folderFor(input: {
     threadId: string | null;
     projectId: string | null;
-  }): Promise<{ path: string } | { message: string; path: string | null }> {
+  }): Promise<Folder | { message: string; path: string | null; offline?: true }> {
     const folder = await resolveFolder(input);
     if ("reason" in folder) return { message: folder.reason, path: null };
-    if (!existsSync(folder.path)) {
+    const machine = machineOf(folder);
+    const offline = await machine.offline();
+    if (offline !== null) return { message: offline, path: folder.path, offline: true };
+    if ((await machine.stat(folder.path)) === null) {
+      // Not there, or the machine went away between the two questions.
+      const gone = await machine.offline();
+      if (gone !== null) return { message: gone, path: folder.path, offline: true };
       return {
-        message: `The folder ${folder.path} does not exist on the machine BB runs on.`,
+        message: `The folder ${folder.path} does not exist on the machine it belongs to.`,
         path: folder.path,
       };
     }
+    // Every request finds its folder here first: the moment to learn which
+    // repository it is, for the answers that cannot wait (workflow choice).
+    await readRepositoryKey(folder);
     return folder;
   }
 
   /**
-   * The beads program that works on this machine: the first of the known
-   * locations that runs, or null. Used where the program's own path is
-   * needed (to put it in a terminal command), not just its output.
+   * The beads program that works on the folder's machine: the first of the
+   * known locations that runs, or null. Used where the program's own path
+   * is needed (to put it in a terminal command), not just its output.
    */
-  async function findBd(cwd: string): Promise<string | null> {
-    for (const candidate of bdCandidates) {
-      const run = await runBd(candidate, ["--version"], cwd);
+  async function findBd(folder: Folder): Promise<string | null> {
+    let candidates: string[];
+    try {
+      candidates = await onMachine(folder, bdCandidates);
+    } catch {
+      return null;
+    }
+    for (const candidate of candidates) {
+      const run = await runBd(folder, candidate, ["--version"]);
       if (run.kind !== "not-found") return candidate;
     }
     return null;
@@ -157,7 +189,7 @@ export function createFolders({
    * @returns False when on the main branch and when it cannot be told.
    * Side effects: up to three read-only git commands.
    */
-  async function onOwnBranch(path: string): Promise<boolean> {
+  async function onOwnBranch(path: Folder): Promise<boolean> {
     const current = await readGit(path, ["rev-parse", "--abbrev-ref", "HEAD"]);
     // "HEAD" is what git answers when no branch is checked out.
     if (current === null || current === "" || current === "HEAD") return false;
@@ -172,7 +204,7 @@ export function createFolders({
    *   told (not a git folder).
    * Side effects: one read-only git command.
    */
-  async function currentBranch(path: string): Promise<string | null> {
+  async function currentBranch(path: Folder): Promise<string | null> {
     const current = await readGit(path, ["rev-parse", "--abbrev-ref", "HEAD"]);
     // "HEAD" is what git answers when no branch is checked out.
     return current === null || current === "" || current === "HEAD"
@@ -187,7 +219,7 @@ export function createFolders({
    * @returns Null when it cannot be told (not a git folder, neither found).
    * Side effects: up to two read-only git commands.
    */
-  async function mainBranch(path: string): Promise<string | null> {
+  async function mainBranch(path: Folder): Promise<string | null> {
     const remoteDefault = await readGit(path, [
       "symbolic-ref",
       "--quiet",
@@ -216,7 +248,7 @@ export function createFolders({
    * @returns Null when it cannot be told (not a git folder).
    * Side effects: one read-only git command.
    */
-  async function mainFolder(path: string): Promise<string | null> {
+  async function mainFolder(path: Folder): Promise<string | null> {
     // The main work tree is always listed first.
     const listed = await readGit(path, ["worktree", "list", "--porcelain"]);
     const first = listed?.split("\n")[0] ?? "";
@@ -230,7 +262,7 @@ export function createFolders({
    * @returns False also when it cannot be told (not a git folder).
    * Side effects: two read-only git commands.
    */
-  async function isWorkTree(path: string): Promise<boolean> {
+  async function isWorkTree(path: Folder): Promise<boolean> {
     // Compared as git itself names them, so that a link in either path
     // does not make one folder look like two.
     const [top, main] = await Promise.all([
@@ -258,7 +290,7 @@ export function createFolders({
    * Side effects: up to four git commands; at most one branch deleted.
    */
   async function deleteMergedBranch(
-    path: string,
+    path: Folder,
     branch: string,
   ): Promise<string | null> {
     const main = await mainBranch(path);
@@ -280,15 +312,8 @@ export function createFolders({
       main,
     ]);
     if (onMain === null) return `${branch} is not fully on ${main}`;
-    return new Promise((resolve) => {
-      execFile(
-        "git",
-        ["branch", "-D", "--", branch],
-        { cwd: path, timeout: 10_000, maxBuffer: 64 * 1024 },
-        (error, _stdout, stderr) =>
-          resolve(error === null ? null : stderr.trim() || error.message),
-      );
-    });
+    const deleted = await runGit(path, ["branch", "-D", "--", branch]);
+    return deleted.ok ? null : deleted.message;
   }
 
   /**
@@ -300,7 +325,7 @@ export function createFolders({
    * @returns False also when it cannot be told (not a git folder).
    * Side effects: one read-only git command.
    */
-  async function hasUncommittedChanges(path: string): Promise<boolean> {
+  async function hasUncommittedChanges(path: Folder): Promise<boolean> {
     const status = await readGit(path, [
       "status",
       "--porcelain",
@@ -329,7 +354,7 @@ export function createFolders({
 
 /** Includes untracked, non-ignored files for Simple close choices. A read
  * failure is an error, not permission to silently close without a commit. */
-export async function hasCloseChanges(path: string): Promise<boolean> {
+export async function hasCloseChanges(path: Folder): Promise<boolean> {
   const status = await readGit(path, ["status", "--porcelain", "--untracked-files=all"]);
   if (status === null) throw new Error("Git changes could not be read.");
   return status !== "";

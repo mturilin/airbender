@@ -23,6 +23,8 @@ import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { CHANGED_CHANNEL } from "../shared/constants.ts";
 import type { HelperState, SyncEntry, SyncState } from "../sync/types.ts";
 import type { Trackers } from "./bend.ts";
+import { folderKey } from "./machine.ts";
+import type { Folder } from "./machine.ts";
 import type { Store } from "./store.ts";
 
 /** Storage keys the plugin's own sync used to keep; removed once. */
@@ -76,21 +78,21 @@ export function createSync({
      * @returns bend's answer; the empty state where the folder has no
      *   tracker or bend could not be asked.
      */
-    async state(path: string, passive = false): Promise<Shown> {
-      const found = await trackers.trackerFor(path);
+    async state(folder: Folder, passive = false): Promise<Shown> {
+      const found = await trackers.trackerFor(folder);
       if ("state" in found) return NOTHING;
       try {
         const state = await found.tracker.syncState(passive);
-        return asked.has(path) ? { ...state, running: true } : state;
+        return asked.has(folderKey(folder)) ? { ...state, running: true } : state;
       } catch (cause) {
-        bb.log.warn(`issue sync: the state of ${path} could not be read: ${cause}`);
+        bb.log.warn(`issue sync: the state of ${folderKey(folder)} could not be read: ${cause}`);
         return NOTHING;
       }
     },
 
     /** The syncs of a folder's repository, newest first. */
-    async log(path: string, failed = false): Promise<SyncEntry[]> {
-      const found = await trackers.trackerFor(path);
+    async log(folder: Folder, failed = false): Promise<SyncEntry[]> {
+      const found = await trackers.trackerFor(folder);
       if ("state" in found) return [];
       return found.tracker.syncLog(failed);
     },
@@ -102,10 +104,10 @@ export function createSync({
      * Side effects: one `bend sync`, not waited for; the tabs are told
      *   when it starts and when it ends.
      */
-    async refresh(path: string): Promise<{ message: string | null }> {
-      const found = await trackers.trackerFor(path);
+    async refresh(folder: Folder): Promise<{ message: string | null }> {
+      const found = await trackers.trackerFor(folder);
       if ("state" in found) return { message: found.message };
-      if (asked.has(path)) return { message: null };
+      if (asked.has(folderKey(folder))) return { message: null };
       let state: SyncState;
       try {
         state = await found.tracker.syncState();
@@ -118,19 +120,19 @@ export function createSync({
             "This folder's issues are not synced with anything yet. See the setup steps in the menu.",
         };
       }
-      asked.add(path);
-      bb.realtime.publish(CHANGED_CHANNEL, { path });
+      asked.add(folderKey(folder));
+      bb.realtime.publish(CHANGED_CHANNEL, { path: folder.path });
       void found.tracker
         .sync()
         .then(
-          (entry) => bb.log.info(`issue sync of ${path}: ${entry.end}`),
-          (cause: unknown) => bb.log.warn(`issue sync of ${path} could not be run: ${cause}`),
+          (entry) => bb.log.info(`issue sync of ${folderKey(folder)}: ${entry.end}`),
+          (cause: unknown) => bb.log.warn(`issue sync of ${folderKey(folder)} could not be run: ${cause}`),
         )
         .finally(() => {
-          asked.delete(path);
+          asked.delete(folderKey(folder));
           // What it brought in is in bend's copy; the list is read anew.
-          store.stale(path);
-          bb.realtime.publish(CHANGED_CHANNEL, { path });
+          store.stale(folder);
+          bb.realtime.publish(CHANGED_CHANNEL, { path: folder.path });
         });
       return { message: null };
     },

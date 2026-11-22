@@ -58,6 +58,8 @@ import {
 } from "./issues.ts";
 import { DEFAULT_WORKFLOW_ID } from "../shared/workflows.ts";
 import { repositoryKey } from "./workflow-choice.ts";
+import { folderKey, machineOf } from "./machine.ts";
+import type { Folder } from "./machine.ts";
 import type { WorkflowChoice } from "./workflow-choice.ts";
 
 /** Which folder a request is about: a thread's, or a project's. */
@@ -75,7 +77,7 @@ export interface Outcome {
 /** What a plain read of a folder's issues gives. */
 type IssuesRead =
   | { state: "ok"; issues: Issue[] }
-  | { state: "no-bd" | "no-bend" | "no-beads" | "no-login" | "error"; message: string };
+  | { state: "no-bd" | "no-bend" | "no-beads" | "no-login" | "offline" | "error"; message: string };
 
 /** The sentence for an id that cannot be an issue id. */
 const notAnId = (id: string) => `"${id}" is not an issue id.`;
@@ -107,7 +109,7 @@ export function createStore({
   folders: Folders;
   trackers: Trackers;
   currentBead: CurrentBead;
-  watchFolder: (path: string, watched?: Watched) => void;
+  watchFolder: (folder: Folder, watched?: Watched) => void;
   workflowChoice: WorkflowChoice;
 }) {
   const { folderFor, onOwnBranch, currentBranch, isWorkTree } = folders;
@@ -138,8 +140,8 @@ export function createStore({
   const changes = new Map<string, number>();
 
   /** Notes that a repository's issues were, or are about to be, changed. */
-  function touched(path: string): void {
-    const key = repositoryKey(path);
+  function touched(folder: Folder): void {
+    const key = repositoryKey(folder);
     changes.set(key, (changes.get(key) ?? 0) + 1);
   }
 
@@ -148,9 +150,9 @@ export function createStore({
    * without bend (a sync, a setup step, the sync with GitHub): the next
    * read has bend reread its copy.
    */
-  function stale(path: string): void {
-    behind.add(repositoryKey(path));
-    touched(path);
+  function stale(folder: Folder): void {
+    behind.add(repositoryKey(folder));
+    touched(folder);
   }
 
   /**
@@ -167,16 +169,16 @@ export function createStore({
    * Side effects: one run of bend, shared with any other request for the
    *   same folder that arrives while it runs.
    */
-  function readIssues(path: string, fresh = false, passive = false): Promise<IssuesRead> {
-    const repository = repositoryKey(path);
+  function readIssues(folder: Folder, fresh = false, passive = false): Promise<IssuesRead> {
+    const repository = repositoryKey(folder);
     const anew = fresh || behind.has(repository);
     // Shared only between requests for the same folder, of the same kind,
     // made with no change from here in between.
-    const key = `${path}\n${anew}\n${changes.get(repository) ?? 0}`;
+    const key = `${folderKey(folder)}\n${anew}\n${changes.get(repository) ?? 0}`;
     const under = reading.get(key);
     if (under !== undefined) return under;
     behind.delete(repository);
-    const read = readFresh(path, anew, passive)
+    const read = readFresh(folder, anew, passive)
       .then((result) => {
         // Not reread after all: the mark stands for the next read.
         if (anew && !fresh && result.state !== "ok") behind.add(repository);
@@ -189,11 +191,11 @@ export function createStore({
 
   /** The read itself: one read of the folder's tracker. */
   async function readFresh(
-    path: string,
+    folder: Folder,
     anew: boolean,
     passive: boolean,
   ): Promise<IssuesRead> {
-    const found = await trackerFor(path);
+    const found = await trackerFor(folder);
     if ("state" in found) return found;
     try {
       // Every issue: the closed ones are shown too. Where changes are
@@ -202,13 +204,13 @@ export function createStore({
       // in its own time, and which would make the list fail
       // with the network off. The copy already holds every change made
       // through bend.
-      const queued = trackers.aboutOf(path)?.queued === true;
+      const queued = trackers.aboutOf(folder)?.queued === true;
       const issues = await found.tracker.list(anew && !queued, passive);
       return { state: "ok", issues: toIssues(issues) };
     } catch (cause) {
       // Named, so that it is logged: a list that cannot be read is worth a
       // line. A folder that is not set up is an ordinary state and is not.
-      return problem(path, cause, "Reading issues");
+      return problem(folder, cause, "Reading issues");
     }
   }
 
@@ -223,42 +225,47 @@ export function createStore({
    */
   async function listIssues(
     input: FolderRef & { fresh?: boolean; passive?: boolean },
-  ): Promise<IssuesResult> {
+  ): Promise<IssuesResult & { folder: Folder | null }> {
     const currentBeadId = await currentBead.read(input.threadId);
-    const folder = await folderFor(input);
+    const found = await folderFor(input);
+    // The home folder of the machine the folder is on, for the tab to
+    // shorten paths with "~"; this machine's when that one cannot be asked.
+    const home =
+      "message" in found
+        ? homedir()
+        : await machineOf(found).system().then((system) => system.home, () => homedir());
     const empty = {
       issues: [],
       currentBeadId,
       ownBranch: false,
       branch: null,
       workTree: false,
-      home: homedir(),
+      home,
       // Filled in by the server's handler, which knows autopilot.
       autopilot: null,
-      workflow:
-        folder.path === null
-          ? DEFAULT_WORKFLOW_ID
-          : workflowChoice.idFor(folder.path),
+      workflow: "message" in found ? DEFAULT_WORKFLOW_ID : workflowChoice.idFor(found),
       tracker: null,
       trackerRepository: null,
       linkKinds: [],
       queued: false,
     };
-    if ("message" in folder) {
+    if ("message" in found) {
       return {
-        state: "unavailable",
-        path: folder.path,
-        message: folder.message,
+        state: found.offline === true ? "offline" : "unavailable",
+        path: found.path,
+        message: found.message,
         ...empty,
+        folder: null,
       };
     }
+    const folder = found;
     const { path } = folder;
-    const read = await readIssues(path, input.fresh === true, input.passive === true);
+    const read = await readIssues(folder, input.fresh === true, input.passive === true);
     if (read.state !== "ok") {
-      return { state: read.state, path, message: read.message, ...empty };
+      return { state: read.state, path, message: read.message, ...empty, folder };
     }
-    watchFolder(path, trackers.watchOf(path));
-    const about = trackers.aboutOf(path);
+    watchFolder(folder, trackers.watchOf(folder));
+    const about = trackers.aboutOf(folder);
     const { issues } = read;
     // A closed issue is finished, so it is no longer what the thread works
     // on. The tab's own close button clears it directly, but an issue can
@@ -270,16 +277,17 @@ export function createStore({
     // corrected answer, and publishing would make every tab reload again.
     const ok = {
       state: "ok" as const,
+      folder,
       path,
       message: null,
       issues,
       currentBeadId,
-      ownBranch: await onOwnBranch(path),
-      branch: await currentBranch(path),
-      workTree: await isWorkTree(path),
-      home: homedir(),
+      ownBranch: await onOwnBranch(folder),
+      branch: await currentBranch(folder),
+      workTree: await isWorkTree(folder),
+      home,
       autopilot: null,
-      workflow: workflowChoice.idFor(path),
+      workflow: workflowChoice.idFor(folder),
       // Known once the list was read: what the folder's tracker is, for
       // the tab to say and to offer only what that tracker has.
       tracker: about?.tracker ?? null,
@@ -317,18 +325,18 @@ export function createStore({
   async function issuesIn(
     input: FolderRef,
     ...ids: string[]
-  ): Promise<{ path: string; issues: Issue[] } | { message: string }> {
+  ): Promise<{ folder: Folder; path: string; issues: Issue[] } | { message: string }> {
     const bad = ids.find((id) => !BEAD_ID_PATTERN.test(id));
     if (bad !== undefined) return { message: notAnId(bad) };
     const folder = await folderFor(input);
     if ("message" in folder) return { message: folder.message };
-    const read = await readIssues(folder.path);
+    const read = await readIssues(folder);
     if (read.state !== "ok") return { message: read.message };
     const gone = ids.find(
       (id) => !read.issues.some((issue) => issue.id === id),
     );
     if (gone !== undefined) return { message: notInList(gone) };
-    return { path: folder.path, issues: read.issues };
+    return { folder, path: folder.path, issues: read.issues };
   }
 
   /**
@@ -342,22 +350,22 @@ export function createStore({
    *   Never throws.
    */
   async function applyIn(
-    path: string,
+    folder: Folder,
     threadId: string | null,
     what: string,
     act: (tracker: Tracker) => Promise<void>,
     publish = true,
   ): Promise<Outcome> {
-    const found = await trackerFor(path);
+    const found = await trackerFor(folder);
     if ("state" in found) return { message: found.message };
     try {
       try {
         await act(found.tracker);
       } finally {
-        touched(path);
+        touched(folder);
       }
     } catch (cause) {
-      return { message: problem(path, cause, what).message };
+      return { message: problem(folder, cause, what).message };
     }
     if (publish) changed(threadId);
     return { message: null };
@@ -380,7 +388,7 @@ export function createStore({
     if (bad !== undefined) return { message: notAnId(bad) };
     const folder = await folderFor(input);
     if ("message" in folder) return { message: folder.message };
-    return applyIn(folder.path, input.threadId, what, act);
+    return applyIn(folder, input.threadId, what, act);
   }
 
   /**
@@ -413,7 +421,7 @@ export function createStore({
     }
     const folder = await folderFor(input);
     if ("message" in folder) return fail(folder.message);
-    const found = await trackerFor(folder.path);
+    const found = await trackerFor(folder);
     if ("state" in found) return fail(found.message);
     try {
       const id = await found.tracker.create({
@@ -426,15 +434,15 @@ export function createStore({
       });
       // Into Someday right away: no tracker takes a status when creating.
       if (input.someday === true) await found.tracker.defer(id);
-      touched(folder.path);
+      touched(folder);
       changed(input.threadId);
       return { id, message: null };
     } catch (cause) {
       // Published even so: the tracker may have created the issue and then
       // failed to say which one it is, and a reload shows whether it did.
-      touched(folder.path);
+      touched(folder);
       changed(input.threadId);
-      return fail(problem(folder.path, cause, "create").message);
+      return fail(problem(folder, cause, "create").message);
     }
   }
 
@@ -454,7 +462,7 @@ export function createStore({
     }
     const folder = await folderFor(input);
     if ("message" in folder) return { message: folder.message };
-    return applyIn(folder.path, input.threadId, command, (tracker) =>
+    return applyIn(folder, input.threadId, command, (tracker) =>
       command === "defer" ? tracker.defer(input.beadId) : tracker.undefer(input.beadId),
     );
   }
@@ -480,7 +488,7 @@ export function createStore({
     const folder = await folderFor(input);
     if ("message" in folder) return { message: folder.message };
     const done = await applyIn(
-      folder.path,
+      folder,
       input.threadId,
       command,
       (tracker) =>
@@ -607,7 +615,7 @@ export function createStore({
    *   to change.
    */
   async function setPrefixedLabel(
-    path: string,
+    folder: Folder,
     threadId: string | null,
     beadId: string,
     prefix: string,
@@ -615,7 +623,7 @@ export function createStore({
     what: string,
     publish = true,
   ): Promise<Outcome> {
-    const found = await trackerFor(path);
+    const found = await trackerFor(folder);
     if ("state" in found) return { message: found.message };
     const wanted = value === null ? null : prefix + value;
     try {
@@ -634,10 +642,10 @@ export function createStore({
       try {
         await found.tracker.edit(beadId, { addLabels, removeLabels });
       } finally {
-        touched(path);
+        touched(folder);
       }
     } catch (cause) {
-      return { message: problem(path, cause, what).message };
+      return { message: problem(folder, cause, what).message };
     }
     if (publish) changed(threadId);
     return { message: null };
@@ -650,14 +658,14 @@ export function createStore({
    *   dashes), and the issue is known to be in the folder.
    */
   function setStep(
-    path: string,
+    folder: Folder,
     threadId: string | null,
     beadId: string,
     step: string,
     publish = true,
   ): Promise<Outcome> {
     return setPrefixedLabel(
-      path,
+      folder,
       threadId,
       beadId,
       STEP_PREFIX,
@@ -674,14 +682,14 @@ export function createStore({
    *   known to be in the folder.
    */
   function setSize(
-    path: string,
+    folder: Folder,
     threadId: string | null,
     beadId: string,
     size: string,
     publish = true,
   ): Promise<Outcome> {
     return setPrefixedLabel(
-      path,
+      folder,
       threadId,
       beadId,
       SIZE_PREFIX,
@@ -703,14 +711,14 @@ export function createStore({
    *   write of the labels that removing an old label takes.
    */
   async function setBranch(
-    path: string,
+    folder: Folder,
     threadId: string | null,
     beadId: string,
     branch: string | null,
     publish = true,
   ): Promise<Outcome> {
     const kept = await applyIn(
-      path,
+      folder,
       threadId,
       "set branch",
       (tracker) => tracker.edit(beadId, { metadata: { [BRANCH_KEY]: branch } }),
@@ -720,7 +728,7 @@ export function createStore({
     // The old label, where there still is one: gone either way. Not
     // published by that step: once, here, for the whole change.
     const outcome = await setPrefixedLabel(
-      path,
+      folder,
       threadId,
       beadId,
       BRANCH_PREFIX,
@@ -740,12 +748,12 @@ export function createStore({
    *   publish once for the whole move.
    */
   function addComment(
-    path: string,
+    folder: Folder,
     beadId: string,
     text: string,
   ): Promise<Outcome> {
     return applyIn(
-      path,
+      folder,
       null,
       "comment",
       (tracker) => tracker.comment(beadId, text),
@@ -799,9 +807,9 @@ export function createStore({
    *   failure to read it must not take the sync's state with it.
    * Side effects: one run of bend, which reads its own files only.
    */
-  async function refusedIn(path: string, passive = false): Promise<RefusedChange[]> {
-    const found = await trackerFor(path);
-    if ("state" in found || trackers.aboutOf(path)?.queued !== true) return [];
+  async function refusedIn(folder: Folder, passive = false): Promise<RefusedChange[]> {
+    const found = await trackerFor(folder);
+    if ("state" in found || trackers.aboutOf(folder)?.queued !== true) return [];
     try {
       return await found.tracker.refused(passive);
     } catch {
@@ -821,7 +829,7 @@ export function createStore({
   ): Promise<Outcome> {
     const folder = await folderFor(input);
     if ("message" in folder) return { message: folder.message };
-    return applyIn(folder.path, input.threadId, "settling a refused change", (tracker) =>
+    return applyIn(folder, input.threadId, "settling a refused change", (tracker) =>
       tracker.settleRefused(input.seq, input.again),
     );
   }
@@ -842,7 +850,7 @@ export function createStore({
     }
     const folder = await folderFor(input);
     if ("message" in folder) return fail(folder.message);
-    const found = await trackerFor(folder.path);
+    const found = await trackerFor(folder);
     if ("state" in found) return fail(found.message);
     try {
       return {
@@ -850,7 +858,7 @@ export function createStore({
         message: null,
       };
     } catch (cause) {
-      return fail(problem(folder.path, cause).message);
+      return fail(problem(folder, cause).message);
     }
   }
 
@@ -862,10 +870,10 @@ export function createStore({
    * Side effects: one read of the folder's tracker.
    */
   async function commentTextsIn(
-    path: string,
+    folder: Folder,
     beadId: string,
   ): Promise<string[] | null> {
-    const found = await trackerFor(path);
+    const found = await trackerFor(folder);
     if ("state" in found) return null;
     try {
       return (await found.tracker.comments(beadId)).map((comment) => comment.text);
@@ -884,13 +892,13 @@ export function createStore({
    *   is told to reload: the caller does that once at its end.
    */
   async function commentAsIn(
-    path: string,
+    folder: Folder,
     beadId: string,
     author: string,
     text: string,
   ): Promise<string | null> {
     const outcome = await applyIn(
-      path,
+      folder,
       null,
       "comment",
       (tracker) => tracker.comment(beadId, text, author),

@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { closeGitState, verifyCloseCommit, reportedCloseCommit } from "./close-git.ts";
 import type { CloseRequest } from "./simple-close.ts";
+import { localFolder } from "./machine.ts";
 
 test("completion verifies the issue commit and preserves unrelated dirty work", async (t) => {
   const path = mkdtempSync(join(tmpdir(), "airbender-close-git-"));
@@ -20,24 +21,24 @@ test("completion verifies the issue commit and preserves unrelated dirty work", 
   git("commit", "--allow-empty", "-qm", "Baseline");
   const baseline = git("rev-parse", "HEAD");
   writeFileSync(join(path, "issue.txt"), "work\n");
-  const state = await closeGitState(path); assert.equal(state?.changes, true);
+  const state = await closeGitState(localFolder(path)); assert.equal(state?.changes, true);
   const request = { path, title: "Work", scope: { beadId: "issue-1" }, baseline } as CloseRequest;
   assert.match((await verifyCloseCommit(request, baseline))!, /predates/);
   git("add", "--", "issue.txt"); git("commit", "-qm", "issue-1: Work");
   const commit = git("rev-parse", "HEAD");
-  assert.equal(await reportedCloseCommit(path, `Committed ${commit.slice(0, 8)}`, "issue-1", "Work"), commit);
-  assert.equal(await reportedCloseCommit(path, "No files changed", "issue-1", "Work"), undefined);
-  await assert.rejects(reportedCloseCommit(path, "Committed deadbeef", "issue-1", "Work"), /could not be verified/);
+  assert.equal(await reportedCloseCommit(localFolder(path), `Committed ${commit.slice(0, 8)}`, "issue-1", "Work"), commit);
+  assert.equal(await reportedCloseCommit(localFolder(path), "No files changed", "issue-1", "Work"), undefined);
+  await assert.rejects(reportedCloseCommit(localFolder(path), "Committed deadbeef", "issue-1", "Work"), /could not be verified/);
   writeFileSync(join(path, "unrelated.txt"), "keep\n");
   assert.equal(await verifyCloseCommit(request, commit), null);
-  assert.equal((await closeGitState(path))?.changes, true);
+  assert.equal((await closeGitState(localFolder(path)))?.changes, true);
   git("commit", "--allow-empty", "-qm", "fix(issue-1): Work");
   assert.equal(await verifyCloseCommit(request, git("rev-parse", "HEAD")), null);
   git("commit", "--allow-empty", "-qm", "issue-12: Work");
   assert.match((await verifyCloseCommit(request, git("rev-parse", "HEAD")))!, /subject/);
   git("commit", "--allow-empty", "-qm", "Shared parent work", "-m", "issue-1: Work\nissue-2: Shared fix");
   const combined = git("rev-parse", "HEAD");
-  assert.equal(await reportedCloseCommit(path, `Committed ${combined}`, "issue-2", "Shared fix"), combined);
+  assert.equal(await reportedCloseCommit(localFolder(path), `Committed ${combined}`, "issue-2", "Shared fix"), combined);
   assert.match((await verifyCloseCommit(request, combined))!, /subject/);
   git("commit", "--allow-empty", "-qm", "Some other issue");
   assert.match((await verifyCloseCommit(request, git("rev-parse", "HEAD")))!, /subject/);
